@@ -1,0 +1,53 @@
+# QIMSDK test apps and helpers.
+
+if(NOT DEFINED QIMSDK_BINDIR)
+  if(DEFINED GST_PLUGINS_QTI_OSS_INSTALL_BINDIR)
+    set(QIMSDK_BINDIR ${GST_PLUGINS_QTI_OSS_INSTALL_BINDIR})
+  else()
+    set(QIMSDK_BINDIR bin)
+  endif()
+endif()
+
+# Shared test utilities library.
+add_library(qti-qimsdk-test-utils STATIC
+  qimsdk-test-utils.cc
+)
+
+target_include_directories(qti-qimsdk-test-utils PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Test applications.
+add_subdirectory(reference-apps/qimsdk_ref_appsrc_and_appsink)
+add_subdirectory(reference-apps/qimsdk_ref_camera)
+add_subdirectory(reference-apps/qimsdk_ref_camera_impl)
+add_subdirectory(reference-apps/qimsdk_ref_camera_and_capture)
+add_subdirectory(reference-apps/qimsdk_ref_camera_encoder)
+add_subdirectory(reference-apps/qimsdk_ref_camera_yolov8_mlbin)
+add_subdirectory(reference-apps/qimsdk_ref_camera_yolov8)
+add_subdirectory(reference-apps/qimsdk_ref_usb_camera)
+add_subdirectory(reference-apps/qimsdk_ref_usb_camera_impl)
+add_subdirectory(reference-apps/qimsdk_ref_gesture_recognition)
+add_subdirectory(reference-apps/qimsdk_ref_mlbin_ppe)
+add_subdirectory(reference-apps/qimsdk_ref_mlbin_yolov8)
+add_subdirectory(reference-apps/qimsdk_ref_external_postprocess_mlbin_yolov8)
+add_subdirectory(reference-apps/qimsdk_ref_yolov8_metamux_overlay)
+add_subdirectory(reference-apps/qimsdk_ref_yolov8_composer_overlay)
+add_subdirectory(reference-apps/qimsdk_ref_qtdemux_decode_display)
+add_subdirectory(reference-apps/qimsdk_ref_tensor_dump)
+add_subdirectory(reference-apps/qimsdk_ref_tsdemux_decode_display)
+add_subdirectory(reference-apps/qimsdk_ref_videotestsrc_videofilter_display)
+add_subdirectory(reference-apps/qimsdk_ref_videotestsrc_streamfilter_display)
+add_subdirectory(reference-apps/qimsdk_ref_external_postprocess_classification_resnet101)
+add_subdirectory(reference-apps/qimsdk_ref_external_postprocess_detection_yolov8)
+add_subdirectory(reference-apps/qimsdk_ref_external_preprocess_detection_yolov8)
+add_subdirectory(reference-apps/qimsdk_ref_external_preprocess_detection_mlbin_yolov8)
+add_subdirectory(reference-apps/qimsdk_ref_external_preprocess_lightweight_face_detect)
+add_subdirectory(reference-apps/qimsdk_ref_external_preprocess_palm_detect)
+add_subdirectory(reference-apps/qimsdk_ref_external_postprocess_detection_yolov5)
+add_subdirectory(reference-apps/qimsdk_ref_external_postprocess_gesture_recognition)
+add_subdirectory(reference-apps/qimsdk_ref_external_postprocess_depth_estimation_midasv2)
+add_subdirectory(reference-apps/qimsdk_ref_external_postprocess_pose_estimation_posenet)
+add_subdirectory(reference-apps/qimsdk_ref_external_postprocess_pose_estimation_hrnet)
+add_subdirectory(reference-apps/qimsdk_ref_external_postprocess_segmentation_deeplab)
+add_subdirectory(reference-apps/qimsdk_ref_yml)
