@@ -72,6 +72,8 @@ G_DEFINE_TYPE (GstMLPostProcess, gst_ml_post_process, GST_TYPE_BASE_TRANSFORM);
 #define DEFAULT_VIDEO_WIDTH             320
 #define DEFAULT_VIDEO_HEIGHT            320
 
+#define EMBEDDINGS_MODULE_ENUM          1
+
 enum
 {
   PROP_0,
@@ -513,6 +515,25 @@ gst_ml_depth_maps_visualize (GstMLDepthMaps * predictions,
   return success;
 }
 
+static inline void
+gst_ml_embeddings_serialize (GstMLEmbeddings * predictions,
+    guint stage_id, GstStructure * mlparam, GValue * list)
+{
+  GstStructure *structure = NULL;
+  guint idx = 0, sequence_idx = 0, id = 0;
+
+  if (gst_structure_has_field (mlparam, "sequence-index"))
+    gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  for (idx = 0; idx < gst_ml_embeddings_size (predictions); idx++) {
+    GstMLEmbedding *entry = gst_ml_embeddings_entry (predictions, idx);
+
+    structure = gst_ml_embedding_to_structure (entry);
+    id = GST_META_ID (stage_id, sequence_idx, idx);
+    gst_value_array_append_and_take_ml_structure (list, id, structure);
+  }
+}
+
 static void
 gst_ml_post_process_detection_stabilization (GstMLPostProcess * postprocess,
     guint batch_idx, GstMLDetections * predictions)
@@ -733,6 +754,60 @@ gst_ml_post_process_module_execute (GstMLPostProcess * postprocess,
 {
   return gst_ml_engine_execute (
       postprocess->engine, batch_idx, mlframe, mlparam, output);
+}
+
+static gboolean
+gst_ml_post_process_embeddings_execute (GstMLPostProcess * postprocess,
+    guint batch_idx, GstMLFrame * mlframe, GstStructure * mlparam, gpointer output)
+{
+  GstMLEmbeddings *predictions = gst_ml_embeddings_new ();
+  GstMLEmbedding entry;
+  guint stage_id = postprocess->stage_id, dim = 0, idx = 0;
+  guint elem_size = 0, n_elems = 0;
+  gboolean success = FALSE;
+
+  for (idx = 0; idx < GST_ML_FRAME_N_TENSORS (mlframe); idx ++) {
+    GstMLTensor tensor = gst_ml_frame_get_tensor (mlframe, idx);
+
+    if (!(success = (NULL != tensor.data))) {
+      GST_ERROR_OBJECT (postprocess, "Invalid tensor data in batch %u tensor %u!",
+          batch_idx, idx);
+      break;
+    }
+
+    entry.type = GST_ML_FRAME_TYPE (mlframe);
+    entry.n_dims = tensor.n_dimensions;
+
+    for (dim = 0; dim < tensor.n_dimensions; ++dim)
+      entry.dims[dim] = tensor.dimensions[dim];
+
+    elem_size = gst_ml_type_get_size (entry.type);
+    n_elems = tensor.size / elem_size;
+    entry.embedding = g_array_sized_new (FALSE, FALSE, elem_size, n_elems);
+
+    if (!(success = (NULL != entry.embedding))) {
+      GST_ERROR_OBJECT (postprocess, "Could not create Embeddings array!");
+      break;
+    }
+
+    g_array_append_vals (entry.embedding, tensor.data, n_elems);
+
+    gst_ml_embeddings_append (predictions, &entry);
+  }
+
+  if (!success)
+    goto cleanup;
+
+  if (!(success = (postprocess->outmode == GST_OUTPUT_MODE_TEXT))) {
+    GST_ERROR_OBJECT (postprocess, "Embeddings only supported in text output mode!");
+    goto cleanup;
+  }
+
+  gst_ml_embeddings_serialize (predictions, stage_id, mlparam, output);
+
+cleanup:
+  g_clear_pointer (&predictions, gst_ml_embeddings_unref);
+  return success;
 }
 
 static gboolean
@@ -1326,7 +1401,7 @@ gst_ml_post_process_set_caps (GstBaseTransform * base, GstCaps * incaps,
   // Get the output caps structure in order to determine the mode.
   structure = gst_caps_get_structure (outcaps, 0);
 
- if (gst_structure_has_name (structure, "video/x-raw"))
+  if (gst_structure_has_name (structure, "video/x-raw"))
     postprocess->outmode = GST_OUTPUT_MODE_VIDEO;
   else if (gst_structure_has_name (structure, "text/x-raw"))
     postprocess->outmode = GST_OUTPUT_MODE_TEXT;
@@ -1448,6 +1523,15 @@ gst_ml_video_post_process_change_state (GstElement * element,
           postprocess->process = gst_ml_post_process_signal_tensors;
 
         GST_INFO_OBJECT (postprocess, "Using 'process' signal of type '%s'",
+            g_quark_to_string (postprocess->type));
+        break;
+      }
+
+      if (EMBEDDINGS_MODULE_ENUM == postprocess->mdlenum) {
+        postprocess->process = gst_ml_post_process_embeddings_execute;
+        postprocess->type = GST_EMBEDDINGS_TYPE;
+
+        GST_INFO_OBJECT (postprocess, "Using '%s' module.",
             g_quark_to_string (postprocess->type));
         break;
       }

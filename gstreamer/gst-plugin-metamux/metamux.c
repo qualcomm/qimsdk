@@ -18,6 +18,7 @@
 #include <gst/utils/common-utils.h>
 #include <gst/utils/batch-utils.h>
 #include <gst/utils/gsttextmeta.h>
+#include <gst/ml/gstembeddingsmeta.h>
 #include <gst/cv/gstcvmeta.h>
 #include <gst/video/gstvideoclassificationmeta.h>
 #include <gst/video/gstvideolandmarksmeta.h>
@@ -773,6 +774,86 @@ gst_metamux_process_text_metadata (GstMetaMux * muxer,
       " and parent ID[0x%X] to buffer %p", meta->id, meta->parent_id, buffer);
 }
 
+static void
+gst_metamux_process_embeddings_metadata (GstMetaMux * muxer, GstBuffer * buffer,
+    GstStructure * structure)
+{
+  GstEmbeddingMeta *meta = NULL;
+  const GValue *vectors = NULL, *value = NULL, *vdim = NULL;
+  const gchar *type_string = NULL;
+  GstStructure *entry = NULL;
+  GArray *embedding = NULL;
+  GstMLType type = GST_ML_TYPE_UNKNOWN;
+  guchar *data = NULL;
+  guint id = 0, length = 0, n_dims = 0, idx = 0, dim = 0;
+  gsize size = 0;
+  guint dims[GST_ML_TENSOR_MAX_DIMS];
+
+  if (!gst_buffer_is_writable (buffer)) {
+    GST_WARNING_OBJECT (muxer, "Unable to attach metadata to buffer %p, "
+        "not writable!", buffer);
+    return;
+  }
+
+  vectors = gst_structure_get_value (structure, "vectors");
+  if ((length = gst_value_array_get_size (vectors)) == 0)
+    return;
+
+  for (idx = 0; idx < length; idx++) {
+    value = gst_value_array_get_value (vectors, idx);
+    entry = GST_STRUCTURE (g_value_get_boxed (value));
+
+    data = g_base64_decode (gst_structure_get_string (entry, "data"), &size);
+
+    if (data == NULL || size == 0) {
+      GST_WARNING_OBJECT (muxer, "Failed to decode the 'data' field!");
+      continue;
+    }
+
+    type_string = gst_structure_get_string (entry, "type");
+    type = gst_ml_type_from_string (type_string);
+
+    size /= gst_ml_type_get_size (type);
+
+    embedding = g_array_new_take (data, size, FALSE, gst_ml_type_get_size (type));
+
+    gst_structure_get_uint (entry, "id", &id);
+
+    value = gst_structure_get_value (entry, "dimensions");
+    n_dims = gst_value_array_get_size (value);
+
+    if (n_dims > GST_ML_TENSOR_MAX_DIMS) {
+      GST_WARNING_OBJECT (muxer, "Unsupported number of embedding dimensions: "
+          "%u (maximum supported: %u)!", n_dims, GST_ML_TENSOR_MAX_DIMS);
+      g_array_unref (embedding);
+      continue;
+    }
+
+    if (value != NULL) {
+      for (dim = 0; dim < n_dims; ++dim) {
+        vdim = gst_value_array_get_value (value, dim);
+        dims[dim] = g_value_get_uint (vdim);
+      }
+    }
+
+    meta = gst_buffer_add_embedding_meta (buffer, embedding, type, n_dims, dims);
+
+    if (NULL == meta) {
+      g_array_unref (embedding);
+      continue;
+    }
+
+    meta->id = id;
+
+    // Check if result is not derived from ROI, overwrite the parent_id field.
+    if ((value = gst_structure_get_value (structure, "parent-id")) != NULL)
+      meta->parent_id = g_value_get_int (value);
+
+    GST_TRACE_OBJECT (muxer, "Attached 'Embeddings' meta with ID[0x%X]"
+        " and parent ID[0x%X] to buffer %p", meta->id, meta->parent_id, buffer);
+  }
+}
+
 static gboolean
 gst_metamux_process_meta_entries (GstMetaMux * muxer, GstBuffer * buffer,
     GstClockTime timestamp)
@@ -822,6 +903,8 @@ gst_metamux_process_meta_entries (GstMetaMux * muxer, GstBuffer * buffer,
         gst_metamux_process_classification_metadata (muxer, buffer, structure);
       else if (gst_structure_has_name (structure, "Text"))
         gst_metamux_process_text_metadata (muxer, buffer, structure);
+      else if (gst_structure_has_name (structure, "Embeddings"))
+        gst_metamux_process_embeddings_metadata (muxer, buffer, structure);
     }
 
     // Overwrite previous last meta entry with the new currently processed one.
