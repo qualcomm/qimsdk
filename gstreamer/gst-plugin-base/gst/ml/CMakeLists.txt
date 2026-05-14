@@ -27,6 +27,8 @@ add_library(${TARGET_NAME} SHARED
   ml-post-process-pose.c
   ml-post-process-segmentation.c
   ml-post-process-depth-map.c
+  gstembeddingsmeta.c
+  ml-post-process-embeddings.c
 )
 
 set(TARGET_HEADERS
@@ -50,6 +52,8 @@ set(TARGET_HEADERS
   ml-post-process-pose.h
   ml-post-process-segmentation.h
   ml-post-process-depth-map.h
+  gstembeddingsmeta.h
+  ml-post-process-embeddings.h
 )
 
 set_target_properties(${TARGET_NAME} PROPERTIES
@@ -151,6 +155,10 @@ if(GIR_SCANNER AND GIR_COMPILER AND NOT HAVE_GBM_PRIV_H)
     ${CMAKE_CURRENT_SOURCE_DIR}/ml-post-process-segmentation.c
     ${CMAKE_CURRENT_SOURCE_DIR}/ml-post-process-depth-map.h
     ${CMAKE_CURRENT_SOURCE_DIR}/ml-post-process-depth-map.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/gstembeddingsmeta.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/gstembeddingsmeta.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/ml-post-process-embeddings.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ml-post-process-embeddings.c
     DEPENDS ${TARGET_NAME}
             GstQtiVideo-1.0
   )

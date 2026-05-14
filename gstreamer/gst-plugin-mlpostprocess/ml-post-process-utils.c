@@ -48,6 +48,9 @@ gst_ml_predictions_list_append (GValue * list, const GQuark mltype,
   } else if (GST_IS_DEPTH_MAP (mltype)) {
     structure = gst_structure_new_empty ("Depth");
     gst_structure_take_value (structure, "maps", results);
+  } else if (GST_IS_EMBEDDINGS (mltype)) {
+    structure = gst_structure_new_empty ("Embeddings");
+    gst_structure_take_value (structure, "vectors", results);
   }
 
   value = gst_structure_get_value (mlparam, "timestamp");

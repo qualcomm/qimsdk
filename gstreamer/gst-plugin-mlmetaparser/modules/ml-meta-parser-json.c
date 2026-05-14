@@ -10,6 +10,7 @@
 #include <json-glib/json-glib.h>
 #include <gst/utils/common-utils.h>
 #include <gst/utils/gsttextmeta.h>
+#include <gst/ml/gstembeddingsmeta.h>
 #include <gst/video/video-utils.h>
 #include <gst/video/gstvideoclassificationmeta.h>
 #include <gst/video/gstvideolandmarksmeta.h>
@@ -216,6 +217,40 @@ gst_parser_module_process_text_structure (GstParserSubModule * submodule,
 
     gst_parser_module_process_structure (submodule, "xtraparams", xtraparams);
   }
+
+  json_builder_end_object (submodule->builder);
+}
+
+static void
+gst_parser_module_process_embeddings_structure (GstParserSubModule * submodule,
+    GstStructure * structure)
+{
+  const gchar *embedding = NULL, *type = NULL;
+  guint idx = 0, n_dims = 0;
+  const GValue *dims = NULL, *value = NULL;
+
+  json_builder_begin_object (submodule->builder);
+
+  embedding = gst_structure_get_string (structure, "data");
+  json_builder_set_member_name (submodule->builder, "embeddings");
+  json_builder_add_string_value (submodule->builder, embedding);
+
+  type = gst_structure_get_string (structure, "type");
+  json_builder_set_member_name (submodule->builder, "type");
+  json_builder_add_string_value (submodule->builder, type);
+
+  dims = gst_structure_get_value (structure, "dimensions");
+  n_dims = gst_value_array_get_size (dims);
+
+  json_builder_set_member_name (submodule->builder, "dimensions");
+  json_builder_begin_array (submodule->builder);
+
+  for (idx = 0; idx < n_dims; idx++) {
+    value = gst_value_array_get_value (dims, idx);
+    json_builder_add_int_value (submodule->builder, g_value_get_uint (value));
+  }
+
+  json_builder_end_array (submodule->builder);
 
   json_builder_end_object (submodule->builder);
 }
@@ -514,6 +549,19 @@ gst_parser_module_process_detection_structure (GstParserSubModule * submodule,
 
     GST_JSON_END_META_ARRAY (submodule->builder, metalist);
 
+    // Parse derived class structs and add section if there are any available.
+    metalist = gst_value_list_get_meta_structs (valist,
+        g_quark_from_static_string ("Embeddings"), id);
+
+    GST_JSON_BEGIN_META_ARRAY (submodule->builder, metalist, "embeddings");
+
+    for (list = g_list_last (metalist); list != NULL; list = list->prev) {
+      structure = GST_STRUCTURE (list->data);
+      gst_parser_module_process_embeddings_structure (submodule, structure);
+    }
+
+    GST_JSON_END_META_ARRAY (submodule->builder, metalist);
+
     json_builder_end_object (submodule->builder);
   }
 }
@@ -568,6 +616,41 @@ gst_parser_module_process_text_meta (GstParserSubModule * submodule,
     gst_parser_module_process_structure (submodule, "xtraparams",
         textmeta->xtraparams);
   }
+
+  json_builder_end_object (submodule->builder);
+}
+
+static void
+gst_parser_module_process_embeddings_meta (GstParserSubModule * submodule,
+    GstEmbeddingMeta * embedmeta)
+{
+  gchar* base64 = NULL;
+  guint idx = 0;
+
+  json_builder_begin_object (submodule->builder);
+
+  base64 = g_base64_encode ((guchar*) embedmeta->embedding->data,
+      gst_ml_type_get_size (embedmeta->type) * embedmeta->embedding->len);
+
+  if (base64 != NULL) {
+    json_builder_set_member_name (submodule->builder, "embedding");
+    json_builder_add_string_value (submodule->builder, base64);
+    g_free (base64);
+  } else {
+    GST_ERROR ("Failed to encode buffer data!");
+  }
+
+  json_builder_set_member_name (submodule->builder, "type");
+  json_builder_add_string_value (submodule->builder,
+      gst_ml_type_to_string (embedmeta->type));
+
+  json_builder_set_member_name (submodule->builder, "dimensions");
+  json_builder_begin_array (submodule->builder);
+
+  for (idx = 0; idx < embedmeta->n_dims; ++idx)
+    json_builder_add_int_value (submodule->builder, embedmeta->dims[idx]);
+
+  json_builder_end_array (submodule->builder);
 
   json_builder_end_object (submodule->builder);
 }
@@ -784,6 +867,17 @@ gst_parser_module_process_roi_meta (GstParserSubModule * submodule,
 
   GST_JSON_END_META_ARRAY (submodule->builder, metalist);
 
+  metalist = gst_buffer_get_embedding_metas_parent_id (buffer, roimeta->id);
+  GST_JSON_BEGIN_META_ARRAY (submodule->builder, metalist, "embeddings");
+
+  for (list = g_list_last (metalist); list != NULL; list = list->prev) {
+    GstEmbeddingMeta *embedmeta = GST_EMBEDDINGS_META_CAST (list->data);
+
+    gst_parser_module_process_embeddings_meta (submodule, embedmeta);
+  }
+
+  GST_JSON_END_META_ARRAY (submodule->builder, metalist);
+
   json_builder_end_object (submodule->builder);
 }
 
@@ -883,6 +977,19 @@ gst_parser_module_process_text_buffer (GstParserSubModule * submodule,
 
   GST_JSON_END_META_ARRAY (submodule->builder, metalist);
 
+  // Parse root class structs and add array section if there are any available.
+  metalist = gst_value_list_get_meta_structs (&valist,
+      g_quark_from_static_string ("Embeddings"), -1);
+
+  GST_JSON_BEGIN_META_ARRAY (submodule->builder, metalist, "embeddings");
+
+  for (list = g_list_last (metalist); list != NULL; list = list->prev) {
+    structure = GST_STRUCTURE (list->data);
+    gst_parser_module_process_embeddings_structure (submodule, structure);
+  }
+
+  GST_JSON_END_META_ARRAY (submodule->builder, metalist);
+
 cleanup:
   g_value_unset (&valist);
   return success;
@@ -952,6 +1059,18 @@ gst_parser_module_process_video_buffer (GstParserSubModule * submodule,
         GST_VIDEO_CLASSIFICATION_META_CAST (list->data);
 
     gst_parser_module_process_classification_meta (submodule, classmeta);
+  }
+
+  GST_JSON_END_META_ARRAY (submodule->builder, metalist);
+
+  // Parse root class metas and add array section if there are any available.
+  metalist = gst_buffer_get_embedding_metas_parent_id (buffer, -1);
+  GST_JSON_BEGIN_META_ARRAY (submodule->builder, metalist, "embeddings");
+
+  for (list = g_list_last (metalist); list != NULL; list = list->prev) {
+    GstEmbeddingMeta *embedmeta = GST_EMBEDDINGS_META_CAST (list->data);
+
+    gst_parser_module_process_embeddings_meta (submodule, embedmeta);
   }
 
   GST_JSON_END_META_ARRAY (submodule->builder, metalist);

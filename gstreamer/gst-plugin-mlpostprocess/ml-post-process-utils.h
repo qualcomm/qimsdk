@@ -15,6 +15,7 @@
 #include <gst/ml/ml-post-process-pose.h>
 #include <gst/ml/ml-post-process-segmentation.h>
 #include <gst/ml/ml-post-process-depth-map.h>
+#include <gst/ml/ml-post-process-embeddings.h>
 #include <gst/video/video-utils.h>
 #include <gst/utils/common-utils.h>
 #include <gst/utils/batch-utils.h>
@@ -38,6 +39,8 @@ G_BEGIN_DECLS
     g_quark_from_static_string ("super-resolution")
 #define GST_TENSOR_TYPE \
     g_quark_from_static_string ("tensor")
+#define GST_EMBEDDINGS_TYPE \
+    g_quark_from_static_string ("embeddings")
 
 #define GST_IS_AUDIO_CLASSIFICATION(type) (type == GST_AUDIO_CLASSIFICATION_TYPE)
 #define GST_IS_IMAGE_CLASSIFICATION(type) (type == GST_IMAGE_CLASSIFICATION_TYPE)
@@ -47,6 +50,7 @@ G_BEGIN_DECLS
 #define GST_IS_DEPTH_MAP(type)            (type == GST_DEPTH_MAP_TYPE)
 #define GST_IS_SUPER_RESOLUTION(type)     (type == GST_SUPER_RESOLUTION_TYPE)
 #define GST_IS_TENSOR(type)               (type == GST_TENSOR_TYPE)
+#define GST_IS_EMBEDDINGS(type)           (type == GST_EMBEDDINGS_TYPE)
 
 #define DEFAULT_FONT_SIZE      12
 #define MAX_TEXT_LENGTH        25

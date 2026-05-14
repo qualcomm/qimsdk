@@ -225,12 +225,22 @@ gst_ml_postprocess_enumarate_modules (const gchar * type)
   guint idx = 0;
 
   guint n_bytes = sizeof (GEnumValue);
-  GEnumValue *variants = (GEnumValue *) g_malloc (n_bytes * 2);
+  GEnumValue *variants = (GEnumValue *) g_malloc (n_bytes * 3);
 
   // Initialize the default value.
   variants[idx].value = idx;
   variants[idx].value_name = "No engine, usage of signal callback is allowed";
   variants[idx].value_nick = "none";
+
+  idx++;
+
+  // Embeddings module. Embeddings do not require custom tensor parsing.
+  // They are forwarded as-is and wrapped into ML metadata by the element itself.
+  // A virtual module is hardcoded to handle this special case and avoid no-op
+  // parser module.
+  variants[idx].value = idx;
+  variants[idx].value_name = "Embeddings module";
+  variants[idx].value_nick = "embeddings";
 
   idx++;
 
@@ -289,6 +299,8 @@ gst_ml_postprocess_enumarate_modules (const gchar * type)
     GstCaps *caps = gst_caps_new_empty ();
     gst_ml_module_parse_capabilities (submodule->Caps().c_str(), &caps);
 
+    // Grow for the entry being written at idx plus the terminator entry
+    // that follows the loop once it ends.
     variants =
         reinterpret_cast<GEnumValue*>(g_realloc (variants, n_bytes * (idx + 2)));
 
