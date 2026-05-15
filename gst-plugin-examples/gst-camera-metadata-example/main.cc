@@ -1517,7 +1517,7 @@ print_vendor_tags (::camera::CameraMetadata * meta, FILE * file)
 
   {
     gchar *type = NULL, *value = NULL;
-    gchar line[MAX_SIZE];
+    gchar *line = NULL;
     gint padding = 0;
 
     gint vtagCount = vtags->getTagCount ();
@@ -1545,9 +1545,10 @@ print_vendor_tags (::camera::CameraMetadata * meta, FILE * file)
       value = get_tag (section_name, tag_name, meta, &type);
       padding = 10 - ceil (strlen (value)/2);
 
-      g_snprintf (line, MAX_SIZE, "%-53s %.4s %-41s %.4s %.*s%s\n",
+      line = g_strdup_printf ("%-53s %.4s %-41s %.4s %.*s%s\n",
           section_name, SPACE, tag_name, SPACE, padding, SPACE, value);
       fputs (line, file);
+      g_free (line);
 
       g_free (type);
       g_free (value);
@@ -1589,7 +1590,7 @@ print_android_tags (::camera::CameraMetadata * meta, FILE * file)
 
   {
     gchar* value = NULL, *type = NULL;
-    gchar line[MAX_SIZE];
+    gchar *line = NULL;
     gint padding = 0;
 
     for (size_t section = 0; section < ANDROID_SECTION_COUNT; section++) {
@@ -1618,9 +1619,10 @@ print_android_tags (::camera::CameraMetadata * meta, FILE * file)
         value = get_tag (section_name, tag_name, meta, &type);
         padding = 10 - ceil (strlen (value)/2);
 
-        g_snprintf (line, MAX_SIZE, "%-25s %.4s %-35s %.4s %.*s%s\n",
+        line = g_strdup_printf ("%-25s %.4s %-35s %.4s %.*s%s\n",
             section_name, SPACE, tag_name, SPACE, padding, SPACE, value);
         fputs (line, file);
+        g_free (line);
 
         g_free (type);
         g_free (value);
@@ -1723,7 +1725,6 @@ dump_custom_tags (::camera::CameraMetadata * meta,
 
   header = g_new0 (gchar, MAX_SIZE);
   configline = g_new0 (gchar, MAX_SIZE);
-  outputline = g_new0 (gchar, MAX_SIZE);
 
   g_snprintf (header, MAX_SIZE, "%.57s %s %.57s\n\n", DASH_LINE, prop,
       DASH_LINE);
@@ -1738,7 +1739,8 @@ dump_custom_tags (::camera::CameraMetadata * meta,
   int i = 1;
   while (fgets (configline, MAX_SIZE, configfp) != NULL) {
     g_print ("Line %d : \n   ", i);
-    g_snprintf (outputline, MAX_SIZE, "%-8d%.4s %-53s%.4s %-35s %.4s %.7s%s\n",
+    g_free (outputline);
+    outputline = g_strdup_printf ("%-8d%.4s %-53s%.4s %-35s %.4s %.7s%s\n",
         i, SPACE, "INVALID", SPACE, "INVALID", SPACE, SPACE, "N/A");
 
     if (!validate_input_tag (configline, &section, &tag))
@@ -1748,7 +1750,8 @@ dump_custom_tags (::camera::CameraMetadata * meta,
       goto free_and_put;
 
     padding = 8 - ceil (strlen (value)/2);
-    g_snprintf (outputline, MAX_SIZE, "%-8d%.4s %-53s%.4s %-35s %.4s %.*s%s\n",
+    g_free (outputline);
+    outputline = g_strdup_printf ("%-8d%.4s %-53s%.4s %-35s %.4s %.*s%s\n",
         i, SPACE, section, SPACE, tag, SPACE, padding, SPACE, value);
 
     if (!g_str_equal (value, "null"))
