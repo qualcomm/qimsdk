@@ -5,6 +5,8 @@
 
 #include <cmath>
 
+#include <signal.h>
+
 #include <glib-unix.h>
 #include <gst/gst.h>
 
@@ -3029,6 +3031,15 @@ main (gint argc, gchar *argv[])
   gint status = -1;
 
   g_set_prgname ("gst-camera-metadata-example");
+
+  // Ignore SIGHUP so the process is not killed when the controlling terminal
+  // (e.g. adb shell over USB) is disconnected. The pipeline keeps running
+  // and can still be stopped via SIGINT (handle_interrupt_signal) or SIGTERM.
+  signal (SIGHUP,  SIG_IGN);
+
+  // Ignore SIGPIPE so that writes to a closed stdout/stderr (after the pty
+  // goes away) do not terminate the process.
+  signal (SIGPIPE, SIG_IGN);
 
   // Initialize GST library.
   gst_init (&argc, &argv);
