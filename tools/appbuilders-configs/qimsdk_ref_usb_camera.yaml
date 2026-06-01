@@ -1,0 +1,21 @@
+pipeline:
+  elements:
+    - type: v4l2src
+      name: source
+      device: /dev/video2
+
+    - type: qtivtransform
+      name: transform
+
+    - type: filter
+      name: videostream
+      video:
+        format: NV12
+        width: 1920
+        height: 1080
+        framerate: 30
+
+    - type: waylandsink
+      name: display
+      sync: false
+      fullscreen: true

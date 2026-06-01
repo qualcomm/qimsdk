@@ -1,0 +1,48 @@
+pipeline:
+  elements:
+    - type: filesrc
+      name: src
+      location: $HOME/Downloads/qimsdk_samples/media/ppe_sample.mp4
+
+    - type: qtdemux
+      name: demux
+
+    - type: h264parse
+      name: parse
+
+    - type: v4l2h264dec
+      name: decoder
+      output-io-mode: 4
+      capture-io-mode: 4
+
+    - type: filter
+      name: videofilter
+      video:
+        format: NV12
+
+    - type: qtimlvideotflitebin
+      name: mlbin1
+      inference-delegate: "external"
+      inference-external-delegate-path: "libQnnTFLiteDelegate.so"
+      inference-external-delegate-options: "QNNExternalDelegate,backend_type=htp;"
+      inference-model: "$HOME/Downloads/qimsdk_samples/models/foot_track_net-person-foot-detection-w8a8.tflite"
+      postprocess-module: "qpd"
+      postprocess-labels: "$HOME/Downloads/qimsdk_samples/labels/foot_track_net.json"
+      postprocess-settings: "$HOME/Downloads/qimsdk_samples/labels/foot_track_net_settings.json"
+
+    - type: qtimlvideotflitebin
+      name: mlbin2
+      preprocess-mode: "roi-batch-cumulative"
+      inference-delegate: "external"
+      inference-external-delegate-path: "libQnnTFLiteDelegate.so"
+      inference-external-delegate-options: "QNNExternalDelegate,backend_type=htp;"
+      inference-model: "$HOME/Downloads/qimsdk_samples/models/gear_guard_net-ppe-detection-w8a8.tflite"
+      postprocess-module: "yolov8"
+      postprocess-labels: "$HOME/Downloads/qimsdk_samples/labels/gear_guard_net.json"
+
+    - type: qtivoverlay
+      name: overlay
+
+    - type: waylandsink
+      name: display
+      fullscreen: true

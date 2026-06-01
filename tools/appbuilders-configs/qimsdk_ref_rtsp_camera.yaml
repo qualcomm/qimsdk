@@ -1,0 +1,31 @@
+pipeline:
+  elements:
+    - type: rtspsrc
+      name: source
+      location: rtsp://username:password@192.168.1.188:554/Streaming/Channels/101
+      latency: 0
+
+    - type: capsfilter
+      name: rtp_caps
+      caps: application/x-rtp,media=video,encoding-name=H264
+
+    - type: rtph264depay
+      name: depay
+
+    - type: h264parse
+      name: parse
+
+    - type: v4l2h264dec
+      name: decoder
+      capture-io-mode: 4
+      output-io-mode: 4
+
+    - type: filter
+      name: videostream
+      video:
+        format: NV12
+
+    - type: waylandsink
+      name: display
+      sync: false
+      fullscreen: true
