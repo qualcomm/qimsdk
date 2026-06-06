@@ -12,8 +12,10 @@
 #include <glob.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include <glib-unix.h>
 #include <gst/gst.h>
@@ -359,43 +361,7 @@ is_camera_available ()
 gboolean
 is_camx_present (void)
 {
-  glob_t video_nodes;
-  gboolean camx_present = FALSE;
-  size_t i;
-
-  memset (&video_nodes, 0, sizeof (video_nodes));
-
-  if (access ("/sys/class/video4linux", F_OK) != 0)
-    return FALSE;
-
-  if (glob ("/dev/video*", 0, NULL, &video_nodes) != 0)
-    return FALSE;
-
-  for (i = 0; i < video_nodes.gl_pathc; ++i) {
-    const gchar *video_path = video_nodes.gl_pathv[i];
-    const gchar *video_name = strrchr (video_path, '/');
-    gchar driver_module_link[PATH_MAX];
-    gchar resolved_path[PATH_MAX];
-
-    if (video_name == NULL || *(video_name + 1) == '\0')
-      continue;
-
-    video_name++;
-
-    g_snprintf (driver_module_link, sizeof (driver_module_link),
-        "/sys/class/video4linux/%s/device/driver/module", video_name);
-
-    if (realpath (driver_module_link, resolved_path) == NULL)
-      continue;
-
-    if (strstr (resolved_path, "camera") != NULL) {
-      camx_present = TRUE;
-      break;
-    }
-  }
-
-  globfree (&video_nodes);
-  return camx_present;
+return access ("/run/cam_server/le_cam_socket", F_OK) == 0;
 }
 
 GstElement *
@@ -469,4 +435,35 @@ create_camera_source_bin (const gchar * bin_name)
   }
 
   return src_bin;
+}
+
+SocId GetSocId() {
+    SocId id = kInvalid;
+
+    int soc_fd = -1;
+    char buf[CHIPSET_BUFFER_SIZE] = {0};
+
+    if (access (SOC_DEV_PATH_PRIMARY, F_OK) == 0) {
+        soc_fd = open (SOC_DEV_PATH_PRIMARY, O_RDONLY);
+    } else {
+        soc_fd = open (SOC_DEV_PATH_SECONDARY, O_RDONLY);
+    }
+
+    if (soc_fd >= 0) {
+        int ret = read (soc_fd, buf, sizeof (buf) - 1);
+        if (ret > 0) {
+            buf[ret] = '\0';
+            id = (SocId) atoi (buf);
+        }
+        close(soc_fd);
+    }
+
+    return id;
+}
+
+gboolean
+is_v66_arch ()
+{
+  SocId id = GetSocId();
+  return (id == kTALOS_QCS615 || id == kTALOS_QCS610 || id == kTALOS_QCS410);
 }
