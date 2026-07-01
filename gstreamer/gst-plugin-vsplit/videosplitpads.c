@@ -981,24 +981,55 @@ gst_video_split_srcpad_setcaps (GstVideoSplitSrcPad * srcpad, GstCaps * incaps)
 {
   GstCaps *outcaps = NULL;
   GstQuery *query = NULL;
+  const GValue *value = NULL;
   GstVideoInfo info = { 0, };
 
-  // Get the negotiated caps between the srcpad and its peer.
-  outcaps = gst_pad_get_allowed_caps (GST_PAD (srcpad));
+  // Get the caps with which the pad can operate.
+  outcaps = gst_pad_query_caps (GST_PAD (srcpad), NULL);
+
+  // Propagate framerate from the sink pad caps as they must be the same.
+  value = gst_structure_get_value (
+      gst_caps_get_structure (incaps, 0), "framerate");
+
+  if (value != NULL) {
+    outcaps = gst_caps_make_writable (outcaps);
+    gst_caps_set_value (outcaps, "framerate", value);
+  }
+
+  GST_DEBUG_OBJECT (srcpad, "Query caps: %" GST_PTR_FORMAT, outcaps);
+
+  // Get the allowed caps between the srcpad and its peer.
+  query = gst_query_new_caps (outcaps);
+  g_clear_pointer (&outcaps, gst_caps_unref);
+
+  if (!gst_pad_peer_query (GST_PAD (srcpad), query)) {
+    GST_ERROR_OBJECT (srcpad, "Caps query failed");
+    gst_query_unref (query);
+    return FALSE;
+  }
+
+  gst_query_parse_caps_result (query, &outcaps);
+
+  if ((outcaps == NULL) || gst_caps_is_empty (outcaps)) {
+    GST_ERROR_OBJECT (srcpad, "Empty caps query!");
+    gst_query_unref (query);
+    return FALSE;
+  }
+
+  gst_caps_ref (outcaps);
+  gst_query_unref (query);
+
   // Fixate output caps based on the input caps.
   outcaps = gst_video_split_srcpad_fixate_caps (srcpad, incaps, outcaps);
 
   if ((outcaps == NULL) || gst_caps_is_empty (outcaps)) {
-    GST_DEBUG_OBJECT (srcpad, "Failed to fixate caps!");
-
-    if (outcaps != NULL)
-      gst_caps_unref (outcaps);
-
+    GST_ERROR_OBJECT (srcpad, "Failed to fixate caps!");
+    g_clear_pointer (&outcaps, gst_caps_unref);
     return FALSE;
   }
 
   if (!gst_pad_set_caps (GST_PAD (srcpad), outcaps)) {
-    GST_DEBUG_OBJECT (srcpad, "Failed to set caps!");
+    GST_ERROR_OBJECT (srcpad, "Failed to set caps!");
     gst_caps_unref (outcaps);
     return FALSE;
   }
@@ -1010,7 +1041,7 @@ gst_video_split_srcpad_setcaps (GstVideoSplitSrcPad * srcpad, GstCaps * incaps)
     GST_DEBUG_OBJECT (srcpad, "Failed to query peer allocation!");
 
   if (!gst_video_split_srcpad_decide_allocation (srcpad, query)) {
-    GST_DEBUG_OBJECT (srcpad, "Failed to decide allocation!");
+    GST_ERROR_OBJECT (srcpad, "Failed to decide allocation!");
     gst_query_unref (query);
     return FALSE;
   }
@@ -1019,7 +1050,7 @@ gst_video_split_srcpad_setcaps (GstVideoSplitSrcPad * srcpad, GstCaps * incaps)
 
   // Fill video info structure from the negotiated caps.
   if (!gst_video_info_from_caps (&info, outcaps)) {
-    GST_DEBUG_OBJECT (srcpad, "Failed to extract video info!");
+    GST_ERROR_OBJECT (srcpad, "Failed to extract video info!");
     return FALSE;
   }
 
@@ -1033,6 +1064,7 @@ gst_video_split_srcpad_setcaps (GstVideoSplitSrcPad * srcpad, GstCaps * incaps)
       gst_caps_can_intersect (incaps, outcaps);
 
   GST_DEBUG_OBJECT (srcpad, "Negotiated caps: %" GST_PTR_FORMAT, outcaps);
+
   return TRUE;
 }
 
