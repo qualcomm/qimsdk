@@ -824,7 +824,6 @@ gst_video_split_sinkpad_getcaps (GstPad * pad, GstCaps * filter)
     caps = intersect;
   }
 
-
   GST_DEBUG_OBJECT (pad, "Returning caps: %" GST_PTR_FORMAT, caps);
   return caps;
 }
@@ -1104,11 +1103,51 @@ gst_video_split_srcpad_query (GstPad * pad, GstObject * parent,
     GstQuery * query)
 {
   GstVideoSplitSrcPad *srcpad = GST_VIDEO_SPLIT_SRCPAD (pad);
+  GstVideoSplit *vsplit = GST_VIDEO_SPLIT (parent);
 
   GST_TRACE_OBJECT (srcpad, "Received %s query: %" GST_PTR_FORMAT,
       GST_QUERY_TYPE_NAME (query), query);
 
   switch (GST_QUERY_TYPE (query)) {
+    case GST_QUERY_CAPS:
+    {
+      GstCaps *caps = NULL, *sinkcaps = NULL, *filter = NULL;
+      const GValue *value = NULL;
+
+      caps = gst_pad_get_pad_template_caps (pad);
+      GST_DEBUG_OBJECT (srcpad, "Template caps: %" GST_PTR_FORMAT, caps);
+
+      sinkcaps = gst_pad_get_allowed_caps (vsplit->sinkpad);
+      GST_DEBUG_OBJECT (srcpad, "Sink caps: %" GST_PTR_FORMAT, sinkcaps);
+
+      // Propagate framerate from the sink pad caps as they must be the same.
+      value = gst_structure_get_value (
+          gst_caps_get_structure (sinkcaps, 0), "framerate");
+
+      if (value != NULL) {
+        caps = gst_caps_make_writable (caps);
+        gst_caps_set_value (caps, "framerate", value);
+      }
+
+      gst_caps_unref (sinkcaps);
+
+      gst_query_parse_caps (query, &filter);
+      GST_DEBUG_OBJECT (srcpad, "Filter caps: %" GST_PTR_FORMAT, filter);
+
+      if (filter != NULL) {
+        GstCaps *intersection  =
+            gst_caps_intersect_full (filter, caps, GST_CAPS_INTERSECT_FIRST);
+
+        gst_caps_unref (caps);
+        caps = intersection;
+      }
+
+      GST_DEBUG_OBJECT (srcpad, "Returning caps: %" GST_PTR_FORMAT, caps);
+
+      gst_query_set_caps_result (query, caps);
+      gst_caps_unref (caps);
+      return TRUE;
+    }
     case GST_QUERY_POSITION:
     {
       GstSegment *segment = &(srcpad)->segment;
