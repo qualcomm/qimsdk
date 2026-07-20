@@ -1,0 +1,13 @@
+REPLACE-ME: This template does NOT provide a default license.
+
+Before publishing this repository, you MUST replace the entire contents of
+this file with the full text of your project's approved license.
+
+1. Confirm the correct license for your project per your organization's
+   license approval guidelines.
+2. Replace all of the text in this file with the full, unmodified text of
+   that approved license.
+3. Update the "License" section in README.md to name the chosen license and
+   link to it here.
+
+Do not publish this repository until this file contains an approved license.
