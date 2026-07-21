@@ -1,5 +1,4 @@
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
-pkg_check_modules(OPEN_CV REQUIRED opencv4)
 
 set(TARGET_NAME ml-postprocess-yolov8)
 
@@ -108,11 +107,11 @@ add_library(${TARGET_NAME} SHARED
 target_compile_options(${TARGET_NAME} PRIVATE -Wno-error=overloaded-virtual)
 
 target_include_directories(${TARGET_NAME} PUBLIC
-  ${OPEN_CV_INCLUDE_DIRS}
+  ${OPENCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(${TARGET_NAME} PRIVATE
-  ${OPEN_CV_LIBRARIES}
+  ${OPENCV_LIBRARIES}
 )
 
 install(

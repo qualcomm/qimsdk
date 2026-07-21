@@ -49,8 +49,8 @@ args = parser.parse_args()
 #  Example pipeline:
 #
 #    v4l2src -> qtivtransform -> tee
-#      tee. -> stage-1 palm detection -> qtimetamux -> qtimetatransform
-#      qtimetatransform -> tee -> stage-2 hand landmarks -> qtimetamux
+#      tee. -> stage-1 palm detection -> qtimetamux
+#      qtimetamux -> tee -> stage-2 hand landmarks -> qtimetamux
 #      qtimetamux -> qtivoverlay -> tee
 #        -> qtivtransform -> [videofilter:BGRA] -> cairooverlay -> waylandsink
 #        -> qtimlmetaparser(json) -> appsink(metadata callback)
@@ -862,10 +862,6 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
     # Metadata/video muxer.
     metamux_palm = Element("qtimetamux", "metamux_palm")
 
-    # Metadata transform stage.
-    palm_roi_transform = Element("qtimetatransform", "palm_roi_transform")
-    palm_roi_transform.set("module", "roi-palmd")
-
     # Stream split (tee).
     split_after_palm = Element("tee", "split_after_palm")
 
@@ -977,7 +973,6 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
         .add(q_palm_meta)
         .add(q_video_palm)
         .add(metamux_palm)
-        .add(palm_roi_transform)
         .add(split_after_palm)
         .add(q_hand_pre)
         .add(hand_preproc)
@@ -1003,7 +998,7 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
         .link("split", "q_video_palm", "metamux_palm")
         .link("split", "q_palm_pre", "palm_preproc", "q_palm_infer", "palm_inf",
               "q_palm_post", "palm_post", "palm_mlf", "q_palm_meta", "metamux_palm")
-        .link("metamux_palm", "palm_roi_transform", "split_after_palm")
+        .link("metamux_palm", "split_after_palm")
         .link("split_after_palm", "q_video_final", "metamux_final")
         .link("split_after_palm", "q_hand_pre", "hand_preproc", "q_hand_infer", "hand_inf",
               "q_hand_post", "hand_post", "hand_mlf", "q_hand_meta", "metamux_final")

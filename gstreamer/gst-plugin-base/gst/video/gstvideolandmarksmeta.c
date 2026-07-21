@@ -181,6 +181,36 @@ gst_buffer_get_video_landmarks_metas_parent_id (GstBuffer * buffer,
   return metalist;
 }
 
+GArray *
+gst_video_landmarks_meta_get_keypoints (GstVideoLandmarksMeta * meta)
+{
+  GArray *keypoints = NULL;
+  gdouble x = 0.0, y = 0.0, z = 0.0, matrix[3][3] = {{0}};
+  guint idx = 0;
+
+  g_return_val_if_fail (meta != NULL, NULL);
+  g_return_val_if_fail (meta->keypoints != NULL, NULL);
+
+  keypoints = g_array_copy (meta->keypoints);
+
+  if (!gst_structure_get_matrix (meta->xtraparams, "inverse-affine-matrix", matrix))
+    return keypoints;
+
+  for (idx = 0; idx < keypoints->len; idx++) {
+    GstVideoKeypoint *kp = &(g_array_index (keypoints, GstVideoKeypoint, idx));
+
+    x = matrix[0][0] * kp->x + matrix[0][1] * kp->y + matrix[0][2];
+    y = matrix[1][0] * kp->x + matrix[1][1] * kp->y + matrix[1][2];
+    z = matrix[2][0] * kp->x + matrix[2][1] * kp->y + matrix[2][2];
+
+    // Transform from world space (3D) to screen space (2D).
+    kp->x = x / z;
+    kp->y = y / z;
+  }
+
+  return keypoints;
+}
+
 GstVideoLandmarksMeta *
 gst_buffer_copy_video_landmarks_meta (GstBuffer * buffer,
     GstVideoLandmarksMeta * meta)

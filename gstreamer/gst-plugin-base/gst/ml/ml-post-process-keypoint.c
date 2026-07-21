@@ -88,20 +88,6 @@ gst_ml_keypoint_relative_transform (GstMLKeypoint * keypoint,
   keypoint->y = CLAMP (keypoint->y, 0.0f, 1.0f);
 }
 
-void
-gst_ml_keypoint_affine_transform (GstMLKeypoint * keypoint, gdouble matrix[3][3])
-{
-  GstVideoPoint point = { 0, };
-
-  g_return_if_fail (keypoint != NULL);
-
-  point = (GstVideoPoint) {keypoint->x, keypoint->y};
-  gst_video_point_affine_transform (&point, matrix);
-
-  keypoint->x = point.x;
-  keypoint->y = point.y;
-}
-
 GstStructure *
 gst_ml_keypoint_to_structure (GstMLKeypoint * keypoint)
 {

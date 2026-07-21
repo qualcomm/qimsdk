@@ -15,6 +15,8 @@
 
 #include <gst/allocators/gstqtiallocator.h>
 #include <gst/video/video-utils.h>
+#include <gst/ml/ml-module-utils.h>
+#include <gst/utils/common-utils.h>
 #include <cairo/cairo.h>
 #include <cairo/cairo-ft.h>
 #include <fontconfig/fontconfig.h>
@@ -263,7 +265,8 @@ gst_cairo_draw_line (cairo_t * context, guint color, gdouble x, gdouble y,
 
 static inline gboolean
 gst_cairo_draw_rectangle (cairo_t * context, guint color, gdouble x, gdouble y,
-    gdouble width, gdouble height, gdouble linewidth, gboolean filled, gboolean inverse)
+    gdouble width, gdouble height, gdouble linewidth, gboolean filled,
+    gboolean inverse)
 {
   // Set color.
   cairo_set_source_rgba (context, GST_FLOAT_COLOR_BLUE (color),
@@ -613,15 +616,13 @@ gst_overlay_create_pool (GstVOverlay * overlay, GstCaps * caps)
 
 static gboolean
 gst_overlay_handle_classification_entry (GstVOverlay * overlay,
-    cairo_t * context, GstVideoBlit * blit, GstClassLabel * label,
-    GstStructure * objparam)
+    cairo_t * context, GstVideoBlit * blit, GstClassLabel * label)
 {
   gchar text[MAX_LABEL_LENGTH] = { 0, };
   GstVideoRectangle source = {0}, *destination = NULL;
   gdouble x = 1.0, y = 1.0, fontsize = LABEL_FONTSIZE;
   guint length = 0, color = 0xFFFFFFFF;
   gboolean success = TRUE;
-  guint track_id = -1;
 
   if (GST_FLOAT_COLOR_ALPHA (label->color) == 0.0)
     return success;
@@ -632,15 +633,8 @@ gst_overlay_handle_classification_entry (GstVOverlay * overlay,
   destination->w = source.w;
   destination->h = source.h;
 
-  if (objparam != NULL &&
-      gst_structure_get_uint (objparam, "tracking-id", &track_id)) {
-    const gchar *name = g_quark_to_string (label->name);
-    length = g_snprintf (text, MAX_LABEL_LENGTH, "%s-%u", name, track_id);
-  } else {
-    length = g_snprintf (text, MAX_LABEL_LENGTH, "%s",
-       g_quark_to_string (label->name));
-  }
-
+  length = g_snprintf (text, MAX_LABEL_LENGTH, "%s",
+      g_quark_to_string (label->name));
 
   color = label->color;
 
@@ -677,7 +671,8 @@ gst_overlay_handle_classification_entry (GstVOverlay * overlay,
 
 static gboolean
 gst_overlay_handle_landmarks_entry (GstVOverlay * overlay, cairo_t * context,
-    GstVideoBlit * blit, GArray * keypoints, GArray * links)
+    GstVideoBlit * blit, GArray * keypoints, GArray * links,
+    gdouble matrix[3][3])
 {
   GstVideoRectangle source = {0}, *destination = NULL;
   gdouble x = 0.0, y = 0.0, dx = 0.0, dy = 0.0, scale = 0.0, linewidth = 0.0;
@@ -693,12 +688,18 @@ gst_overlay_handle_landmarks_entry (GstVOverlay * overlay, cairo_t * context,
 
   for (idx = 0; idx < keypoints->len; idx++) {
     GstVideoKeypoint *kp = &(g_array_index (keypoints, GstVideoKeypoint, idx));
+    GstVideoPoint point = {0, };
 
     if (GST_FLOAT_COLOR_ALPHA (kp->color) == 0.0)
       continue;
 
-    x = (kp->x - destination->x) / scale;
-    y = (kp->y - destination->y) / scale;
+    point = (GstVideoPoint) {kp->x, kp->y};
+
+    if (matrix != NULL)
+      gst_video_point_affine_transform (&point, matrix);
+
+    x = (point.x - destination->x) / scale;
+    y = (point.y - destination->y) / scale;
 
     GST_TRACE_OBJECT (overlay, "Keypoint: %s, Position: [%.2f %.2f], "
         "Confidence: %.2f, Color: 0x%X", g_quark_to_string (kp->name), x, y,
@@ -710,26 +711,35 @@ gst_overlay_handle_landmarks_entry (GstVOverlay * overlay, cairo_t * context,
 
   for (idx = 0; (links != NULL) && (idx < links->len); idx++) {
     GstVideoKeypointLink *link = NULL;
-    GstVideoKeypoint *s_kp = NULL, *d_kp = NULL;
+    GstVideoKeypoint *l_kp = NULL, *r_kp = NULL;
+    GstVideoPoint l_point = {0, }, r_point = {0, };
 
     link = &(g_array_index (links, GstVideoKeypointLink, idx));
-    s_kp = &(g_array_index (keypoints, GstVideoKeypoint, link->s_kp_idx));
-    d_kp = &(g_array_index (keypoints, GstVideoKeypoint, link->d_kp_idx));
+    l_kp = &(g_array_index (keypoints, GstVideoKeypoint, link->s_kp_idx));
+    r_kp = &(g_array_index (keypoints, GstVideoKeypoint, link->d_kp_idx));
 
-    if (GST_FLOAT_COLOR_ALPHA (s_kp->color) == 0.0)
+    if (GST_FLOAT_COLOR_ALPHA (l_kp->color) == 0.0)
       continue;
 
-    x = (s_kp->x - destination->x) / scale;
-    y = (s_kp->y - destination->y) / scale;
+    l_point = (GstVideoPoint) {l_kp->x, l_kp->y};
+    r_point = (GstVideoPoint) {r_kp->x, r_kp->y};
 
-    dx = (d_kp->x - destination->x) / scale;
-    dy = (d_kp->y - destination->y) / scale;
+    if (matrix != NULL) {
+      gst_video_point_affine_transform (&l_point, matrix);
+      gst_video_point_affine_transform (&r_point, matrix);
+    }
+
+    x = (l_point.x - destination->x) / scale;
+    y = (l_point.y - destination->y) / scale;
+
+    dx = (r_point.x - destination->x) / scale;
+    dy = (r_point.y - destination->y) / scale;
 
     GST_TRACE_OBJECT (overlay, "Link: %s [%.2f %.2f] <---> %s [%.2f %.2f]",
-        g_quark_to_string (s_kp->name), x, y, g_quark_to_string (d_kp->name),
+        g_quark_to_string (l_kp->name), x, y, g_quark_to_string (r_kp->name),
         dx, dy);
 
-    success &= gst_cairo_draw_line (context, s_kp->color, x, y, dx, dy, linewidth);
+    success &= gst_cairo_draw_line (context, l_kp->color, x, y, dx, dy, linewidth);
   }
 
   GST_TRACE_OBJECT (overlay, "Source/Destination Rectangles: [%d %d %d %d] -> "
@@ -741,46 +751,81 @@ gst_overlay_handle_landmarks_entry (GstVOverlay * overlay, cairo_t * context,
 
 static gboolean
 gst_overlay_handle_colormask_entry (GstVOverlay * overlay, cairo_t * context,
-    GstVideoBlit * blit, GArray * colormask, guint n_columns, guint n_rows)
+    GstVideoBlit * blit, GArray * colormask, guint n_columns, guint n_rows,
+    const GstVideoRectangle * region, gdouble matrix[3][3])
 {
   cairo_surface_t *surface = NULL;
   GstVideoRectangle source = {0}, *destination = NULL;
-  guint8 *rawdata = NULL;
-  gint row = 0, column = 0, rawidx = 0, stride = 0;
-  gdouble wscale = 0, hscale = 0;
+  guint idx = 0;
 
   gst_video_quadrilateral_to_rectangle (&(blit->source), &source);
   destination = &(blit->destination);
 
-  surface = cairo_get_target (context);
-  g_return_val_if_fail (CAIRO_STATUS_SUCCESS == cairo_status (context), FALSE);
-
-  rawdata = cairo_image_surface_get_data (surface);
-  stride = cairo_image_surface_get_stride (surface);
-
-  gst_util_fraction_to_double (n_columns, source.w, &wscale);
-  gst_util_fraction_to_double (n_rows, source.h, &hscale);
-
-  for (row = 0; row < source.h; row++, rawidx = (row * stride)) {
-    for (column = 0; column < source.w; column++, rawidx += 4) {
-      guint num = ((guint)(row * wscale) * n_columns) + (column * hscale);
-      guint32 color = g_array_index (colormask, guint32, num);
-
-      rawdata[rawidx] = GST_COLOR_RED (color);
-      rawdata[rawidx + 1] = GST_COLOR_GREEN (color);
-      rawdata[rawidx + 2] = GST_COLOR_BLUE (color);
-      rawdata[rawidx + 3] = GST_COLOR_ALPHA (color);
-    }
+  // The colormask is stored as RGBA, while cairo's ARGB32 surface format.
+  for (idx = 0; idx < colormask->len; idx++) {
+    g_array_index (colormask, guint32, idx) =
+        GST_COLOR_TO_ABGR (g_array_index (colormask, guint32, idx));
   }
 
-  // Notify cairo that the surface was modified.
-  cairo_surface_mark_dirty (surface);
+  surface = cairo_image_surface_create_for_data ((guchar *) colormask->data,
+      CAIRO_FORMAT_ARGB32, n_columns, n_rows, (n_columns * 4));
+
+  g_return_val_if_fail (
+      CAIRO_STATUS_SUCCESS == cairo_surface_status (surface), FALSE);
+
+  cairo_save (context);
+
+  if (matrix != NULL) {
+    cairo_matrix_t cairomatrix;
+    gdouble scale[3][3] = {0}, normalize[3][3] = {0}, intermediary[3][3] = {0};
+    gdouble combined[3][3] = {0}, wscale = 0.0, hscale = 0.0;
+
+    // Native mask pixel -> mask's own untransformed absolute placement.
+    normalize[0][0] = (gdouble) region->w / n_columns;
+    normalize[1][1] = (gdouble) region->h / n_rows;
+    normalize[0][2] = region->x;
+    normalize[1][2] = region->y;
+    normalize[2][2] = 1;
+
+    // Absolute (post-matrix) coordinates -> local canvas coordinates.
+    gst_util_fraction_to_double (destination->w, source.w, &wscale);
+    gst_util_fraction_to_double (destination->h, source.h, &hscale);
+
+    scale[0][0] = 1.0 / wscale;
+    scale[1][1] = 1.0 / hscale;
+    scale[0][2] = - (destination->x / wscale);
+    scale[1][2] = - (destination->y / hscale);
+    scale[2][2] = 1;
+
+    gst_matrix_multiply (&matrix[0][0], &normalize[0][0], 9, &intermediary[0][0]);
+    gst_matrix_multiply (&scale[0][0], &intermediary[0][0], 9, &combined[0][0]);
+
+    // Map the 3x3 affine array to a cairo_matrix_t and apply it.
+    cairo_matrix_init (&cairomatrix,
+        combined[0][0], combined[1][0], combined[0][1],
+        combined[1][1], combined[0][2], combined[1][2]
+    );
+
+    cairo_transform (context, &cairomatrix);
+  } else {
+    // Place the mask directly into the local canvas, scaling its resolution to fit.
+    cairo_scale (context, (gdouble) source.w / n_columns,
+        (gdouble) source.h / n_rows);
+  }
+
+  cairo_set_source_surface (context, surface, 0, 0);
+  cairo_pattern_set_filter (cairo_get_source (context), CAIRO_FILTER_BILINEAR);
+  cairo_pattern_set_extend (cairo_get_source (context), CAIRO_EXTEND_NONE);
+  cairo_paint (context);
+
+  cairo_restore (context);
+  cairo_surface_destroy (surface);
 
   GST_TRACE_OBJECT (overlay, "Mask [%u %u] Source/Destination: [%d %d %d %d] "
       "-> [%d %d %d %d]", n_columns, n_rows, source.x, source.y, source.w,
       source.h, destination->x, destination->y, destination->w, destination->h);
 
-  return TRUE;
+  return (cairo_status (context) == CAIRO_STATUS_SUCCESS) ? TRUE : FALSE;
 }
 
 static gboolean
@@ -832,44 +877,74 @@ gst_overlay_handle_optclflow_entry (GstVOverlay * overlay, cairo_t * context,
 
 static gboolean
 gst_overlay_handle_detection_entry (GstVOverlay * overlay, cairo_t * context,
-    GstVideoBlit * blit, GstVideoRegionOfInterestMeta * roimeta)
+    GstVideoBlit * blit, guint color, gdouble matrix[3][3])
 {
-  GstStructure *objparam = NULL;
-  GstVideoRectangle source = {0}, *destination = NULL;
-  gdouble scale = 0.0, linewidth = 0.0;
-  guint color = 0x000000FF;
+  GstVideoRectangle source = {0}, region = {0}, *destination = NULL;
+  GstVideoQuadrilateral corners = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
+  gdouble xscale = 0.0, yscale = 0.0, scale = 0.0, linewidth = 0.0;
   gboolean success = TRUE;
-
-  // Extract the structure containing ROI parameters.
-  objparam = gst_video_region_of_interest_meta_get_param (roimeta,
-      "ObjectDetection");
-  gst_structure_get_uint (objparam, "color", &color);
 
   if (GST_FLOAT_COLOR_ALPHA (color) == 0.0)
     return success;
 
+  // Corners (a, b, c, d) of the detection box in absolute frame coordinates.
+  corners.a.x = corners.b.x = blit->destination.x;
+  corners.c.x = corners.d.x = blit->destination.x + blit->destination.w;
+  corners.a.y = corners.c.y = blit->destination.y;
+  corners.b.y = corners.d.y = blit->destination.y + blit->destination.h;
+
+  if (matrix != NULL) {
+    gst_video_point_affine_transform (&(corners.a), matrix);
+    gst_video_point_affine_transform (&(corners.b), matrix);
+    gst_video_point_affine_transform (&(corners.c), matrix);
+    gst_video_point_affine_transform (&(corners.d), matrix);
+  }
+
+  // Region of the (possibly transformed) corners in absolute coordinates.
+  gst_video_quadrilateral_to_rectangle (&corners, &region);
+
   gst_video_quadrilateral_to_rectangle (&(blit->source), &source);
   destination = &(blit->destination);
 
-  source.w = destination->w = roimeta->w;
-  source.h = destination->h = roimeta->h;
+  source.w = destination->w = region.w;
+  source.h = destination->h = region.h;
 
   // Adjust bbox dimensions so that it fits inside the overlay frame.
   gst_overlay_update_rectangle_dimensions (overlay, blit->info, &source);
   gst_video_quadrilateral_from_rectangle (&(blit->source), &source);
 
-  destination->x = roimeta->x;
-  destination->y = roimeta->y;
+  destination->x = region.x;
+  destination->y = region.y;
 
   // Set the most appropriate box line width based on frame and box dimensions.
   gst_util_fraction_to_double (destination->w, source.w, &scale);
   linewidth = (scale > 1.0F) ? (4.0F / scale) : 4.0F;
 
   GST_TRACE_OBJECT (overlay, "Rectangle: [%d %d %d %d], Color: 0x%X",
-      source.x, source.y, source.w, source.h, color);
+      region.x, region.y, region.w, region.h, color);
 
-  success = gst_cairo_draw_rectangle (context, color, source.x, source.y,
-      source.w, source.h, linewidth, FALSE, FALSE);
+  // Map the corners from absolute frame space into the local canvas space.
+  xscale = (gdouble) source.w / (gdouble) region.w;
+  yscale = (gdouble) source.h / (gdouble) region.h;
+
+  corners.a.x = (corners.a.x - region.x) * xscale;
+  corners.a.y = (corners.a.y - region.y) * yscale;
+  corners.b.x = (corners.b.x - region.x) * xscale;
+  corners.b.y = (corners.b.y - region.y) * yscale;
+  corners.c.x = (corners.c.x - region.x) * xscale;
+  corners.c.y = (corners.c.y - region.y) * yscale;
+  corners.d.x = (corners.d.x - region.x) * xscale;
+  corners.d.y = (corners.d.y - region.y) * yscale;
+
+  // Draw the (possibly transformed) box as its 4 edges: a-c, c-d, d-b, b-a.
+  success = gst_cairo_draw_line (context, color, corners.a.x, corners.a.y,
+      corners.c.x, corners.c.y, linewidth);
+  success &= gst_cairo_draw_line (context, color, corners.c.x, corners.c.y,
+      corners.d.x, corners.d.y, linewidth);
+  success &= gst_cairo_draw_line (context, color, corners.d.x, corners.d.y,
+      corners.b.x, corners.b.y, linewidth);
+  success &= gst_cairo_draw_line (context, color, corners.b.x, corners.b.y,
+      corners.a.x, corners.a.y, linewidth);
 
   GST_TRACE_OBJECT (overlay, "Source/Destination Rectangles: [%d %d %d %d] -> "
       "[%d %d %d %d]", source.x, source.y, source.w, source.h,
@@ -1312,165 +1387,236 @@ gst_overlay_video_blit_initialize (GstVOverlay * overlay, guint ovltype,
 }
 
 static gboolean
+gst_overlay_draw_detection_rectangle (GstVOverlay * overlay,
+    GstVideoBlit * vblit, GstBuffer * outbuffer, const gint id,
+    GstVideoRectangle * region, GstStructure * objparam)
+{
+  cairo_surface_t *surface = NULL;
+  cairo_t *context = NULL;
+  GstMeta *submeta = NULL;
+  gpointer substate = NULL;
+  GstStructure *xtraparams = NULL;
+  GstVideoFrame frame = {0,};
+  gdouble matrix[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  guint color = 0xFF0000FF;
+  gboolean success = TRUE, haslndmrks = FALSE, correction = FALSE;
+
+  success = gst_overlay_video_blit_initialize (overlay,
+      GST_OVERLAY_TYPE_DETECTION, vblit);
+  g_return_val_if_fail (success, FALSE);
+
+  success = gst_cairo_draw_setup (vblit, &frame, &surface, &context);
+  g_return_val_if_fail (success, FALSE);
+
+  if (objparam != NULL) {
+    const GValue *value = gst_structure_get_value (objparam, "xtraparams");
+
+    if (value != NULL)
+      xtraparams = GST_STRUCTURE (g_value_get_boxed (value));
+
+    gst_structure_get_uint (objparam, "color", &color);
+  }
+
+  // Initialize the destination region to the ROI meta dimensions.
+  vblit->destination = *region;
+
+  // Check for affine matrix produced from postprocess module.
+  correction =
+      gst_structure_get_matrix (xtraparams, "rectangle-affine-matrix", matrix);
+
+  success &= gst_overlay_handle_detection_entry (overlay, context, vblit,
+      color, correction ? matrix : NULL);
+
+  // Process all landmarks metas derived from this ROI in the same blit.
+  while ((submeta = gst_buffer_iterate_meta_filtered (outbuffer, &substate,
+              GST_VIDEO_LANDMARKS_META_API_TYPE)) != NULL) {
+    GstVideoLandmarksMeta *lmkmeta = GST_VIDEO_LANDMARKS_META_CAST (submeta);
+
+    if (lmkmeta->parent_id != id)
+      continue;
+
+    // Check for inverse matrix produced from preprocess.
+    correction = gst_structure_get_matrix (
+        lmkmeta->xtraparams, "inverse-affine-matrix", matrix);
+
+    success &= gst_overlay_handle_landmarks_entry (overlay, context, vblit,
+        lmkmeta->keypoints, lmkmeta->links, correction ? matrix : NULL);
+    haslndmrks = TRUE;
+  }
+
+  substate = NULL;
+
+  // Process all segmentation metas derived from this ROI in the same blit.
+  while ((submeta = gst_buffer_iterate_meta_filtered (outbuffer, &substate,
+              GST_VIDEO_SEGMENTATION_META_API_TYPE)) != NULL) {
+    GstVideoSegmentationMeta *segmeta =
+        GST_VIDEO_SEGMENTATION_META_CAST (submeta);
+
+    if (segmeta->parent_id != id)
+      continue;
+
+    // Check for inverse matrix produced from preprocess.
+    correction = gst_structure_get_matrix (
+        segmeta->xtraparams, "inverse-affine-matrix", matrix);
+
+    success &= gst_overlay_handle_colormask_entry (overlay, context, vblit,
+        segmeta->colormask, segmeta->n_columns, segmeta->n_rows, region,
+        correction ? matrix : NULL);
+  }
+
+  substate = NULL;
+
+  // Process all video depth metas derived from this ROI in the same blit.
+  while ((submeta = gst_buffer_iterate_meta_filtered (outbuffer, &substate,
+              GST_VIDEO_DEPTH_META_API_TYPE)) != NULL) {
+    GstVideoDepthMeta *depthmeta = GST_VIDEO_DEPTH_META_CAST (submeta);
+
+    if (depthmeta->parent_id != id)
+      continue;
+
+    // Check for inverse matrix produced from preprocess.
+    correction = gst_structure_get_matrix (
+        depthmeta->xtraparams, "inverse-affine-matrix", matrix);
+
+    success &= gst_overlay_handle_colormask_entry (overlay, context, vblit,
+        depthmeta->colormask, depthmeta->n_columns, depthmeta->n_rows, region,
+        correction ? matrix : NULL);
+  }
+
+  // Process any additional landmarks if present.
+  if (!haslndmrks && (objparam != NULL) &&
+      gst_structure_has_field (objparam, "landmarks")) {
+    GArray *keypoints = NULL;
+
+    // Check for inverse matrix produced from preprocess.
+    correction =
+        gst_structure_get_matrix (xtraparams, "inverse-affine-matrix", matrix);
+
+    gst_structure_get (objparam, "landmarks", G_TYPE_ARRAY, &keypoints, NULL);
+
+    success &= gst_overlay_handle_landmarks_entry (overlay, context, vblit,
+        keypoints, NULL, correction ? matrix : NULL);
+
+    g_array_unref (keypoints);
+  }
+
+  gst_cairo_draw_cleanup (&frame, surface, context);
+  return success;
+}
+
+static gboolean
+gst_overlay_draw_detection_label (GstVOverlay * overlay, GstVideoBlit * vblit,
+    GstBuffer * outbuffer, const gint id, GQuark name, GstStructure * objparam)
+{
+  cairo_surface_t *surface = NULL;
+  cairo_t *context = NULL;
+  GstMeta *submeta = NULL;
+  gpointer substate = NULL;
+  GstVideoFrame frame = {0,};
+  GstClassLabel label = { 0, };
+  gboolean success = TRUE;
+
+  success = gst_overlay_video_blit_initialize (overlay,
+      GST_OVERLAY_TYPE_CLASSIFICATION, vblit);
+  g_return_val_if_fail (success, FALSE);
+
+  success = gst_cairo_draw_setup (vblit, &frame, &surface, &context);
+  g_return_val_if_fail (success, FALSE);
+
+  // Fetch the top label from classification derived from this ROI.
+  while ((submeta = gst_buffer_iterate_meta_filtered (outbuffer,
+              &substate, GST_VIDEO_CLASSIFICATION_META_API_TYPE)) != NULL) {
+    GstVideoClassificationMeta *m = GST_VIDEO_CLASSIFICATION_META_CAST (submeta);
+    GstClassLabel *classlabel = NULL;
+
+    if (m->parent_id != id)
+      continue;
+
+    classlabel = &(g_array_index (m->labels, GstClassLabel, 0));
+
+    if (GST_FLOAT_COLOR_ALPHA (classlabel->color) == 0.0)
+      continue;
+
+    success &= gst_overlay_handle_classification_entry (overlay, context,
+        vblit, classlabel);
+
+    goto cleanup;
+  }
+
+  label.name = name;
+
+  if (objparam != NULL) {
+    gst_structure_get_uint (objparam, "color", &(label.color));
+    gst_structure_get_double (objparam, "confidence", &(label.confidence));
+  } else {
+    label.color = 0xFF0000FF;
+    label.confidence = 100.0;
+  }
+
+  if (GST_FLOAT_COLOR_ALPHA (label.color) == 0.0)
+    goto cleanup;
+
+  success &=
+      gst_overlay_handle_classification_entry (overlay, context, vblit, &label);
+
+cleanup:
+  gst_cairo_draw_cleanup (&frame, surface, context);
+  return success;
+}
+
+static gboolean
 gst_overlay_draw_detection_entries (GstVOverlay * overlay,
     GstVideoComposition * composition, guint * index)
 {
-  GstBuffer *outbuffer = composition->buffer;
-  GstVideoFrame frame = {0,};
-  GstVideoRegionOfInterestMeta *roimeta = NULL;
-  GstVideoLandmarksMeta *lmkmeta = NULL;
-  GstVideoSegmentationMeta *segmeta = NULL;
-  GstVideoDepthMeta *depthmeta = NULL;
-  GstVideoClassificationMeta *classmeta = NULL;
-  GstVideoBlit *blit = NULL;
+  GstVideoBlit *vblit = NULL;
   GstStructure *objparam = NULL;
-  GstMeta *meta = NULL, *submeta = NULL;
-  gpointer state = NULL, substate = NULL;
+  GstMeta *meta = NULL;
+  gpointer state = NULL;
+  GstVideoRectangle region = {};
   gboolean success = TRUE;
 
-  while ((meta = gst_buffer_iterate_meta_filtered (outbuffer, &state,
+  while ((meta = gst_buffer_iterate_meta_filtered (composition->buffer, &state,
               GST_VIDEO_REGION_OF_INTEREST_META_API_TYPE)) != NULL) {
-    cairo_surface_t *surface = NULL;
-    cairo_t *context = NULL;
-    gboolean haslabel = FALSE, haslndmrks = FALSE;
-
-    roimeta = GST_VIDEO_ROI_META_CAST (meta);
+    GstVideoRegionOfInterestMeta *roimeta = GST_VIDEO_ROI_META_CAST (meta);
 
     // Skip if ROI is a ImageRegion with actual data (populated by vsplit).
     if (roimeta->roi_type == g_quark_from_static_string ("ImageRegion"))
       continue;
 
-    // First blit object is for the detection bounding box.
-    blit = gst_video_blits_entry (composition->blits, *index);
-
-    success = gst_overlay_video_blit_initialize (overlay,
-        GST_OVERLAY_TYPE_DETECTION, blit);
-    g_return_val_if_fail (success, FALSE);
-
-    success = gst_cairo_draw_setup (blit, &frame, &surface, &context);
-    g_return_val_if_fail (success, FALSE);
-
-    success &= gst_overlay_handle_detection_entry (overlay, context, blit, roimeta);
-
-    // Process all landmarks metas derived from this ROI in the same blit.
-    while ((submeta = gst_buffer_iterate_meta_filtered (outbuffer, &substate,
-                GST_VIDEO_LANDMARKS_META_API_TYPE)) != NULL) {
-      lmkmeta = GST_VIDEO_LANDMARKS_META_CAST (submeta);
-
-      if (lmkmeta->parent_id != roimeta->id)
-        continue;
-
-      success &= gst_overlay_handle_landmarks_entry (overlay, context, blit,
-          lmkmeta->keypoints, lmkmeta->links);
-      haslndmrks = TRUE;
-    }
-
-    substate = NULL;
-
-    // Process all segmentation metas derived from this ROI in the same blit.
-    while ((submeta = gst_buffer_iterate_meta_filtered (outbuffer, &substate,
-                GST_VIDEO_SEGMENTATION_META_API_TYPE)) != NULL) {
-      segmeta = GST_VIDEO_SEGMENTATION_META_CAST (submeta);
-
-      if (segmeta->parent_id != roimeta->id)
-        continue;
-
-      success &= gst_overlay_handle_colormask_entry (overlay, context, blit,
-          segmeta->colormask, segmeta->n_columns, segmeta->n_rows);
-    }
-
-    substate = NULL;
-
-    // Process all video depth metas derived from this ROI in the same blit.
-    while ((submeta = gst_buffer_iterate_meta_filtered (outbuffer, &substate,
-                GST_VIDEO_DEPTH_META_API_TYPE)) != NULL) {
-      depthmeta = GST_VIDEO_DEPTH_META_CAST (submeta);
-
-      if (depthmeta->parent_id != roimeta->id)
-        continue;
-
-      success &= gst_overlay_handle_colormask_entry (overlay, context, blit,
-          depthmeta->colormask, depthmeta->n_columns, depthmeta->n_rows);
-    }
-
-    substate = NULL;
+    vblit = gst_video_blits_entry (composition->blits, *index);
 
     // Extract the structure containing ROI parameters.
     objparam = gst_video_region_of_interest_meta_get_param (roimeta,
         "ObjectDetection");
 
-    // Process any additional landmarks if present.
-    if (!haslndmrks && gst_structure_has_field (objparam, "landmarks")) {
-      GArray *keypoints = NULL;
+    // Snapshot the ROI as the untransformed region for any derived masks.
+    region = (GstVideoRectangle){roimeta->x, roimeta->y, roimeta->w, roimeta->h};
 
-      gst_structure_get (objparam, "landmarks", G_TYPE_ARRAY, &keypoints, NULL);
-      success &= gst_overlay_handle_landmarks_entry (overlay, context, blit,
-          keypoints, NULL);
+    // First blit object is for the detection bounding box and derived metas.
+    success &= gst_overlay_draw_detection_rectangle (overlay, vblit,
+        composition->buffer, roimeta->id, &region, objparam);
 
-      g_array_unref (keypoints);
-    }
+    // Snapshot of possibly modified destination rectangle for the label blit.
+    region = vblit->destination;
 
-    gst_cairo_draw_cleanup (&frame, surface, context);
+    // Get new video blit object for the bounding box label.
+    vblit = gst_video_blits_entry (composition->blits, *index + 1);
 
     // Second blit object is for the detection label.
-    blit = gst_video_blits_entry (composition->blits, *index + 1);
+    success &= gst_overlay_draw_detection_label (overlay, vblit,
+        composition->buffer, roimeta->id, roimeta->roi_type, objparam);
 
-    success = gst_overlay_video_blit_initialize(overlay,
-        GST_OVERLAY_TYPE_CLASSIFICATION, blit);
-    g_return_val_if_fail (success, FALSE);
-
-    success = gst_cairo_draw_setup (blit, &frame, &surface, &context);
-    g_return_val_if_fail (success, FALSE);
-
-    // Initialize the destination X/Y of the auxiliary label blit.
-    blit->destination.x = roimeta->x;
-    blit->destination.y = roimeta->y;
-
-    // Fetch the top label from classification derived from this ROI.
-    while ((submeta = gst_buffer_iterate_meta_filtered (outbuffer, &substate,
-                GST_VIDEO_CLASSIFICATION_META_API_TYPE)) != NULL) {
-      GstClassLabel *label = NULL;
-      classmeta = GST_VIDEO_CLASSIFICATION_META_CAST (submeta);
-
-      if (classmeta->parent_id != roimeta->id)
-        continue;
-
-      label = &(g_array_index (classmeta->labels, GstClassLabel, 0));
-
-      if (GST_FLOAT_COLOR_ALPHA (label->color) == 0.0)
-        continue;
-
-      success &= gst_overlay_handle_classification_entry (overlay, context,
-          blit, label, objparam);
-
-      haslabel = TRUE;
-      break;
-    }
-
-    substate = NULL;
-
-    if (!haslabel) {
-      GstClassLabel label = { 0, };
-
-      label.name = roimeta->roi_type;
-      gst_structure_get_uint (objparam, "color", &(label.color));
-      gst_structure_get_double (objparam, "confidence", &(label.confidence));
-
-      if (GST_FLOAT_COLOR_ALPHA (label.color) != 0.0) {
-        success &= gst_overlay_handle_classification_entry (overlay, context,
-            blit, &label, objparam);
-      }
-    }
-
-    gst_cairo_draw_cleanup (&frame, surface, context);
+    // Update the destination X/Y of the auxiliary label blit.
+    vblit->destination.x = region.x;
+    vblit->destination.y = region.y;
 
     // Correct the destination of the auxiliary label blit.
-    if ((blit->destination.y -= blit->destination.h) < 0)
-      blit->destination.y = roimeta->y + roimeta->h;
+    if ((vblit->destination.y -= vblit->destination.h) < 0)
+      vblit->destination.y = region.y + region.h;
 
-    if ((blit->destination.x + blit->destination.w) >
+    if ((vblit->destination.x + vblit->destination.w) >
             GST_VIDEO_INFO_WIDTH (overlay->vinfo))
-      blit->destination.x = roimeta->x + roimeta->w - blit->destination.w;
+      vblit->destination.x = region.x + region.w - vblit->destination.w;
 
     // Increase the index with the number of populated blit objects.
     *index += 2;
@@ -1527,8 +1673,9 @@ gst_overlay_draw_classification_entries (GstVOverlay * overlay,
 
       g_return_val_if_fail (success, FALSE);
 
-      success &= gst_overlay_handle_classification_entry (overlay, context,
-          blit, label, NULL);
+      success &=
+          gst_overlay_handle_classification_entry (overlay, context, blit, label);
+
       gst_cairo_draw_cleanup (&frame, surface, context);
 
       // Increase the Y axis offset for the next label blit.
@@ -1552,20 +1699,19 @@ gst_overlay_draw_landmarks_entries (GstVOverlay * overlay,
     GstVideoComposition * composition, guint * index)
 {
   GstBuffer *outbuffer = composition->buffer;
-  GstVideoLandmarksMeta *lmkmeta = NULL;
   GstVideoBlit *blit = NULL;
   GstVideoRectangle source = {0}, *destination = NULL;
   GstVideoFrame frame = {0,};
   GstMeta *meta = NULL;
   gpointer state = NULL;
-  gboolean success = TRUE;
+  gboolean success = TRUE, correction = FALSE;
 
   while ((meta = gst_buffer_iterate_meta_filtered (outbuffer, &state,
               GST_VIDEO_LANDMARKS_META_API_TYPE)) != NULL) {
+    GstVideoLandmarksMeta *lmkmeta = GST_VIDEO_LANDMARKS_META_CAST (meta);
     cairo_surface_t *surface = NULL;
     cairo_t *context = NULL;
-
-    lmkmeta = GST_VIDEO_LANDMARKS_META_CAST (meta);
+    gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 
     // Derived metas will be handled inside the detection entry function.
     if (gst_buffer_has_valid_parent_meta (outbuffer, lmkmeta->parent_id))
@@ -1593,8 +1739,11 @@ gst_overlay_draw_landmarks_entries (GstVOverlay * overlay,
     success = gst_cairo_draw_setup (blit, &frame, &surface, &context);
     g_return_val_if_fail (success, FALSE);
 
+    correction = gst_structure_get_matrix (
+        lmkmeta->xtraparams, "inverse-affine-matrix", inverse);
+
     success &= gst_overlay_handle_landmarks_entry (overlay, context, blit,
-        lmkmeta->keypoints, lmkmeta->links);
+        lmkmeta->keypoints, lmkmeta->links, correction ? inverse : NULL);
     gst_cairo_draw_cleanup (&frame, surface, context);
 
     // Increase the index with the number of populated blit objects.
@@ -1620,7 +1769,8 @@ gst_overlay_draw_segmentation_entries (GstVOverlay * overlay,
   GstVideoFrame frame = {0,};
   GstMeta *meta = NULL;
   gpointer state = NULL;
-  gboolean success = TRUE;
+  gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gboolean success = TRUE, correction = FALSE;
 
   while ((meta = gst_buffer_iterate_meta_filtered (outbuffer, &state,
               GST_VIDEO_SEGMENTATION_META_API_TYPE)) != NULL) {
@@ -1651,8 +1801,13 @@ gst_overlay_draw_segmentation_entries (GstVOverlay * overlay,
     success = gst_cairo_draw_setup (blit, &frame, &surface, &context);
     g_return_val_if_fail (success, FALSE);
 
+    // Check for inverse matrix produced from preprocess.
+    correction = gst_structure_get_matrix (segmeta->xtraparams,
+        "inverse-affine-matrix", inverse);
+
     success &= gst_overlay_handle_colormask_entry (overlay, context, blit,
-        segmeta->colormask, segmeta->n_columns, segmeta->n_rows);
+        segmeta->colormask, segmeta->n_columns, segmeta->n_rows,
+        &(blit->destination), correction ? inverse : NULL);
     gst_cairo_draw_cleanup (&frame, surface, context);
 
     // Increase the index with the number of populated blit objects.
@@ -1678,7 +1833,8 @@ gst_overlay_draw_depthmap_entries (GstVOverlay * overlay,
   GstVideoFrame frame = {0,};
   GstMeta *meta = NULL;
   gpointer state = NULL;
-  gboolean success = TRUE;
+  gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gboolean success = TRUE, correction = FALSE;
 
   while ((meta = gst_buffer_iterate_meta_filtered (outbuffer, &state,
               GST_VIDEO_DEPTH_META_API_TYPE)) != NULL) {
@@ -1709,8 +1865,13 @@ gst_overlay_draw_depthmap_entries (GstVOverlay * overlay,
     success = gst_cairo_draw_setup (blit, &frame, &surface, &context);
     g_return_val_if_fail (success, FALSE);
 
+    // Check for inverse matrix produced from preprocess.
+    correction = gst_structure_get_matrix (depthmeta->xtraparams,
+        "inverse-affine-matrix", inverse);
+
     success &= gst_overlay_handle_colormask_entry (overlay, context, blit,
-        depthmeta->colormask, depthmeta->n_columns, depthmeta->n_rows);
+        depthmeta->colormask, depthmeta->n_columns, depthmeta->n_rows,
+        &(blit->destination), correction ? inverse : NULL);
     gst_cairo_draw_cleanup (&frame, surface, context);
 
     // Increase the index with the number of populated blit objects.
