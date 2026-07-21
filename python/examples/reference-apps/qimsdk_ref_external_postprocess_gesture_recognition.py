@@ -5,6 +5,7 @@
 """Custom tensor postprocess example."""
 
 import argparse
+import math
 import sys
 import gi
 gi.require_version("GLib", "2.0")
@@ -412,6 +413,51 @@ def map_coords_to_region(coords: np.ndarray,
     return (kp_x, kp_y)
 
 
+# Turns the axis-aligned palm box into a rotated, hand-sized ROI for the 
+# landmark-model crop stage.
+K_HAND_SCALE = 2.6
+K_HAND_OFFSET = -0.5
+
+
+def compute_rectangle_affine_matrix(left: float, top: float, right: float, bottom: float,
+        landmark: np.ndarray, region_w: int, region_h: int) -> List[float]:
+    # landmark: [K][2] array in box-relative [0,1] coords, same order as LANDMARK_NAMES
+    width = right - left
+    height = bottom - top
+
+    wrist_x, wrist_y = landmark[0]    # wrist_center
+    middle_x, middle_y = landmark[2]  # middle_base
+
+    # Re-derive into isotropic pixel space of the input-tensor region so the
+    # rotation angle isn't skewed by a non-square box.
+    wx = (left + wrist_x * width) * region_w
+    wy = (top + wrist_y * height) * region_h
+    mx = (left + middle_x * width) * region_w
+    my = (top + middle_y * height) * region_h
+
+    rotation = math.pi / 2 - math.atan2(-(my - wy), mx - wx)
+    rotation -= 2.0 * math.pi * math.floor((rotation + math.pi) / (2.0 * math.pi))
+
+    cosine, sine = math.cos(rotation), math.sin(rotation)
+    pixheight = height * region_h
+
+    tx = -pixheight * K_HAND_OFFSET * sine / region_w
+    ty = pixheight * K_HAND_OFFSET * cosine / region_h
+
+    cx, cy = left + width / 2.0, top + height / 2.0
+    lx, ly = K_HAND_SCALE * cosine, K_HAND_SCALE * sine
+    aspect = region_h / region_w
+
+    tx += (1 - lx) * cx + ly * cy * aspect
+    ty += -(ly * cx / aspect) + (1 - lx) * cy
+
+    # Gst.ValueArray/Structure.set_value rejects numpy scalar types (e.g. np.float32,
+    # which upstream tensors are cast to) -> must be plain python float.
+    return [float(v) for v in (lx, -ly * aspect, tx,
+            ly / aspect, lx, ty,
+            0.0, 0.0, 1.0)]
+
+
 ############################### CALLBACKS ###############################
 
 
@@ -503,6 +549,15 @@ def palmd_callback(mlframe, mlparams, detections: ObjectDetections):
             lmk_list.append(lmk)
 
         detection.landmarks = lmk_list
+
+        _, _, region_w, region_h = region
+
+        matrix = compute_rectangle_affine_matrix(left, top, right, bottom, landmark,
+                                                   region_w, region_h)
+
+        xtraparams = Gst.Structure.new_empty("xtraparams")
+        xtraparams.set_value("rectangle-affine-matrix", Gst.ValueArray(matrix))
+        detection.xtraparams = xtraparams
 
         detections.append(detection)
 
@@ -760,16 +815,7 @@ def create_and_execute_pipeline() -> None:
     # Merges palm-detection metadata produced by stage 01 with the original video frames.
     metamux_1 = Element("qtimetamux", "metamux_1")
 
-    # Queues the merged stream before the ROI transform.
-    q_roi = Element("queue", "q_roi")
-
-    # Crops the merged stream down to the detected hand ROI for stage 02.
-    roi_transform = (
-        Element("qtimetatransform", "roi_transform")
-        .set("module", "roi-palmd")
-    )
-
-    # Splits the ROI-cropped stream into the MetaMux2-passthrough and stage 02 branches.
+    # Splits the merged stream into the MetaMux2-passthrough and stage 02 branches.
     t_split_2 = Element("tee", "t_split_2")
 
     # Queues frames from the second tee into the hand-landmark preprocess stage.
@@ -892,8 +938,6 @@ def create_and_execute_pipeline() -> None:
         .add(palmd_postprocessing)
         .add_stream_filter("mlf_s1", mlf_s1)
         .add(metamux_1)
-        .add(q_roi)
-        .add(roi_transform)
         .add(t_split_2)
         .add(q_s2_pre)
         .add(stage_02_preproc)
@@ -921,16 +965,13 @@ def create_and_execute_pipeline() -> None:
         .link("src", "vf", "t_split_1")
 
         # Raw video -> MetaMux1
-        .link("t_split_1", "metamux_1")
+        .link("t_split_1", "metamux_1", "t_split_2")
 
         # Stage 01 ML
         .link("t_split_1", "q_s1_pre", "stage_01_preproc",
             "q_s1_inf", "stage_01_inference",
             "q_s1_post", "stage_01_postproc",
             "mlf_s1", "metamux_1")
-
-        # ROI transform
-        .link("metamux_1", "q_roi", "roi_transform", "t_split_2")
 
         # Stage 02
         .link("t_split_2", "q_s2_pre", "stage_02_preproc",

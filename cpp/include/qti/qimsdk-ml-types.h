@@ -105,6 +105,7 @@ struct MLParam {
     Double,
     Bool,
     String,
+    DoubleArray,
   };
 
   struct Value {
@@ -117,6 +118,7 @@ struct MLParam {
     double d = 0.0;
     bool b = false;
     std::string s;
+    std::vector<double> arr;
 
     Value() = default;
     Value(int32_t v) : type(ValueType::Int), i(v) {}
@@ -128,6 +130,7 @@ struct MLParam {
     Value(bool v) : type(ValueType::Bool), b(v) {}
     Value(const std::string& v) : type(ValueType::String), s(v) {}
     Value(const char* v) : type(ValueType::String), s(v) {}
+    Value(const std::vector<double>& v) : type(ValueType::DoubleArray), arr(v) {}
   };
 
   std::vector<std::pair<std::string, Value>> fields;

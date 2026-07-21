@@ -47,6 +47,14 @@ G_BEGIN_DECLS
 #define GST_FLOAT_COLOR_BLUE(color)    (((color >> 8) & 0xFF) / 255.0)
 #define GST_FLOAT_COLOR_ALPHA(color)   (((color) & 0xFF) / 255.0)
 
+// Convert a 0xRRGGBBAA color (as read by GST_COLOR_RED/GREEN/BLUE/ALPHA) into
+// a 0xAARRGGBB pixel value, matching cairo's native CAIRO_FORMAT_ARGB32 layout.
+#define GST_COLOR_TO_ABGR(color)               \
+    (((guint32)(color) & 0x000000FFu) << 24) | \
+    (((guint32)(color) & 0x0000FF00u) <<  8) | \
+    (((guint32)(color) & 0x00FF0000u) >>  8) | \
+    (((guint32)(color) & 0xFF000000u) >> 24)
+
 // The bit offset where the stream ID can be embedded in a variable
 #define GST_MUX_STREAM_ID_OFFSET       24
 #define GST_MUX_STREAM_ID_MASK         (0xFF << GST_MUX_STREAM_ID_OFFSET)
@@ -181,6 +189,36 @@ GST_API gchar *
 gst_structure_to_json_string (GstStructure * structure);
 
 /**
+ * gst_structure_set_matrix:
+ * @structure: A #GstStructure holding custom parameters.
+ * @name: The name of the matrix field.
+ * @matrix: (in) (array fixed-size=9) (element-type gdouble):
+ *          The 3x3 affine transformation matrix to be stored.
+ *
+ * Helper function for writing a 3x3 affine matrix in @structure.
+ *
+ * Returns: None
+ */
+GST_API void
+gst_structure_set_matrix (GstStructure * structure, const gchar * name,
+                          gdouble matrix[3][3]);
+
+/**
+ * gst_structure_get_matrix:
+ * @structure: A #GstStructure holding custom parameters.
+ * @name: The name of the matrix field.
+ * @matrix: (out) (array fixed-size=9) (element-type gdouble):
+ *          Resulting 3x3 affine transformation matrix.
+ *
+ * Helper function for reading a 3x3 affine matrix from @structure
+ *
+ * Returns: TRUE on success or FALSE on failure
+ */
+GST_API gboolean
+gst_structure_get_matrix (const GstStructure * structure, const gchar * name,
+                          gdouble matrix[3][3]);
+
+/**
  * gst_buffer_get_protection_meta_id:
  * @buffer: A #GstBuffer
  * @name: The name of the #GstProtectionMeta.
@@ -204,6 +242,38 @@ gst_buffer_get_protection_meta_id (GstBuffer * buffer, const gchar * name);
  */
 GST_API void
 gst_buffer_copy_protection_meta (GstBuffer * destination, GstBuffer * source);
+
+/**
+ * gst_matrix_multiply:
+ * @l_matrix: (in) (array length=size) (transfer none):
+ *            Left matrix operand, row-major flat array
+ * @r_matrix: (in) (array length=size) (transfer none):
+ *            Right matrix operand, row-major flat array
+ * @size: (in): Total number of elements in the matrices (N×N, e.g. 9 for a 3×3)
+ * @matrix: (out caller-allocates) (array length=size) (transfer none):
+ *          Output matrix, row-major flat array
+ *
+ * Multiply two matrices together.
+ *
+ * Returns: TRUE on success or FALSE on failure
+ */
+GST_API gboolean
+gst_matrix_multiply (const gdouble * l_matrix, const gdouble * r_matrix,
+                     const guint size, gdouble * matrix);
+
+/**
+ * gst_matrix_inverse:
+ * @matrix: (in) (array length=size) (transfer none): Input matrix to invert
+ * @size: (in): Total number of elements in the matrices (N×N, e.g. 9 for a 3×3)
+ * @inverse: (out caller-allocates) (array length=size) (transfer none):
+ *           Output matrix for the inverse
+ *
+ * Calculate the inverse of a matrix using Gauss-Jordan elimination.
+ *
+ * Returns: TRUE on success or FALSE on failure
+ */
+GST_API gboolean
+gst_matrix_inverse (const gdouble * matrix, const guint size, gdouble * inverse);
 
 #if !GLIB_CHECK_VERSION(2, 76, 0)
 /**

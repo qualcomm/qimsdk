@@ -131,31 +131,6 @@ gst_ml_pose_relative_transform (GstMLPose * pose,
   }
 }
 
-void
-gst_ml_pose_affine_transform (GstMLPose * pose, gdouble matrix[3][3])
-{
-  guint idx = 0, length = 0;
-
-  g_return_if_fail (pose != NULL);
-
-  length = pose->keypoints ? pose->keypoints->len : 0;
-
-  for (idx = 0; idx < length; idx++) {
-    GstMLKeypoint *kp = &(g_array_index (pose->keypoints, GstMLKeypoint, idx));
-    gst_ml_keypoint_affine_transform (kp, matrix);
-  }
-
-  length = pose->links ? pose->links->len : 0;
-
-  for (idx = 0; idx < length; idx++) {
-    GstMLKeypointLink *link =
-        &(g_array_index (pose->links, GstMLKeypointLink, idx));
-
-    gst_ml_keypoint_affine_transform (&(link->l_kp), matrix);
-    gst_ml_keypoint_affine_transform (&(link->r_kp), matrix);
-  }
-}
-
 GstStructure *
 gst_ml_pose_to_structure (GstMLPose * pose)
 {

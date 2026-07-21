@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
+#include <getopt.h>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -12,7 +13,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <getopt.h>
 
 #include <qti/qimsdk.h>
 
@@ -24,9 +24,11 @@ static const std::vector<float> kAnchorSizes = {8, 16, 16, 16};
 
 static const float kNmsIntersectionThreshold = 0.5f;
 
-constexpr uint32_t kExpectedTensors = 4;
+// Enlarge the palm box to cover the whole hand and shift it towards the fingers.
+constexpr float kHandScale = 2.6f;
+constexpr float kHandOffset = -0.5f;
 
-using namespace qti;
+constexpr uint32_t kExpectedTensors = 4;
 
 namespace {
 
@@ -35,10 +37,10 @@ struct KeypointLinkIds {
   uint32_t d_kp_id;
 
   KeypointLinkIds()
-      : s_kp_id(0), d_kp_id(0) {};
+      : s_kp_id(0), d_kp_id(0) {}
 
   KeypointLinkIds(uint32_t s_kp_id, uint32_t d_kp_id)
-      : s_kp_id(s_kp_id), d_kp_id(d_kp_id) {};
+      : s_kp_id(s_kp_id), d_kp_id(d_kp_id) {}
 };
 
 float IntersectionScore(const MLDetection &l_box,
@@ -113,6 +115,46 @@ void TransformDimensions(MLDetection &box,
   box.bottom = (box.bottom - region.y) / region.height;
   box.left = (box.left - region.x) / region.width;
   box.right = (box.right - region.x) / region.width;
+}
+
+// Computes the hand-box affine matrix
+// return row-major for the rectangle-affine-matrix xtraparam
+std::vector<double> ComputeRectangleAffineMatrix(const MLDetection& entry,
+                                                 const Region& region) {
+  float width = entry.right - entry.left;
+  float height = entry.bottom - entry.top;
+
+  // Keypoint 0 is wrist_center, keypoint 2 is middle_base.
+  const MLKeypoint& wrist = entry.landmarks[0];
+  const MLKeypoint& middle = entry.landmarks[2];
+
+  // Re-project into the region's pixel space so rotation isn't skewed by a non-square box.
+  float wx = (entry.left + wrist.x * width) * region.width;
+  float wy = (entry.top + wrist.y * height) * region.height;
+  float mx = (entry.left + middle.x * width) * region.width;
+  float my = (entry.top + middle.y * height) * region.height;
+
+  float rotation = static_cast<float>(M_PI_2) - std::atan2(-(my - wy), mx - wx);
+  rotation -= 2.0f * static_cast<float>(M_PI) *
+      std::floor((rotation + static_cast<float>(M_PI)) / (2.0f * static_cast<float>(M_PI)));
+
+  float cosine = std::cos(rotation);
+  float sine = std::sin(rotation);
+  float pixheight = height * region.height;
+
+  float tx = -pixheight * kHandOffset * sine / region.width;
+  float ty = pixheight * kHandOffset * cosine / region.height;
+
+  double cx = entry.left + width / 2.0f;
+  double cy = entry.top + height / 2.0f;
+  double lx = kHandScale * cosine;
+  double ly = kHandScale * sine;
+  double aspect = static_cast<double>(region.height) / region.width;
+
+  tx += ((1 - lx) * cx) + (ly * cy * aspect);
+  ty += -(ly * cx / aspect) + ((1 - lx) * cy);
+
+  return {lx, -ly * aspect, tx, ly / aspect, lx, ty, 0.0, 0.0, 1.0};
 }
 
 }  // namespace
@@ -225,6 +267,12 @@ bool decode_object_detection(const MLFrame& frame,
                 << " [" << lmk.x
                 << ", " << lmk.y
                 << "]" << std::endl;
+    }
+
+    if (entry.landmarks.size() >= 3) {
+      entry.extra.fields.emplace_back(
+          "rectangle-affine-matrix",
+          MLParam::Value(ComputeRectangleAffineMatrix(entry, region)));
     }
 
     detections.push_back(entry);
@@ -475,7 +523,7 @@ static std::string input_config;
 //  Example pipeline:
 //
 //    source → [vf] → t_split_1
-//      ├─→ metamux_1 → q22 → metatransform → t_split_2
+//      ├─→ metamux_1 → t_split_2
 //      └─→ q5 → stage_01_preproc → q6 → stage_01_inference → q7 → stage_01_postproc → [tf1] → metamux_1
 //
 //    t_split_2
@@ -525,13 +573,6 @@ void create_and_execute_pipeline() {
 
   // Merges metadata produced by the ML branch with original video frames.
   Element metamux_1("qtimetamux", "metamux_1");
-
-  // Queues data between pipeline stages.
-  Element q22("queue", "q22");
-
-  // Transforms metadata for downstream processing stages.
-  Element metatransform("qtimetatransform", "metatransform");
-  metatransform.set("module", "roi-palmd");
 
   // Splits decoded frames into display and ML branches.
   Element t_split_2("tee", "t_split_2");
@@ -668,8 +709,6 @@ void create_and_execute_pipeline() {
           .add_stream_filter("vf", vf)
           .add(t_split_1)
           .add(metamux_1)
-          .add(q22)
-          .add(metatransform)
           .add(t_split_2)
           .add(q5)
           .add(q6)
@@ -691,7 +730,7 @@ void create_and_execute_pipeline() {
           .add_stream_filter("tf3", tf3)
 
           .link("source", "vf", "t_split_1")
-          .link("t_split_1", "metamux_1", "q22", "metatransform", "t_split_2")
+          .link("t_split_1", "metamux_1", "t_split_2")
           .link("t_split_1", "q5", "stage_01_preproc", "q6", "stage_01_inference", "q7", "stage_01_postproc", "tf1", "metamux_1")
           .link("t_split_2", "metamux_2", "q23", "overlay", "display")
           .link("t_split_2", "q14", "stage_02_preproc", "q15", "stage_02_inference", "t_split_4")

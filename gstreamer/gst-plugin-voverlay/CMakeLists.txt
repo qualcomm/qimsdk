@@ -22,6 +22,7 @@ pkg_check_modules(GST_QCOM_UTILS REQUIRED gstreamer-qcom-oss-utils-1.0>=1.0.0)
 pkg_check_modules(GST_QCOM_VIDEO REQUIRED gstreamer-qcom-oss-video-1.0>=1.0.0)
 pkg_check_modules(GST_QCOM_ALLOC REQUIRED gstreamer-qcom-oss-allocators-1.0>=1.0.0)
 pkg_check_modules(GST_QCOM_CV REQUIRED gstreamer-qcom-oss-cv-1.0>=1.0.0)
+pkg_check_modules(GST_QCOM_ML REQUIRED gstreamer-qcom-oss-ml-1.0>=1.0.0)
 
 # Generate configuration header file with plugin describing definitions
 configure_file(config.h.in config.h @ONLY)
@@ -49,6 +50,7 @@ target_include_directories(${GST_QTI_OVERLAY} PUBLIC
   ${GST_QCOM_VIDEO_INCLUDE_DIRS}
   ${GST_QCOM_ALLOC_INCLUDE_DIRS}
   ${GST_QCOM_CV_INCLUDE_DIRS}
+  ${GST_QCOM_ML_INCLUDE_DIRS}
 )
 
 target_link_libraries(${GST_QTI_OVERLAY} PRIVATE
@@ -60,8 +62,9 @@ target_link_libraries(${GST_QTI_OVERLAY} PRIVATE
   ${FONTCONFIG_LIBRARIES}
   ${GST_QCOM_UTILS_LIBRARIES}
   ${GST_QCOM_VIDEO_LIBRARIES}
-  ${GST_QCOM_CV_LIBRARIES}
   ${GST_QCOM_ALLOC_LIBRARIES}
+  ${GST_QCOM_CV_LIBRARIES}
+  ${GST_QCOM_ML_LIBRARIES}
   m
 )
 

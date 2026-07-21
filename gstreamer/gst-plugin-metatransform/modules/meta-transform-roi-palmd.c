@@ -147,7 +147,7 @@ gst_meta_module_process (gpointer instance, GstBuffer * buffer)
     g_value_set_double (&value, 1.0);
     gst_value_array_append_value (&matrix, &value);
 
-    gst_structure_set_value (xtraparams, "affine-matrix", &matrix);
+    gst_structure_set_value (xtraparams, "rectangle-affine-matrix", &matrix);
 
     g_value_init(&boxed, GST_TYPE_STRUCTURE);
     g_value_set_boxed(&boxed, xtraparams);

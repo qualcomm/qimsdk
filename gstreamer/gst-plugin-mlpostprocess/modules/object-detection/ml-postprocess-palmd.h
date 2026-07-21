@@ -8,6 +8,7 @@
 #include "qti-ml-post-process.h"
 #include "qti-labels-parser.h"
 
+#include <array>
 #include <string>
 
 typedef std::map<uint32_t, std::map<uint32_t, std::string>> LandmarksMap;
@@ -24,12 +25,15 @@ class Module : public IModule {
 
   bool Process(const Tensors& tensors, Dictionary& mlparams,
                std::any& output) override;
+
  private:
-  void TransformDimensions(ObjectDetection &box, const Region& region);
-  float IntersectionScore(const ObjectDetection &l_box,
-                          const ObjectDetection &r_box);
-  int32_t NonMaxSuppression(const ObjectDetection &l_box,
-                            const ObjectDetections &boxes);
+  float IntersectionScore(const ObjectDetection &l_entry,
+                          const ObjectDetection &r_entry);
+
+  int32_t NonMaxSuppression(const ObjectDetection &l_entry,
+                            const ObjectDetections &entries);
+
+  void ComputeTransformMatrix(ObjectDetection &entry, const Region& region);
 
   // Logging callback.
   LogCallback  logger_;

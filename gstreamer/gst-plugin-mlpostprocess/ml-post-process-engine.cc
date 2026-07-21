@@ -332,13 +332,39 @@ gst_ml_postprocess_enumarate_modules (const gchar * type)
   return variants;
 }
 
+static gboolean
+gst_ml_xtraparams_extract_affine_matrix (
+    std::optional<Dictionary>& dictionary, gdouble matrix[3][3])
+{
+  if (!dictionary)
+    return FALSE;
+
+  if (dictionary->count("rectangle-affine-matrix") == 0)
+    return FALSE;
+
+  const auto& val = dictionary->at("rectangle-affine-matrix");
+
+  if (val.type() != typeid(std::vector<double>))
+    return FALSE;
+
+  const auto& values = std::any_cast<std::vector<double>>(val);
+
+  if (values.size() != 9)
+    return FALSE;
+
+  for (size_t idx = 0; idx < values.size(); idx++)
+    matrix[idx / 3][idx % 3] = values[idx];
+
+  return TRUE;
+}
+
 static GstStructure*
 gst_ml_xtraparams_translate (std::optional<Dictionary>& dictionary)
 {
   if (!dictionary)
     return NULL;
 
-  GstStructure *structure = gst_structure_new_empty("xtraparams");
+  GstStructure *structure = gst_structure_new_empty ("xtraparams");
 
   for (const auto& [key, val] : dictionary.value()) {
     if (val.type() == typeid(int32_t)) {
@@ -356,6 +382,20 @@ gst_ml_xtraparams_translate (std::optional<Dictionary>& dictionary)
     } else if (val.type() == typeid(std::string)) {
       gst_structure_set(structure, key.c_str(),
           G_TYPE_STRING, std::any_cast<std::string>(val).c_str(), NULL);
+    } else if (val.type() == typeid(std::vector<double>)) {
+      const auto& values = std::any_cast<std::vector<double>>(val);
+      GValue array = G_VALUE_INIT, entry = G_VALUE_INIT;
+
+      g_value_init (&array, GST_TYPE_ARRAY);
+      g_value_init (&entry, G_TYPE_DOUBLE);
+
+      for (double value : values) {
+        g_value_set_double (&entry, value);
+        gst_value_array_append_value (&array, &entry);
+      }
+
+      g_value_unset (&entry);
+      gst_structure_take_value (structure, key.c_str(), &array);
     } else {
       g_warning("Unsupported type for key '%s'", key.c_str());
     }
@@ -486,49 +526,25 @@ gst_ml_detections_intersection_score (ObjectDetection& l_entry,
 }
 
 static inline void
-gst_ml_detection_copy_into (GstMLDetection& destination,
-    ObjectDetection& source, gboolean correction, gdouble matrix[3][3])
-{
-  destination.name = g_quark_from_string (source.name.c_str());
-  destination.color = source.color.value_or(0xFF0000FF);
-  destination.confidence = source.confidence;
-  destination.xtraparams = gst_ml_xtraparams_translate (source.xtraparams);
-
-  destination.left = source.left;
-  destination.top = source.top;
-  destination.right = source.right;
-  destination.bottom = source.bottom;
-
-  if (correction)
-    gst_ml_detection_affine_transform (&destination, matrix);
-}
-
-static inline void
-gst_ml_keypoint_copy_into (GstMLKeypoint& destination, Keypoint& source,
-    gboolean correction, gdouble matrix[3][3])
+gst_ml_keypoint_copy_into (GstMLKeypoint& destination, Keypoint& source)
 {
   destination.name = g_quark_from_string(source.name.c_str());
   destination.color = source.color.value_or(0xFF0000FF);
   destination.x = source.x;
   destination.y = source.y;
   destination.confidence = source.confidence;
-
-  if (correction)
-    gst_ml_keypoint_affine_transform (&destination, matrix);
 }
 
 static inline void
-gst_ml_link_copy_into (GstMLKeypointLink& destination, KeypointLink& source,
-    gboolean correction, gdouble matrix[3][3])
+gst_ml_link_copy_into (GstMLKeypointLink& destination, KeypointLink& source)
 {
-  gst_ml_keypoint_copy_into (destination.l_kp, source.l_kp, correction, matrix);
-  gst_ml_keypoint_copy_into (destination.r_kp, source.r_kp, correction, matrix);
+  gst_ml_keypoint_copy_into (destination.l_kp, source.l_kp);
+  gst_ml_keypoint_copy_into (destination.r_kp, source.r_kp);
   destination.color = source.color.value_or(0xFF0000FF);
 }
 
 static inline void
-gst_ml_value_array_append_keypoint (GValue * array, Keypoint& keypoint,
-    gboolean correction, gdouble matrix[3][3])
+gst_ml_value_array_append_keypoint (GValue * array, Keypoint& keypoint)
 {
   GValue value = G_VALUE_INIT;
   GstMLKeypoint newkeypoint = {};
@@ -537,7 +553,7 @@ gst_ml_value_array_append_keypoint (GValue * array, Keypoint& keypoint,
       keypoint.x, keypoint.y, keypoint.confidence);
 
   g_value_init (&value, GST_TYPE_STRUCTURE);
-  gst_ml_keypoint_copy_into (newkeypoint, keypoint, correction, matrix);
+  gst_ml_keypoint_copy_into (newkeypoint, keypoint);
 
   g_value_take_boxed (&value, gst_ml_keypoint_to_structure (&newkeypoint));
   gst_value_array_append_and_take_value (array, &value);
@@ -630,13 +646,28 @@ gst_ml_detections_serialize (std::vector<ObjectDetection>& predictions,
   if (gst_structure_has_field (mlparam, "stream-id"))
     gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
-  gdouble matrix[3][3] = {};
-  auto correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
+  // Propagate the inverse affine matrix produced by preprocess downstream.
+  const GValue *value = gst_structure_get_value (mlparam, "inverse-affine-matrix");
 
   for (size_t idx = 0; idx < predictions.size(); idx++) {
     auto& entry = predictions[idx];
 
-    gst_ml_detection_copy_into (detection, entry, correction, matrix);
+    detection.name = g_quark_from_string (entry.name.c_str());
+    detection.color = entry.color.value_or(0xFF0000FF);
+    detection.confidence = entry.confidence;
+    detection.xtraparams = gst_ml_xtraparams_translate (entry.xtraparams);
+
+    detection.left = entry.left;
+    detection.top = entry.top;
+    detection.right = entry.right;
+    detection.bottom = entry.bottom;
+
+    if ((value != NULL) && (detection.xtraparams == NULL))
+      detection.xtraparams = gst_structure_new_empty ("xtraparams");
+
+    if (value != NULL)
+      gst_structure_set_value (detection.xtraparams, "inverse-affine-matrix", value);
+
     GstStructure *structure = gst_ml_detection_to_structure (&detection);
 
     GST_TRACE ("Object: '%s' [%f %f %f %f] Confidence: %f", entry.name.c_str(),
@@ -647,7 +678,7 @@ gst_ml_detections_serialize (std::vector<ObjectDetection>& predictions,
       g_value_init (&array, GST_TYPE_ARRAY);
 
       for (auto& kp : entry.landmarks.value())
-        gst_ml_value_array_append_keypoint (&array, kp, correction, matrix);
+        gst_ml_value_array_append_keypoint (&array, kp);
 
       gst_structure_take_value (structure, "landmarks", &array);
     }
@@ -669,8 +700,10 @@ gst_ml_detections_visualize (std::vector<ObjectDetection>& predictions,
   GstVideoRegionOfInterestMeta *roimeta =
       gst_buffer_setup_image_region (vframe->buffer, mlparam);
 
-  gdouble matrix[3][3] = {};
-  auto correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
+  gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gdouble matrix[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+
+  gst_structure_get_matrix (mlparam, "inverse-affine-matrix", inverse);
 
   gboolean success = gst_cairo_draw_setup (vframe, &surface, &context);
   g_return_val_if_fail (success, FALSE);
@@ -678,15 +711,36 @@ gst_ml_detections_visualize (std::vector<ObjectDetection>& predictions,
   for (size_t idx = 0; (idx < predictions.size()) && success; idx++) {
     auto& entry = predictions[idx];
 
-    gst_ml_detection_copy_into (detection, entry, correction, matrix);
-    success = gst_cairo_draw_detection (context, &detection, roimeta);
+    detection.name = g_quark_from_string (entry.name.c_str());
+    detection.color = entry.color.value_or(0xFF0000FF);
+    detection.confidence = entry.confidence;
+
+    detection.left = entry.left;
+    detection.top = entry.top;
+    detection.right = entry.right;
+    detection.bottom = entry.bottom;
+
+    // Check for affine matrix from module which to merge with inverse matrix
+    // from preprocess or just to pass to the draw function directly.
+    gdouble affine[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+
+    gst_ml_xtraparams_extract_affine_matrix (entry.xtraparams, affine);
+    gst_matrix_multiply (&inverse[0][0], &affine[0][0], 9, &matrix[0][0]);
+
+    success = gst_cairo_draw_detection (context, &detection, roimeta, matrix);
 
     if (!entry.landmarks || !success)
       continue;
 
+    // We apply only the inverse affine matrix on landmarks.
     for (size_t num = 0; (num < entry.landmarks->size()) && success; num++) {
-      gst_ml_keypoint_copy_into (kp, entry.landmarks->at(num), correction, matrix);
-      success = gst_cairo_draw_keypoint (context, &kp, roimeta);
+      gst_ml_keypoint_copy_into (kp, entry.landmarks->at(num));
+
+      // Translate to buffer ROI coordinates from bounding box coordinates.
+      kp.x = detection.left + kp.x * (detection.right - detection.left);
+      kp.y = detection.top + kp.y * (detection.bottom - detection.top);
+
+      success = gst_cairo_draw_keypoint (context, &kp, roimeta, inverse);
     }
   }
 
@@ -707,8 +761,8 @@ gst_ml_poses_serialize (std::vector<PoseEstimation>& predictions,
   if (gst_structure_has_field (mlparam, "stream-id"))
     gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
-  gdouble matrix[3][3] = {};
-  auto correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
+  // Propagate the inverse affine matrix produced by preprocess downstream.
+  const GValue *value = gst_structure_get_value (mlparam, "inverse-affine-matrix");
 
   for (size_t idx = 0; idx < predictions.size(); idx++) {
     auto& entry = predictions[idx];
@@ -717,13 +771,21 @@ gst_ml_poses_serialize (std::vector<PoseEstimation>& predictions,
     pose.confidence = entry.confidence;
     pose.xtraparams = gst_ml_xtraparams_translate (entry.xtraparams);
 
+    if ((value != NULL) && (pose.xtraparams == NULL))
+      pose.xtraparams = gst_structure_new_empty ("xtraparams");
+
+    if (value != NULL)
+      gst_structure_set_value (pose.xtraparams, "inverse-affine-matrix", value);
+
     GstStructure *structure = gst_ml_pose_to_structure (&pose);
     GValue array = G_VALUE_INIT;
+
+    GST_TRACE ("Pose: '%s' Confidence: %f", entry.name.c_str(), entry.confidence);
 
     g_value_init (&array, GST_TYPE_ARRAY);
 
     for (auto& kp : entry.keypoints)
-      gst_ml_value_array_append_keypoint (&array, kp, correction, matrix);
+      gst_ml_value_array_append_keypoint (&array, kp);
 
     gst_structure_take_value (structure, "keypoints", &array);
     g_value_init (&array, GST_TYPE_ARRAY);
@@ -750,8 +812,8 @@ gst_ml_poses_visualize (std::vector<PoseEstimation>& predictions,
   GstVideoRegionOfInterestMeta *roimeta =
       gst_buffer_setup_image_region (vframe->buffer, mlparam);
 
-  gdouble matrix[3][3] = {};
-  auto correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
+  gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gst_structure_get_matrix (mlparam, "inverse-affine-matrix", inverse);
 
   gboolean success = gst_cairo_draw_setup (vframe, &surface, &context);
   g_return_val_if_fail (success, FALSE);
@@ -760,16 +822,16 @@ gst_ml_poses_visualize (std::vector<PoseEstimation>& predictions,
     auto& entry = predictions[idx];
 
     for (size_t num = 0; (num < entry.keypoints.size()) && success; num++) {
-      gst_ml_keypoint_copy_into (kp, entry.keypoints[num], correction, matrix);
-      success = gst_cairo_draw_keypoint (context, &kp, roimeta);
+      gst_ml_keypoint_copy_into (kp, entry.keypoints[num]);
+      success = gst_cairo_draw_keypoint (context, &kp, roimeta, inverse);
     }
 
     if (!entry.links || !success)
       continue;
 
     for (size_t num = 0; (num < entry.links->size()) && success; num++) {
-      gst_ml_link_copy_into (link, entry.links->at(num), correction, matrix);
-      success = gst_cairo_draw_link (context, &link, roimeta);
+      gst_ml_link_copy_into (link, entry.links->at(num));
+      success = gst_cairo_draw_link (context, &link, roimeta, inverse);
     }
   }
 
@@ -791,6 +853,9 @@ gst_ml_segmentations_serialize (std::vector<Segmentation>& predictions,
   if (gst_structure_has_field (mlparam, "stream-id"))
     gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
+  // Propagate the inverse affine matrix produced by preprocess downstream.
+  const GValue *value = gst_structure_get_value (mlparam, "inverse-affine-matrix");
+
   for (size_t idx = 0; idx < predictions.size(); idx++) {
     auto& entry = predictions[idx];
 
@@ -798,8 +863,14 @@ gst_ml_segmentations_serialize (std::vector<Segmentation>& predictions,
     segmentation.n_columns = entry.n_columns;
     segmentation.xtraparams = gst_ml_xtraparams_translate (entry.xtraparams);
 
+    if ((value != NULL) && (segmentation.xtraparams == NULL))
+      segmentation.xtraparams = gst_structure_new_empty ("xtraparams");
+
+    if (value != NULL)
+      gst_structure_set_value (segmentation.xtraparams, "inverse-affine-matrix", value);
+
     GstStructure *structure = gst_ml_segmentation_to_structure (&segmentation);
-    GValue value = G_VALUE_INIT;
+    GValue entryvalue = G_VALUE_INIT;
 
     GArray *labels =
         g_array_sized_new (FALSE, FALSE, sizeof (GQuark), entry.labels.size());
@@ -814,16 +885,16 @@ gst_ml_segmentations_serialize (std::vector<Segmentation>& predictions,
     string = g_base64_encode (reinterpret_cast<guchar*>(labels->data), size);
     g_array_free (labels, TRUE);
 
-    g_value_init (&value, G_TYPE_STRING);
-    g_value_take_string (&value, string);
-    gst_structure_take_value (structure, "labels", &value);
+    g_value_init (&entryvalue, G_TYPE_STRING);
+    g_value_take_string (&entryvalue, string);
+    gst_structure_take_value (structure, "labels", &entryvalue);
 
     size = entry.n_rows * entry.n_columns * sizeof(uint32_t);
     string = g_base64_encode (reinterpret_cast<guchar*>(entry.colors.data()), size);
 
-    g_value_init (&value, G_TYPE_STRING);
-    g_value_take_string (&value, string);
-    gst_structure_take_value (structure, "colors", &value);
+    g_value_init (&entryvalue, G_TYPE_STRING);
+    g_value_take_string (&entryvalue, string);
+    gst_structure_take_value (structure, "colors", &entryvalue);
 
     guint32 id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
@@ -840,6 +911,10 @@ gst_ml_segmentations_visualize (std::vector<Segmentation>& predictions,
   GstVideoRegionOfInterestMeta *roimeta =
       gst_buffer_setup_image_region (vframe->buffer, mlparam);
 
+  gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gboolean correction =
+      gst_structure_get_matrix (mlparam, "inverse-affine-matrix", inverse);
+
   gboolean success = gst_cairo_draw_setup (vframe, &surface, &context);
   g_return_val_if_fail (success, FALSE);
 
@@ -847,7 +922,7 @@ gst_ml_segmentations_visualize (std::vector<Segmentation>& predictions,
     auto& entry = predictions[idx];
 
     success = gst_cairo_draw_mask (context, entry.colors.data(),
-        entry.n_rows, entry.n_columns, roimeta);
+        entry.n_rows, entry.n_columns, roimeta, correction ? inverse : NULL);
   }
 
   gst_cairo_draw_cleanup (surface, context);
@@ -868,6 +943,9 @@ gst_ml_depth_maps_serialize (std::vector<DepthMap>& predictions,
   if (gst_structure_has_field (mlparam, "stream-id"))
     gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
+  // Propagate the inverse affine matrix produced by preprocess downstream.
+  const GValue *value = gst_structure_get_value (mlparam, "inverse-affine-matrix");
+
   for (size_t idx = 0; idx < predictions.size(); idx++) {
     auto& entry = predictions[idx];
 
@@ -875,22 +953,28 @@ gst_ml_depth_maps_serialize (std::vector<DepthMap>& predictions,
     depthmap.n_columns = entry.n_columns;
     depthmap.xtraparams = gst_ml_xtraparams_translate (entry.xtraparams);
 
+    if ((value != NULL) && (depthmap.xtraparams == NULL))
+      depthmap.xtraparams = gst_structure_new_empty ("xtraparams");
+
+    if (value != NULL)
+      gst_structure_set_value (depthmap.xtraparams, "inverse-affine-matrix", value);
+
     GstStructure *structure = gst_ml_depth_map_to_structure (&depthmap);
-    GValue value = G_VALUE_INIT;
+    GValue entryvalue = G_VALUE_INIT;
 
     size = entry.n_rows * entry.n_columns * sizeof(double);
     string = g_base64_encode (reinterpret_cast<guchar*>(entry.values.data()), size);
 
-    g_value_init (&value, G_TYPE_STRING);
-    g_value_take_string (&value, string);
-    gst_structure_take_value (structure, "values", &value);
+    g_value_init (&entryvalue, G_TYPE_STRING);
+    g_value_take_string (&entryvalue, string);
+    gst_structure_take_value (structure, "values", &entryvalue);
 
     size = entry.n_rows * entry.n_columns * sizeof(uint32_t);
     string = g_base64_encode (reinterpret_cast<guchar*>(entry.colors.data()), size);
 
-    g_value_init (&value, G_TYPE_STRING);
-    g_value_take_string (&value, string);
-    gst_structure_take_value (structure, "colors", &value);
+    g_value_init (&entryvalue, G_TYPE_STRING);
+    g_value_take_string (&entryvalue, string);
+    gst_structure_take_value (structure, "colors", &entryvalue);
 
     guint32 id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
@@ -907,6 +991,10 @@ gst_ml_depth_maps_visualize (std::vector<DepthMap>& predictions,
   GstVideoRegionOfInterestMeta *roimeta =
       gst_buffer_setup_image_region (vframe->buffer, mlparam);
 
+  gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gboolean correction =
+      gst_structure_get_matrix (mlparam, "inverse-affine-matrix", inverse);
+
   gboolean success = gst_cairo_draw_setup (vframe, &surface, &context);
   g_return_val_if_fail (success, FALSE);
 
@@ -914,7 +1002,7 @@ gst_ml_depth_maps_visualize (std::vector<DepthMap>& predictions,
     auto& entry = predictions[idx];
 
     success = gst_cairo_draw_mask (context, entry.colors.data(),
-        entry.n_rows, entry.n_columns, roimeta);
+        entry.n_rows, entry.n_columns, roimeta, correction ? inverse : NULL);
   }
 
   gst_cairo_draw_cleanup (surface, context);

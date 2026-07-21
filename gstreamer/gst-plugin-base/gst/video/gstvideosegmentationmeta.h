@@ -27,7 +27,7 @@ typedef struct _GstVideoSegmentationMeta GstVideoSegmentationMeta;
  * @parent_id: Identifier of its parent ROI, used when this meta was derived.
  * @labelmask: (element-type GQuark):
  *             A #GArray of #GQuark class label for each index in the mask.
- * @colormask: (optional) (element-type guint32):
+ * @colormask: (element-type guint32):
  *             A #GArray of #guint32 color for each index in the mask.
  * @n_columns: Number of columns in the mask.
  * @n_rows: Number of rows in the mask.

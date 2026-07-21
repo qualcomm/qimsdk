@@ -1662,7 +1662,7 @@ static void on_sample(qti::Buffer buffer)
 //      split. -> stage-1 palm detection:
 //               qtimlvconverter -> qtimltflite -> qtimlpostprocess
 //               -> [mlf:text] -> qtimetamux
-//      qtimetamux -> qtimetatransform(roi-palmd) -> tee name=split_after_palm
+//      qtimetamux -> tee name=split_after_palm
 //      split_after_palm. -> stage-2 hand landmarks:
 //                           qtimlvconverter -> qtimltflite -> qtimlpostprocess
 //                           -> [mlf:text] -> qtimetamux -> qtivoverlay -> tee name=final_split
@@ -1722,15 +1722,11 @@ void create_and_execute_pipeline()
     // Queue carrying palm metadata text.
     Element q_palm_meta = Element("queue", "q_palm_meta");
 
-    // Combines the palm-detection video/metadata streams so the ROI
-    // transform below can crop the per-hand region for stage 2.
+    // Combines the palm-detection video/metadata streams for stage 2.
     // Muxes video + palm metadata.
     Element metamux_palm("qtimetamux", "metamux_palm");
-    // Converts palm detections into hand ROI metadata.
-    Element palm_roi_transform("qtimetatransform", "palm_roi_transform");
-    palm_roi_transform.set("module", "roi-palmd");
 
-    // Split after palm ROI transform into hand branch + final video branch.
+    // Split after hand branch + final video branch.
     Element split_after_palm("tee", "split_after_palm");
 
     // Stage 2: hand landmarks (21-point)
@@ -1823,7 +1819,6 @@ void create_and_execute_pipeline()
         .add_stream_filter("palm_mlf", palm_mlf)
         .add(q_palm_meta)
         .add(metamux_palm)
-        .add(palm_roi_transform)
         .add(split_after_palm)
         // Stage 2: hand landmarks
         .add(q_video_final)
@@ -1853,7 +1848,7 @@ void create_and_execute_pipeline()
         .link("split", "q_video_palm", "metamux_palm")
         .link("split", "q_palm_pre", "palm_preproc", "q_palm_infer", "palm_inf",
               "q_palm_post", "palm_post", "palm_mlf", "q_palm_meta", "metamux_palm")
-        .link("metamux_palm", "palm_roi_transform", "split_after_palm")
+        .link("metamux_palm", "split_after_palm")
         .link("split_after_palm", "q_video_final", "metamux_final")
         .link("split_after_palm", "q_hand_pre", "hand_preproc", "q_hand_infer", "hand_inf",
               "q_hand_post", "hand_post", "hand_mlf", "q_hand_meta", "metamux_final")

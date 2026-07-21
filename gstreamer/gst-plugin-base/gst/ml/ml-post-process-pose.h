@@ -122,17 +122,6 @@ gst_ml_pose_relative_transform (GstMLPose * pose,
                                 const gboolean clamp);
 
 /**
- * gst_ml_pose_affine_transform:
- * @pose: A #GstMLPose
- * @matrix: (array fixed-size=9) (element-type gdouble):
- *          A 3x3 affine transformation matrix.
- *
- * Helper function for adjusting coordinates of a ML pose with affine matrix.
- */
-GST_API void
-gst_ml_pose_affine_transform (GstMLPose * pose, gdouble matrix[3][3]);
-
-/**
  * gst_ml_pose_to_structure:
  * @pose: A #GstMLPose
  *

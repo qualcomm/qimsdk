@@ -37,7 +37,7 @@ input_config = args.input_config
 
 #  Example pipeline:
 #
-#    source -> [videostream] -> split1 -> q2 -> stage_01_preprocessing -> q3 -> stage_01_inferencing -> q1 -> stage_01_postprocessing -> [mlf_01] -> mlmuxer1 -> q11 -> metatransform -> split2 -> q5 -> stage_02_preprocessing -> q6 -> stage_02_inferencing -> split3 -> q7 -> stage_02_1_postprocessing -> [mlf_02] -> mlmuxer2 -> q12 -> overlay -> display
+#    source -> [videostream] -> split1 -> q2 -> stage_01_preprocessing -> q3 -> stage_01_inferencing -> q1 -> stage_01_postprocessing -> [mlf_01] -> mlmuxer1 -> q11 -> split2 -> q5 -> stage_02_preprocessing -> q6 -> stage_02_inferencing -> split3 -> q7 -> stage_02_1_postprocessing -> [mlf_02] -> mlmuxer2 -> q12 -> overlay -> display
 #                                                                                                                        \-> q8 -> stage_02_2_postprocessing -> q9 -> stage_03_1_inferencing -> q10 -> stage_03_2_inferencing -> q4 -> stage_03_postprocessing -> [mlf_03] -> mlmuxer2
 #
 #  The pipeline reads camera frames, runs ML inference and postprocessing,
@@ -91,12 +91,6 @@ def create_and_execute_pipeline() -> None:
 
     # Queues data between pipeline stages.
     q11 = Element("queue", "q11")
-
-    # Transforms metadata for downstream processing stages.
-    metatransform = (
-        Element("qtimetatransform", "metatransform")
-        .set("module", "roi-palmd")
-    )
 
     # Splits decoded frames into display and ML branches.
     split2 = Element("tee", "split2")
@@ -213,7 +207,6 @@ def create_and_execute_pipeline() -> None:
         .add_stream_filter("mlf_01", mlf_01)
         .add(mlmuxer1)
         .add(q11)
-        .add(metatransform)
         .add(split2)
 
         .add(q4)
@@ -239,7 +232,7 @@ def create_and_execute_pipeline() -> None:
         .add_stream_filter("mlf_03", mlf_03)
 
         .link("source", "videostream", "split1")
-        .link("split1", "mlmuxer1", "q11", "metatransform", "split2")
+        .link("split1", "mlmuxer1", "q11", "split2")
         .link("split1", "q2", "stage_01_preprocessing", "q3", "stage_01_inferencing", "q1", "stage_01_postprocessing", "mlf_01", "mlmuxer1")
         .link("split2", "mlmuxer2", "q12", "overlay", "display")
         .link("split2", "q5", "stage_02_preprocessing", "q6", "stage_02_inferencing", "split3")

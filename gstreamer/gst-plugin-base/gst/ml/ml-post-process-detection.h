@@ -135,18 +135,6 @@ GST_API void
 gst_ml_detection_relative_transform (GstMLDetection * detection,
                                      const GstVideoRectangle * region,
                                      const gboolean clamp);
-
-/**
- * gst_ml_detection_affine_transform:
- * @detection: A #GstMLDetection
- * @matrix: (array fixed-size=9) (element-type gdouble):
- *          A 3x3 affine transformation matrix.
- *
- * Helper function for adjusting coordinates of a ML detection with affine matrix.
- */
-GST_API void
-gst_ml_detection_affine_transform (GstMLDetection * detection, gdouble matrix[3][3]);
-
 /**
  * gst_ml_detection_to_structure:
  * @detection: A #GstMLDetection

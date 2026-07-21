@@ -81,6 +81,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
   ${GST_ALLOC_LIBRARIES}
   ${GST_VIDEO_LIBRARIES}
   gstqtivideobase
+  gstqtiutilsbase
 )
 
 install(
@@ -126,6 +127,7 @@ if(GIR_SCANNER AND GIR_COMPILER AND NOT HAVE_GBM_PRIV_H)
             --include=Gst-1.0
             --include=GstVideo-1.0
             --include=GstQtiVideo-1.0
+            --include=GstQtiCommon-1.0
             --add-include-path=${QTI_PLUGINS_BASE_BINARY_DIR}/gst/utils
             --add-include-path=${QTI_PLUGINS_BASE_BINARY_DIR}/gst/allocators
             --add-include-path=${QTI_PLUGINS_BASE_BINARY_DIR}/gst/gfx
@@ -161,6 +163,7 @@ if(GIR_SCANNER AND GIR_COMPILER AND NOT HAVE_GBM_PRIV_H)
     ${CMAKE_CURRENT_SOURCE_DIR}/ml-post-process-embeddings.c
     DEPENDS ${TARGET_NAME}
             GstQtiVideo-1.0
+            GstQtiCommon-1.0
   )
 
   set(TYPELIB_TARGET_NAME "GstQtiML-1.0.typelib")

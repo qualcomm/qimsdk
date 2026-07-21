@@ -8,6 +8,7 @@
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
+#include <gst/utils/common-utils.h>
 
 G_BEGIN_DECLS
 
@@ -86,16 +87,6 @@ GST_VIDEO_API const GstMetaInfo *
 gst_video_landmarks_meta_get_info (void);
 
 /**
- * gst_video_landmarks_meta_transform_coordinates: (skip):
- *
- * WARNING: INTERNAL USAGE ONLY. Subject to change.
- */
-GST_VIDEO_API void
-gst_video_landmarks_meta_transform_coordinates (GstVideoLandmarksMeta * meta,
-                                                const GstVideoRectangle * source,
-                                                const GstVideoRectangle * destination);
-
-/**
  * gst_buffer_add_video_landmarks_meta:
  * @buffer: A #GstBuffer
  * @confidence: Confidence score in the range 0.0 to 100.0
@@ -160,6 +151,19 @@ gst_buffer_get_video_landmarks_metas_parent_id (GstBuffer * buffer,
                                                 const gint parent_id);
 
 /**
+ * gst_video_landmarks_meta_get_keypoints:
+ * @meta: A #GstVideoLandmarksMeta
+ *
+ * Transform the X and Y coordinates of the keypoints with inverse-affine-matrix
+ * if present in the xtraparams of the @meta and return new array with them.
+ *
+ * Returns: (transfer full) (element-type GstVideoKeypoint):
+ *          A #GArray of #GstVideoKeypoint
+ */
+GST_VIDEO_API GArray*
+gst_video_landmarks_meta_get_keypoints (GstVideoLandmarksMeta * meta);
+
+/**
  * gst_buffer_copy_video_landmarks_meta: (skip):
  *
  * WARNING: INTERNAL USAGE ONLY. Subject to change.
@@ -167,6 +171,16 @@ gst_buffer_get_video_landmarks_metas_parent_id (GstBuffer * buffer,
 GST_VIDEO_API GstVideoLandmarksMeta *
 gst_buffer_copy_video_landmarks_meta (GstBuffer * buffer,
                                       GstVideoLandmarksMeta * meta);
+
+/**
+ * gst_video_landmarks_meta_transform_coordinates: (skip):
+ *
+ * WARNING: INTERNAL USAGE ONLY. Subject to change.
+ */
+GST_VIDEO_API void
+gst_video_landmarks_meta_transform_coordinates (GstVideoLandmarksMeta * meta,
+                                                const GstVideoRectangle * source,
+                                                const GstVideoRectangle * destination);
 
 G_END_DECLS
 

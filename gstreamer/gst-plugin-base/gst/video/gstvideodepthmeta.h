@@ -62,7 +62,7 @@ gst_video_depth_meta_get_info (void);
  * @buffer: A #GstBuffer
  * @depthvals: (transfer full) (element-type gdouble):
  *             A #GArray of #gdouble depth value for each index in the map.
- * @colormask: (optional) (transfer full) (element-type guint32):
+ * @colormask: ((transfer full) (element-type guint32):
  *             A #GArray of #guint32 color for each index in the map.
  * @n_columns: Number of columns in the map.
  * @n_rows: Number of rows in the map.

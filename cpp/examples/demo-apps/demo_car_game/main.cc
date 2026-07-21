@@ -1120,8 +1120,8 @@ static void on_sample(qti::Buffer buffer)
 //  Example pipeline:
 //
 //    v4l2src -> qtivtransform -> tee
-//      tee. -> stage-1 palm detection -> qtimetamux -> qtimetatransform
-//      qtimetatransform -> tee -> stage-2 hand landmarks -> qtimetamux
+//      tee. -> stage-1 palm detection -> qtimetamux
+//      qtimetamux -> tee -> stage-2 hand landmarks -> qtimetamux
 //      qtimetamux -> qtivoverlay -> tee
 //        -> qtivtransform -> [vf:BGRA] -> cairooverlay -> waylandsink
 //        -> qtimlmetaparser(json) -> appsink(meta_sink)
@@ -1170,12 +1170,8 @@ void create_and_execute_pipeline()
     auto palm_mlf = TextFilter();
     Element q_palm_meta = Element("queue", "q_palm_meta");
 
-    // Combines the palm-detection video/metadata streams so the ROI
-    // transform below can crop the per-hand region for stage 2.
+    // Combines the palm-detection video/metadata streams for stage 2.
     Element metamux_palm("qtimetamux", "metamux_palm");
-    // Metadata transform stage.
-    Element palm_roi_transform("qtimetatransform", "palm_roi_transform");
-    palm_roi_transform.set("module", "roi-palmd");
 
     // Stream split (tee).
     Element split_after_palm("tee", "split_after_palm");
@@ -1263,7 +1259,6 @@ void create_and_execute_pipeline()
         .add_stream_filter("palm_mlf", palm_mlf)
         .add(q_palm_meta)
         .add(metamux_palm)
-        .add(palm_roi_transform)
         .add(split_after_palm)
         // Stage 2: hand landmarks
         .add(q_video_final)
@@ -1293,7 +1288,7 @@ void create_and_execute_pipeline()
         .link("split", "q_video_palm", "metamux_palm")
         .link("split", "q_palm_pre", "palm_preproc", "q_palm_infer", "palm_inf",
               "q_palm_post", "palm_post", "palm_mlf", "q_palm_meta", "metamux_palm")
-        .link("metamux_palm", "palm_roi_transform", "split_after_palm")
+        .link("metamux_palm", "split_after_palm")
         .link("split_after_palm", "q_video_final", "metamux_final")
         .link("split_after_palm", "q_hand_pre", "hand_preproc", "q_hand_infer", "hand_inf",
               "q_hand_post", "hand_post", "hand_mlf", "q_hand_meta", "metamux_final")
