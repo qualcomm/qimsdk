@@ -14,6 +14,24 @@ install(
               WORLD_EXECUTE WORLD_READ
 )
 
+set(TARGET_NAME ml-postprocess-yolov8-obb)
+
+add_library(${TARGET_NAME} SHARED
+  ml-postprocess-yolov8-obb.cc
+)
+
+target_include_directories(${TARGET_NAME} PRIVATE
+  ${EIGEN_INCLUDE_DIRS}
+)
+
+install(
+  TARGETS ${TARGET_NAME}
+  LIBRARY DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}/imsdk/qtimlpostprocess/modules
+  PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
+              GROUP_EXECUTE GROUP_READ
+              WORLD_EXECUTE WORLD_READ
+)
+
 set(TARGET_NAME ml-postprocess-ssd-mobilenet)
 
 add_library(${TARGET_NAME} SHARED
