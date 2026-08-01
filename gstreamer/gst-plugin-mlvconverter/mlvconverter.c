@@ -282,6 +282,7 @@ gst_ml_video_disposition_get_type (void)
         "it in the centre of the output tensor", "centre"
     },
     { GST_ML_VIDEO_DISPOSITION_STRETCH,
+        "DEPRECATED. Do not use! "
         "Ignore the source image AR (Aspect Ratio) and if required stretch it's "
         "AR in order to fit completely inside the output tensor", "stretch"
     },
@@ -1014,9 +1015,13 @@ gst_ml_video_converter_update_destination (GstMLVideoConverter * mlconverter,
   destination->w = maxwidth;
   destination->h = maxheight;
 
-  // If the image disposition is simply to stretch simply return, nothing to do.
-  if ((mlconverter->disposition == GST_ML_VIDEO_DISPOSITION_STRETCH) ||
-      (mlconverter->disposition == GST_ML_VIDEO_DISPOSITION_CENTRE_CROP))
+  if (mlconverter->disposition == GST_ML_VIDEO_DISPOSITION_STRETCH) {
+    g_warning ("Stretch image disposition is deprecated. Do not use it!");
+    goto exit;
+  }
+
+  // If the image disposition is centre crop, there is nothing further to do.
+  if (mlconverter->disposition == GST_ML_VIDEO_DISPOSITION_CENTRE_CROP)
     goto exit;
 
   source = &(vblit->source);
