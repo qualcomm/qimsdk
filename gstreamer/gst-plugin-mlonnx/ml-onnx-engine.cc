@@ -462,7 +462,7 @@ gst_ml_onnx_convert_to_float (GstMLFrame *mlframe, guint idx, void *tensor_data,
 
   output = reinterpret_cast<float *>(GST_ML_FRAME_BLOCK_DATA (mlframe, idx));
   n_elements = gst_ml_info_tensor_size (&(mlframe->info), idx);
-  n_elements /= gst_ml_type_get_size (mlframe->info.type);
+  n_elements /= gst_ml_type_get_size (GST_ML_INFO_TENSOR_TYPE (&(mlframe->info), idx));
 
   // Check if we need to convert from NCHW to NHWC (4D tensor)
   if (num_dims == 4) {
@@ -586,6 +586,7 @@ gst_ml_onnx_engine_new (GstStructure * settings)
   OrtSessionOptions *session_options = NULL;
   guint n_threads = 1;
   gint execution_provider, optimization_level;
+  gboolean any_non_float = FALSE;
 
   engine = g_slice_new0 (GstMLOnnxEngine);
   g_return_val_if_fail (engine != NULL, NULL);
@@ -905,15 +906,18 @@ gst_ml_onnx_engine_new (GstStructure * settings)
       return NULL;
     }
 
-    if (i == 0) {
-      engine->ininfo->type = onnx_to_ml_type (engine->elem_type[i]);
-      if (engine->ininfo->type == GST_ML_TYPE_UNKNOWN) {
-        GST_ERROR ("Input ML type unknown!");
-        api->ReleaseTypeInfo (type_info);
-        gst_ml_onnx_engine_free (engine);
-        return NULL;
-      }
+    GST_ML_INFO_TENSOR_TYPE (engine->ininfo, i) =
+        onnx_to_ml_type (engine->elem_type[i]);
+
+    if (GST_ML_INFO_TENSOR_TYPE (engine->ininfo, i) == GST_ML_TYPE_UNKNOWN) {
+      GST_ERROR ("Input tensor %zu ML type unknown!", i);
+      api->ReleaseTypeInfo (type_info);
+      gst_ml_onnx_engine_free (engine);
+      return NULL;
     }
+
+    GST_DEBUG ("Input tensor[%zu] type: %s", i, gst_ml_type_to_string (
+        GST_ML_INFO_TENSOR_TYPE (engine->ininfo, i)));
 
     size_t num_dims;
     status = api->GetDimensionsCount (tensor_info, &num_dims);
@@ -946,9 +950,6 @@ gst_ml_onnx_engine_new (GstStructure * settings)
 
     api->ReleaseTypeInfo (type_info);
   }
-
-  GST_DEBUG ("Input tensors type: %s",
-      gst_ml_type_to_string (engine->ininfo->type));
 
   // Get output names and info
   engine->output_names = g_new0 (char *, engine->n_outputs);
@@ -996,15 +997,21 @@ gst_ml_onnx_engine_new (GstStructure * settings)
       return NULL;
     }
 
-    if (i == 0) {
-      engine->outinfo->type = onnx_to_ml_type (elem_type);
-      if (engine->outinfo->type == GST_ML_TYPE_UNKNOWN) {
-        GST_ERROR ("Output ML type unknown!");
-        api->ReleaseTypeInfo (type_info);
-        gst_ml_onnx_engine_free (engine);
-        return NULL;
-      }
+    GST_ML_INFO_TENSOR_TYPE (engine->outinfo, i) = onnx_to_ml_type (elem_type);
+
+    if (GST_ML_INFO_TENSOR_TYPE (engine->outinfo, i) == GST_ML_TYPE_UNKNOWN) {
+      GST_ERROR ("Output tensor %zu ML type unknown!", i);
+      api->ReleaseTypeInfo (type_info);
+      gst_ml_onnx_engine_free (engine);
+      return NULL;
     }
+
+    if (GST_ML_INFO_TENSOR_TYPE (engine->outinfo, i) != GST_ML_TYPE_FLOAT32) {
+      any_non_float = TRUE;
+    }
+
+    GST_DEBUG ("Output tensor[%zu] type: %s", i, gst_ml_type_to_string (
+        GST_ML_INFO_TENSOR_TYPE (engine->outinfo, i)));
 
     size_t num_dims;
     status = api->GetDimensionsCount (tensor_info, &num_dims);
@@ -1038,12 +1045,9 @@ gst_ml_onnx_engine_new (GstStructure * settings)
     api->ReleaseTypeInfo (type_info);
   }
 
-  GST_DEBUG ("Output tensors type: %s",
-      gst_ml_type_to_string (engine->outinfo->type));
-
-  // Extract quantization parameters from the model graph
-  if (engine->outinfo->type != GST_ML_TYPE_FLOAT32) {
-    gst_ml_onnx_extract_qparams (filename, engine->scales, 
+  // Extract quantization parameters from the model graph if non float tensor is found
+  if (any_non_float) {
+    gst_ml_onnx_extract_qparams (filename, engine->scales,
         engine->offsets, engine->output_names, engine->n_outputs);
   }
 
@@ -1137,7 +1141,6 @@ GstCaps *
 gst_ml_onnx_engine_get_output_caps  (GstMLOnnxEngine * engine)
 {
   GstCaps *caps = NULL;
-  GValue list = G_VALUE_INIT, value = G_VALUE_INIT;
   GstMLInfo *modified_outinfo = NULL;
 
   if (engine == NULL)
@@ -1179,25 +1182,40 @@ gst_ml_onnx_engine_get_output_caps  (GstMLOnnxEngine * engine)
     caps = gst_ml_info_to_caps (engine->outinfo);
   }
 
-  // If current type is already FLOAT, return immediately.
-  if (GST_ML_INFO_TYPE (engine->outinfo) == GST_ML_TYPE_FLOAT32)
-    return caps;
+  // The 'type' field is an array positionally parallel to 'dimensions'.
+  {
+    GValue mltypes = G_VALUE_INIT, list = G_VALUE_INIT, value = G_VALUE_INIT;
+    guint idx = 0;
 
-  g_value_init (&list, GST_TYPE_LIST);
-  g_value_init (&value, G_TYPE_STRING);
+    g_value_init (&mltypes, GST_TYPE_ARRAY);
 
-  g_value_set_string (&value, gst_ml_type_to_string (GST_ML_TYPE_FLOAT32));
-  gst_value_list_append_value (&list, &value);
+    for (idx = 0; idx < GST_ML_INFO_N_TENSORS (engine->outinfo); idx++) {
+      GstMLType type = GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx);
 
-  g_value_set_string (&value,
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
-  gst_value_list_append_value (&list, &value);
+      g_value_init (&value, G_TYPE_STRING);
 
-  // Overwrite the type field by adding FLOAT in addition to current type.
-  gst_caps_set_value (caps, "type", &list);
+      // If current type is already FLOAT, attach that same value for this tensor.
+      if (type == GST_ML_TYPE_FLOAT32) {
+        g_value_set_string (&value, gst_ml_type_to_string (type));
+        gst_value_array_append_and_take_value (&mltypes, &value);
+        continue;
+      }
 
-  g_value_unset (&value);
-  g_value_unset (&list);
+      g_value_init (&list, GST_TYPE_LIST);
+
+      g_value_set_string (&value, gst_ml_type_to_string (GST_ML_TYPE_FLOAT32));
+      gst_value_list_append_value (&list, &value);
+
+      g_value_set_string (&value, gst_ml_type_to_string (type));
+      gst_value_list_append_and_take_value (&list, &value);
+
+      gst_value_array_append_and_take_value (&mltypes, &list);
+    }
+
+    // Overwrite the type field by adding FLOAT in addition to current type.
+    gst_caps_set_value (caps, "type", &mltypes);
+    g_value_unset (&mltypes);
+  }
 
   return caps;
 }

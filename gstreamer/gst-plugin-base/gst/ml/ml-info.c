@@ -56,9 +56,6 @@ gst_ml_info_init (GstMLInfo * info)
   g_return_if_fail (info != NULL);
 
   memset (info, 0, sizeof (GstMLInfo));
-
-  info->type = GST_ML_TYPE_UNKNOWN;
-  info->n_tensors = 0;
 }
 
 GstMLInfo *
@@ -93,14 +90,7 @@ gst_ml_info_set_tensor (GstMLInfo * info, guint index, GstMLType type,
   g_return_val_if_fail (index <= info->n_tensors, FALSE);
   g_return_val_if_fail (type != GST_ML_TYPE_UNKNOWN, FALSE);
 
-  if (info->type == GST_ML_TYPE_UNKNOWN)
-    info->type = type;
-
-  if (info->type != type) {
-    GST_ERROR ("Invalid type for tensor %u! Expected %s but received %s!",
-        index, gst_ml_type_to_string (info->type), gst_ml_type_to_string (type));
-    return TRUE;
-  }
+  info->types[index] = type;
 
   info->n_dimensions[index] = n_dimensions;
   memcpy (info->tensors[index], dimensions, sizeof (guint) * GST_ML_TENSOR_MAX_DIMS);
@@ -113,11 +103,9 @@ gst_ml_info_set_tensor (GstMLInfo * info, guint index, GstMLType type,
 gboolean
 gst_ml_info_from_caps (GstMLInfo * info, const GstCaps * caps)
 {
-  GstStructure *structure;
-  GstMLType type = GST_ML_TYPE_UNKNOWN;
-  guint tensors[GST_ML_MAX_TENSORS][GST_ML_TENSOR_MAX_DIMS];
-  guint idx = 0, dim = 0, n_tensors = 0, n_dimensions[GST_ML_MAX_TENSORS];
-  const GValue *value;
+  GstStructure *structure = NULL;
+  const GValue *dimensions = NULL, *mltypes = NULL;
+  guint idx = 0, dim = 0, n_tensors = 0;
 
   g_return_val_if_fail (info != NULL, FALSE);
   g_return_val_if_fail (caps != NULL, FALSE);
@@ -132,50 +120,59 @@ gst_ml_info_from_caps (GstMLInfo * info, const GstCaps * caps)
     return FALSE;
   }
 
-  value = gst_structure_get_value (structure, "type");
-  g_return_val_if_fail (value != NULL, FALSE);
+  gst_ml_info_init (info);
 
-  type = GST_VALUE_HOLDS_LIST (value) ? GST_ML_TYPE_UNKNOWN :
-      gst_ml_type_from_string (g_value_get_string (value));
+  dimensions = gst_structure_get_value (structure, "dimensions");
+  g_return_val_if_fail (GST_VALUE_HOLDS_ARRAY (dimensions), FALSE);
 
-  GST_LOG ("Type: %s", gst_ml_type_to_string (type));
+  n_tensors = gst_value_array_get_size (dimensions);
+  g_return_val_if_fail (n_tensors <= GST_ML_MAX_TENSORS, FALSE);
 
-  // Reset all values to 0;
-  memset (tensors, 0, sizeof (tensors));
+  mltypes = gst_structure_get_value (structure, "type");
 
-  value = gst_structure_get_value (structure, "dimensions");
-  g_return_val_if_fail (GST_VALUE_HOLDS_ARRAY (value), FALSE);
+  if (GST_VALUE_HOLDS_LIST (mltypes)) {
+    GST_ERROR ("Field 'type' is a list, conversion to exact value not possible!");
+    return FALSE;
+  }
 
-  for (idx = 0; idx < gst_value_array_get_size (value); idx++) {
-    const GValue *tensor = gst_value_array_get_value (value, idx);
+  if (G_VALUE_HOLDS_STRING (mltypes)) {
+    GstMLType type = gst_ml_type_from_string (g_value_get_string (mltypes));
+
+    g_return_val_if_fail (type != GST_ML_TYPE_UNKNOWN, FALSE);
+    memset (info->types, type, sizeof (info->types));
+  } else if (GST_VALUE_HOLDS_ARRAY (mltypes)) {
+    g_return_val_if_fail (n_tensors == gst_value_array_get_size (mltypes), FALSE);
+  }
+
+  for (idx = 0; idx < n_tensors; idx++) {
+    const GValue *tensor = gst_value_array_get_value (dimensions, idx);
+
     g_return_val_if_fail (GST_VALUE_HOLDS_ARRAY (tensor), FALSE);
 
     for (dim = 0; dim < gst_value_array_get_size (tensor); dim++) {
       const GValue *dimension = gst_value_array_get_value (tensor, dim);
 
       // In case of value range take the maximum.
-      tensors[idx][dim] = GST_VALUE_HOLDS_INT_RANGE (dimension) ?
+      info->tensors[idx][dim] = GST_VALUE_HOLDS_INT_RANGE (dimension) ?
           gst_value_get_int_range_max (dimension) : g_value_get_int (dimension);
 
-      GST_LOG ("Tensor[%u]: Dimension[%u] = %u", idx, dim, tensors[idx][dim]);
+      GST_LOG ("Tensor[%u]: Dimension[%u] = %u", idx, dim,
+          info->tensors[idx][dim]);
     }
 
-    n_dimensions[idx] = gst_value_array_get_size (tensor);
-    n_tensors++;
+    if (GST_VALUE_HOLDS_ARRAY (mltypes)) {
+      const GValue *mltype = gst_value_array_get_value (mltypes, idx);
+
+      info->types[idx] = gst_ml_type_from_string (g_value_get_string (mltype));
+      g_return_val_if_fail (info->types[idx] != GST_ML_TYPE_UNKNOWN, FALSE);
+    }
+
+    GST_LOG ("Tensor[%u]: Type %s", idx, gst_ml_type_to_string (info->types[idx]));
+
+    info->n_dimensions[idx] = gst_value_array_get_size (tensor);
   }
 
-  gst_ml_info_init (info);
-
-  info->type = type;
   info->n_tensors = n_tensors;
-
-  for (idx = 0; idx < n_tensors; idx++) {
-    info->n_dimensions[idx] = n_dimensions[idx];
-
-    for (dim = 0; dim < n_dimensions[idx]; dim++)
-      info->tensors[idx][dim] = tensors[idx][dim];
-  }
-
   return TRUE;
 }
 
@@ -184,23 +181,26 @@ gst_ml_info_to_caps (const GstMLInfo * info)
 {
   GstCaps *caps = NULL;
   const gchar *type = NULL;
-  GValue tensors = G_VALUE_INIT;
+  GValue tensors = G_VALUE_INIT, mltypes = G_VALUE_INIT;
   guint idx = 0, dim = 0;
 
   g_return_val_if_fail (info != NULL, NULL);
-  g_return_val_if_fail (info->type != GST_ML_TYPE_UNKNOWN, NULL);
 
-  type = gst_ml_type_to_string (info->type);
-  g_return_val_if_fail (type != NULL, NULL);
-
-  caps = gst_caps_new_simple ("neural-network/tensors",
-      "type", G_TYPE_STRING, type, NULL);
+  caps = gst_caps_new_empty_simple ("neural-network/tensors");
 
   g_value_init (&tensors, GST_TYPE_ARRAY);
+  g_value_init (&mltypes, GST_TYPE_ARRAY);
 
   for (idx = 0; idx < info->n_tensors; idx++) {
-    GValue dimensions = G_VALUE_INIT;
+    GValue dimensions = G_VALUE_INIT, mltype = G_VALUE_INIT;
+
     g_value_init (&dimensions, GST_TYPE_ARRAY);
+    g_value_init (&mltype, G_TYPE_STRING);
+
+    type = gst_ml_type_to_string (info->types[idx]);
+    g_return_val_if_fail (type != NULL, NULL);
+
+    g_value_set_string (&mltype, type);
 
     for (dim = 0; dim < info->n_dimensions[idx]; dim++) {
       GValue dimension = G_VALUE_INIT;
@@ -213,15 +213,17 @@ gst_ml_info_to_caps (const GstMLInfo * info)
         g_value_set_int (&dimension, info->tensors[idx][dim]);
       }
 
-      gst_value_array_append_value (&dimensions, &dimension);
-      g_value_unset (&dimension);
+      gst_value_array_append_and_take_value (&dimensions, &dimension);
     }
 
-    gst_value_array_append_value (&tensors, &dimensions);
-    g_value_unset (&dimensions);
+    gst_value_array_append_and_take_value (&mltypes, &mltype);
+    gst_value_array_append_and_take_value (&tensors, &dimensions);
   }
 
+  gst_caps_set_value (caps, "type", &mltypes);
   gst_caps_set_value (caps, "dimensions", &tensors);
+
+  g_value_unset (&mltypes);
   g_value_unset (&tensors);
 
   GST_DEBUG ("Returning caps %" GST_PTR_FORMAT, caps);
@@ -236,10 +238,10 @@ gst_ml_info_is_equal (const GstMLInfo * l_info, const GstMLInfo * r_info)
   if (l_info->n_tensors != r_info->n_tensors)
     return FALSE;
 
-  if (l_info->type != r_info->type)
-    return FALSE;
-
   for (idx = 0; idx < l_info->n_tensors; idx++) {
+    if (l_info->types[idx] != r_info->types[idx])
+      return FALSE;
+
     if (l_info->n_dimensions[idx] != r_info->n_dimensions[idx])
       return FALSE;
 
@@ -267,7 +269,7 @@ gst_ml_info_tensor_size  (const GstMLInfo * info, guint index)
     size = (size != 0) ? (size * value) : value;
   }
 
-  size *= gst_ml_type_get_size (info->type);
+  size *= gst_ml_type_get_size (info->types[index]);
   GST_LOG ("Tensor[%u] size %" G_GSIZE_FORMAT, index, size);
 
   return size;

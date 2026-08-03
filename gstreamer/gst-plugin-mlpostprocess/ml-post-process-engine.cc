@@ -136,6 +136,7 @@ gst_ml_module_parse_capabilities (const gchar * string, GstCaps ** caps)
 
   for (idx = 0; idx < json_array_get_length (tensors); idx++) {
     GValue value = G_VALUE_INIT, subvalue = G_VALUE_INIT;
+    GValue mltypes = G_VALUE_INIT, mltype = G_VALUE_INIT;
 
     object = json_array_get_object_element (tensors, idx);
 
@@ -153,15 +154,18 @@ gst_ml_module_parse_capabilities (const gchar * string, GstCaps ** caps)
     }
 
     structure = gst_structure_new_empty ("neural-network/tensors");
-    g_value_init (&value, GST_TYPE_LIST);
+
+    // Broadcast the shared 'format' list into a 'type' array with one
+    // entry per tensor, keeping it positionally parallel with 'dimensions'.
+    g_value_init (&mltype, GST_TYPE_LIST);
 
     for (num = 0; num < json_array_get_length (types); num++) {
       json_node_get_value (json_array_get_element (types, num), &subvalue);
-      gst_value_list_append_and_take_value (&value, &subvalue);
+      gst_value_list_append_and_take_value (&mltype, &subvalue);
     }
 
-    gst_structure_take_value (structure, "type", &value);
     g_value_init (&value, GST_TYPE_ARRAY);
+    g_value_init (&mltypes, GST_TYPE_ARRAY);
 
     for (num = 0; num < json_array_get_length (dimensions); num++) {
       JsonArray *array = json_array_get_array_element (dimensions, num);
@@ -202,8 +206,12 @@ gst_ml_module_parse_capabilities (const gchar * string, GstCaps ** caps)
       }
 
       gst_value_array_append_and_take_value (&value, &tensor);
+      gst_value_array_append_value (&mltypes, &mltype);
     }
 
+    g_value_unset (&mltype);
+
+    gst_structure_take_value (structure, "type", &mltypes);
     gst_structure_take_value (structure, "dimensions", &value);
     gst_caps_append_structure (*caps, structure);
 
@@ -447,7 +455,7 @@ gst_ml_frame_translate (const GstMLFrame * mlframe)
     for (guint num = 0; num < GST_ML_FRAME_N_DIMENSIONS (mlframe, idx); ++num)
       tensor.dimensions.push_back(GST_ML_FRAME_DIM (mlframe, idx, num));
 
-    tensor.type = kTensorTypeMap.at(GST_ML_FRAME_TYPE (mlframe));
+    tensor.type = kTensorTypeMap.at(GST_ML_FRAME_TENSOR_TYPE (mlframe, idx));
     tensor.data = GST_ML_FRAME_BLOCK_DATA (mlframe, idx);
 
     // Add dequantization parameters

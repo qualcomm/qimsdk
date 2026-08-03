@@ -779,18 +779,28 @@ class TensorFilter(StreamFilter):
         self._cached_caps.set_value(key, value)
         return self
 
-    def type(self, t) -> "TensorFilter":
-        """Sets the tensor element type.
+    def type(self, *types) -> "TensorFilter":
+        """Sets the tensor element type, one value per tensor.
 
         Args:
-            t: Tensor type value.
+            types: A single type (applied to every tensor) or one type per
+                tensor, matching the order later passed to dimensions().
+                Each may be a TensorFilter.Type member or a type name string.
 
         Returns:
             "TensorFilter": Result of the operation.
         """
-        if isinstance(t, self.Type):
-            t = t.name
-        self._cached_caps.set_value("type", str(t))
+        if len(types) == 1 and isinstance(types[0], (list, tuple)):
+            values = types[0]
+        else:
+            values = list(types)
+
+        names = [t.name if isinstance(t, self.Type) else str(t) for t in values]
+
+        if len(names) == 1:
+            self._cached_caps.set_value("type", names[0])
+        else:
+            self._cached_caps.set_value("type", self._Gst.ValueArray(names))
         return self
 
     def dimensions(self, *dims) -> "TensorFilter":

@@ -539,6 +539,7 @@ gst_mlaconverter_engine_new (const GstStructure * settings)
   GstMLInfo mlinfo;
   gboolean success = TRUE;
   GstStructure * structure = NULL;
+  guint idx = 0;
 
   g_return_val_if_fail (settings != NULL, NULL);
 
@@ -579,13 +580,18 @@ gst_mlaconverter_engine_new (const GstStructure * settings)
     goto cleanup;
   }
 
-  engine->tensor_type = GST_ML_INFO_TYPE (&mlinfo);
-
-  if (!(success = (engine->tensor_type == GST_ML_TYPE_FLOAT32))) {
-    GST_ERROR ("Audio Converter can produce tensors of type FLOAT presently!"
-        "Found an MLType which is not FLOAT");
-    goto cleanup;
+  // This engine can only produce FLOAT32, so require it of every tensor
+  // rather than sampling one and assuming the rest match.
+  for (idx = 0; idx < GST_ML_INFO_N_TENSORS (&mlinfo); idx++) {
+    if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx) != GST_ML_TYPE_FLOAT32) {
+        GST_ERROR ("Support only for FLOAT tensors, Tensor[%u] is '%s' !",
+            idx, gst_ml_type_to_string (GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx)));
+      success = FALSE;
+      goto cleanup;
+    }
   }
+
+  engine->tensor_type = GST_ML_TYPE_FLOAT32;
 
   switch (engine->format)
   {
@@ -713,7 +719,7 @@ gst_mlaconverter_engine_process (GstAudioConvEngine * engine,
 
   audio_num = audioinfo->size / engine->bps;
 
-  mltype = GST_ML_FRAME_TYPE (mlframe);
+  mltype = GST_ML_FRAME_TENSOR_TYPE (mlframe, 0);
   outdata = GST_ML_FRAME_BLOCK_DATA (mlframe, 0);
 
   GST_LOG ("Engine Processing %s", gst_audio_feature_to_string(engine->feature));

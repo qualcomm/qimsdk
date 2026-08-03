@@ -824,7 +824,7 @@ gst_ml_post_process_embeddings_execute (GstMLPostProcess * postprocess,
       break;
     }
 
-    entry.type = GST_ML_FRAME_TYPE (mlframe);
+    entry.type = tensor.type;
     entry.n_dims = tensor.n_dimensions;
 
     for (dim = 0; dim < tensor.n_dimensions; ++dim)

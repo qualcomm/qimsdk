@@ -43,7 +43,7 @@ class Frame(GstQtiML.Frame):
             GstQtiML.Type.UINT64:'uint64',
             GstQtiML.Type.FLOAT16:'float16',
             GstQtiML.Type.FLOAT32:'float32'
-        }[self.info.type])
+        }[self.info.types[index]])
 
         n_dimensions = int(self.info.n_dimensions[index])
 

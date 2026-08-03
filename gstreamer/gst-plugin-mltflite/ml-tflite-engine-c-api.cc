@@ -401,7 +401,7 @@ gst_ml_frame_convert_to_float (GstMLFrame *mlframe, guint idx,
 
   output = reinterpret_cast<float *>(GST_ML_FRAME_BLOCK_DATA (mlframe, idx));
   n_elements = gst_ml_info_tensor_size (&(mlframe->info), idx);
-  n_elements /= gst_ml_type_get_size (mlframe->info.type);
+  n_elements /= gst_ml_type_get_size (GST_ML_INFO_TENSOR_TYPE (&(mlframe->info), idx));
 
   GST_LOG ("Dequantization params: scale %f, offset %f", scale, offset);
   GST_LOG ("Converting original tensor from %s to FLOAT32",
@@ -815,41 +815,27 @@ gst_ml_tflite_engine_new (GstStructure * settings)
   engine->outinfo->n_tensors = engine->InterpreterGetOutputTensorCount (
       engine->interpreter);
 
-  TfLiteTensor* input_tensor =
-      engine->InterpreterGetInputTensor (engine->interpreter, 0);
-
-  engine->ininfo->type =
-      gst_ml_type_from_tflite_type (engine->TensorType (input_tensor));
-
-  if (engine->ininfo->type == GST_ML_TYPE_UNKNOWN) {
-    gst_ml_tflite_engine_free (engine);
-    return NULL;
-  }
-
-  const TfLiteTensor* output_tensor =
-      engine->InterpreterGetOutputTensor (engine->interpreter, 0);
-
-  engine->outinfo->type =
-      gst_ml_type_from_tflite_type (engine->TensorType (output_tensor));
-
-  if (engine->outinfo->type == GST_ML_TYPE_UNKNOWN) {
-    gst_ml_tflite_engine_free (engine);
-    return NULL;
-  }
-
   GST_DEBUG ("Number of input tensors: %u", engine->ininfo->n_tensors);
-  GST_DEBUG ("Input tensors type: %s",
-      gst_ml_type_to_string (engine->ininfo->type));
 
   for (idx = 0; idx < engine->ininfo->n_tensors; ++idx) {
     TfLiteTensor* tensor = engine->InterpreterGetInputTensor (
         engine->interpreter, idx);
+
+    GST_ML_INFO_TENSOR_TYPE (engine->ininfo, idx) =
+        gst_ml_type_from_tflite_type (engine->TensorType (tensor));
+
+    if (GST_ML_INFO_TENSOR_TYPE (engine->ininfo, idx) == GST_ML_TYPE_UNKNOWN) {
+      gst_ml_tflite_engine_free (engine);
+      return NULL;
+    }
 
     auto dimensions_size = engine->TensorNumDims (tensor);
 
     engine->ininfo->n_dimensions[idx] = dimensions_size;
 
     GST_DEBUG ("Input tensor[%u] name: %s", idx, engine->TensorName (tensor));
+    GST_DEBUG ("Input tensor[%u] type: %s", idx, gst_ml_type_to_string (
+        GST_ML_INFO_TENSOR_TYPE (engine->ininfo, idx)));
 
     for (num = 0; num < dimensions_size; ++num) {
       engine->ininfo->tensors[idx][num] = engine->TensorDim (tensor, num);
@@ -859,18 +845,26 @@ gst_ml_tflite_engine_new (GstStructure * settings)
   }
 
   GST_DEBUG ("Number of output tensors: %u", engine->outinfo->n_tensors);
-  GST_DEBUG ("Output tensors type: %s",
-      gst_ml_type_to_string (engine->outinfo->type));
 
   for (idx = 0; idx < engine->outinfo->n_tensors; ++idx) {
     const TfLiteTensor* tensor =
         engine->InterpreterGetOutputTensor (engine->interpreter, idx);
+
+    GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx) =
+        gst_ml_type_from_tflite_type (engine->TensorType (tensor));
+
+    if (GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx) == GST_ML_TYPE_UNKNOWN) {
+      gst_ml_tflite_engine_free (engine);
+      return NULL;
+    }
 
     auto dimensions_size = engine->TensorNumDims (tensor);
 
     engine->outinfo->n_dimensions[idx] = dimensions_size;
 
     GST_DEBUG ("Output tensor[%u] name: %s", idx, engine->TensorName (tensor));
+    GST_DEBUG ("Output tensor[%u] type: %s", idx, gst_ml_type_to_string (
+        GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx)));
 
     for (num = 0; num < dimensions_size; ++num) {
       engine->outinfo->tensors[idx][num] = engine->TensorDim (tensor, num);
@@ -933,32 +927,44 @@ GstCaps *
 gst_ml_tflite_engine_get_output_caps  (GstMLTFLiteEngine * engine)
 {
   GstCaps *caps = NULL;
-  GValue list = G_VALUE_INIT, value = G_VALUE_INIT;
+  GValue mltypes = G_VALUE_INIT, list = G_VALUE_INIT, value = G_VALUE_INIT;
+  guint idx = 0;
 
   if (engine == NULL)
     return NULL;
 
   caps = gst_ml_info_to_caps (engine->outinfo);
 
-  // If current type is already FLOAT, return immediately.
-  if (GST_ML_INFO_TYPE (engine->outinfo) == GST_ML_TYPE_FLOAT32)
-    return caps;
+  g_value_init (&mltypes, GST_TYPE_ARRAY);
 
-  g_value_init (&list, GST_TYPE_LIST);
-  g_value_init (&value, G_TYPE_STRING);
+  for (idx = 0; idx < GST_ML_INFO_N_TENSORS (engine->outinfo); idx++) {
+    GstMLType type = GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx);
 
-  g_value_set_string (&value, gst_ml_type_to_string (GST_ML_TYPE_FLOAT32));
-  gst_value_list_append_value (&list, &value);
+    g_value_init (&value, G_TYPE_STRING);
 
-  g_value_set_string (&value,
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
-  gst_value_list_append_value (&list, &value);
+    // If current type is already FLOAT, attach that same value for this tensor.
+    if (type == GST_ML_TYPE_FLOAT32) {
+      g_value_set_string (&value, gst_ml_type_to_string (type));
+      gst_value_array_append_and_take_value (&mltypes, &value);
+      continue;
+    }
+
+    g_value_init (&list, GST_TYPE_LIST);
+
+    g_value_set_string (&value, gst_ml_type_to_string (GST_ML_TYPE_FLOAT32));
+    gst_value_list_append_value (&list, &value);
+
+    g_value_set_string (&value, gst_ml_type_to_string (type));
+    gst_value_list_append_and_take_value (&list, &value);
+
+    gst_value_array_append_and_take_value (&mltypes, &list);
+  }
 
   // Overwrite the type field by adding FLOAT in addition to current type.
-  gst_caps_set_value (caps, "type", &list);
+  gst_caps_set_value (caps, "type", &mltypes);
+  g_value_unset (&mltypes);
 
-  g_value_unset (&value);
-  g_value_unset (&list);
+  GST_DEBUG ("Output caps: %" GST_PTR_FORMAT, caps);
 
   return caps;
 }
@@ -1020,8 +1026,8 @@ gst_ml_tflite_engine_execute (GstMLTFLiteEngine * engine,
     mlmeta = gst_buffer_get_ml_tensor_meta_id (outframe->buffer, idx);
     mlmeta->name = g_quark_from_string (engine->TensorName (tensor));
 
-    if (outframe->info.type != GST_ML_TYPE_FLOAT32 &&
-        outframe->info.type != GST_ML_TYPE_FLOAT16) {
+    if (outframe->info.types[idx] != GST_ML_TYPE_FLOAT32 &&
+        outframe->info.types[idx] != GST_ML_TYPE_FLOAT16) {
       mlmeta->qscale = scale;
       mlmeta->qoffset = offset;
     }

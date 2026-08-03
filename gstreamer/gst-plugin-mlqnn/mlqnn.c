@@ -34,11 +34,8 @@ G_DEFINE_TYPE (GstMLQnn, gst_ml_qnn, GST_TYPE_BASE_TRANSFORM);
 
 #define MAX_NUM_CDSP_BACKENDS 16
 
-#define GST_ML_QNN_TENSOR_TYPES "{ INT8, UINT8, INT16, UINT16, INT32, UINT32, INT64, UINT64, FLOAT16, FLOAT32 }"
-
 #define GST_ML_QNN_CAPS                           \
-    "neural-network/tensors, "                    \
-    "type = (string) " GST_ML_QNN_TENSOR_TYPES
+    GST_STATIC_CAPS  ("neural-network/tensors")
 
 #define RETRY_ON_FAILURE_CNT 3
 
@@ -53,7 +50,7 @@ enum
   PROP_BACKEND_OPTIONS,
 };
 
-static GstStaticCaps gst_ml_qnn_static_caps = GST_STATIC_CAPS (GST_ML_QNN_CAPS);
+static GstStaticCaps gst_ml_qnn_static_caps = GST_ML_QNN_CAPS;
 
 static GstCaps *
 gst_ml_qnn_src_caps (void)

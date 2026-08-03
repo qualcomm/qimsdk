@@ -123,7 +123,7 @@ gst_ml_module_parse_tripleblock_frame (GstMLSubModule * submodule,
   // Extract the source tensor region with actual data.
   gst_ml_structure_get_source_region (pmeta->info, &region);
 
-  mltype = GST_ML_FRAME_TYPE (mlframe);
+  mltype = GST_ML_FRAME_TENSOR_TYPE (mlframe, 0);
   threshold = gst_ml_module_get_threshold_value (mltype, submodule->threshold);
 
   for (idx = 0; idx < GST_ML_FRAME_N_BLOCKS (mlframe); idx++, num = 0) {
@@ -283,7 +283,7 @@ gst_ml_module_parse_monoblock_tensors (GstMLSubModule * submodule,
   gst_ml_structure_get_source_region (pmeta->info, &region);
 
   data = GST_FLOAT_PTR_CAST (GST_ML_FRAME_BLOCK_DATA (mlframe, 0));
-  mltype = GST_ML_FRAME_TYPE (mlframe);
+  mltype = GST_ML_FRAME_TENSOR_TYPE (mlframe, 0);
 
   // The 2nd dimension represents ((w/8 * h/8) + (w/16 * h/16) + (w/32* h/32)) * 3
   n_paxels = GST_ML_FRAME_DIM (mlframe, 0, 1);

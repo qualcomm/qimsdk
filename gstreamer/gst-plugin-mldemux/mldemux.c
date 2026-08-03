@@ -17,23 +17,17 @@
 
 #include "mldemuxpads.h"
 
-
 #define GST_CAT_DEFAULT gst_ml_demux_debug
 GST_DEBUG_CATEGORY (gst_ml_demux_debug);
 
 #define gst_ml_demux_parent_class parent_class
 G_DEFINE_TYPE (GstMLDemux, gst_ml_demux, GST_TYPE_ELEMENT);
 
-#define GST_ML_DEMUX_TENSOR_TYPES \
-  "{ INT8, UINT8, INT32, UINT32, FLOAT16, FLOAT32 }"
-
 #define GST_ML_DEMUX_SINK_CAPS                   \
-    "neural-network/tensors, "                   \
-    "type = (string) " GST_ML_DEMUX_TENSOR_TYPES
+    GST_STATIC_CAPS ("neural-network/tensors")
 
 #define GST_ML_DEMUX_SRC_CAPS                    \
-    "neural-network/tensors, "                   \
-    "type = (string) " GST_ML_DEMUX_TENSOR_TYPES
+    GST_STATIC_CAPS ("neural-network/tensors")
 
 enum
 {
@@ -44,14 +38,14 @@ static GstStaticPadTemplate gst_ml_demux_sink_template =
     GST_STATIC_PAD_TEMPLATE("sink",
         GST_PAD_SINK,
         GST_PAD_ALWAYS,
-        GST_STATIC_CAPS (GST_ML_DEMUX_SINK_CAPS)
+        GST_ML_DEMUX_SINK_CAPS
     );
 
 static GstStaticPadTemplate gst_ml_demux_src_template =
     GST_STATIC_PAD_TEMPLATE("src_%u",
         GST_PAD_SRC,
         GST_PAD_REQUEST,
-        GST_STATIC_CAPS (GST_ML_DEMUX_SRC_CAPS)
+        GST_ML_DEMUX_SRC_CAPS
     );
 
 
@@ -351,7 +345,7 @@ gst_ml_demux_sink_chain (GstPad * pad, GstObject * parent, GstBuffer * inbuffer)
 
       gst_buffer_append_memory (outbuffer, gst_memory_copy (memory, offset, size));
 
-      mlmeta = gst_buffer_add_ml_tensor_meta (outbuffer, srcpad->mlinfo->type,
+      mlmeta = gst_buffer_add_ml_tensor_meta (outbuffer, srcpad->mlinfo->types[num],
           srcpad->mlinfo->n_dimensions[num], srcpad->mlinfo->tensors[num]);
       mlmeta->id = num;
 

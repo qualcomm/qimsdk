@@ -12,7 +12,7 @@
 
 G_BEGIN_DECLS
 
-#define GST_ML_FRAME_TYPE(f)           (GST_ML_INFO_TYPE(&(f)->info))
+#define GST_ML_FRAME_TENSOR_TYPE(f,n)  (GST_ML_INFO_TENSOR_TYPE(&(f)->info,n))
 #define GST_ML_FRAME_N_TENSORS(f)      (GST_ML_INFO_N_TENSORS(&(f)->info))
 #define GST_ML_FRAME_TENSOR_SIZE(f,n)  (gst_ml_info_tensor_size (&(f)->info,n))
 #define GST_ML_FRAME_N_DIMENSIONS(f,n) (GST_ML_INFO_N_DIMENSIONS(&(f)->info,n))

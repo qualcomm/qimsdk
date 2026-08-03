@@ -418,7 +418,7 @@ gst_ml_qnn_convert_to_float (GstMLFrame *mlframe, guint idx,
 
   output = reinterpret_cast<float *>(GST_ML_FRAME_BLOCK_DATA (mlframe, idx));
   n_elements = gst_ml_info_tensor_size (&(mlframe->info), idx);
-  n_elements /= gst_ml_type_get_size (mlframe->info.type);
+  n_elements /= gst_ml_type_get_size (GST_ML_INFO_TENSOR_TYPE (&(mlframe->info), idx));
 
   switch (QNN_TENSOR_DATA_TYPE (tensor)) {
     case QNN_DATATYPE_UFIXED_POINT_8:
@@ -1421,12 +1421,9 @@ gst_ml_qnn_engine_new (GstStructure *settings)
 
   // Translate information about input tensors to GstMLInfo.
   engine->ininfo->n_tensors = graph_info->numInputTensors;
-  engine->ininfo->type = qnn_to_ml_type (QNN_TENSOR_DATA_TYPE (input_tensor));
 
   GST_DEBUG ("Number of input tensors: %u",
       GST_ML_INFO_N_TENSORS (engine->ininfo));
-  GST_DEBUG ("Input tensors type: %s",
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->ininfo)));
 
   for (guint idx = 0; idx < engine->ininfo->n_tensors; ++idx) {
     input_tensor = &(graph_info->inputTensors[idx]);
@@ -1436,11 +1433,16 @@ gst_ml_qnn_engine_new (GstStructure *settings)
       goto cleanup;
     }
 
+    GST_ML_INFO_TENSOR_TYPE (engine->ininfo, idx) =
+        qnn_to_ml_type (QNN_TENSOR_DATA_TYPE (input_tensor));
+
     engine->ininfo->n_dimensions[idx] =
         QNN_TENSOR_RANK (input_tensor);
 
     GST_DEBUG ("Input tensor[%u] name: %s", idx,
         QNN_TENSOR_NAME (input_tensor));
+    GST_DEBUG ("Input tensor[%u] type: %s", idx, gst_ml_type_to_string (
+        GST_ML_INFO_TENSOR_TYPE (engine->ininfo, idx)));
 
     for (guint num = 0; num < engine->ininfo->n_dimensions[idx]; ++num) {
       engine->ininfo->tensors[idx][num] =
@@ -1463,14 +1465,8 @@ gst_ml_qnn_engine_new (GstStructure *settings)
     engine->graphindices = g_array_new (FALSE, FALSE, sizeof (guint));
   }
 
-  // TODO: Workaround! Need to handle the tensors of different type. For now,
-  // negotiate with float32 and convert from tensor type to float.
-  engine->outinfo->type = GST_ML_TYPE_FLOAT32;
-
   GST_DEBUG ("Number of output tensors: %u",
       GST_ML_INFO_N_TENSORS (engine->outinfo));
-  GST_DEBUG ("Output tensors type: %s",
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
 
   // Populate tensor info in outinfo
   for (idx = 0; idx < engine->outinfo->n_tensors; ++idx) {
@@ -1499,8 +1495,14 @@ gst_ml_qnn_engine_new (GstStructure *settings)
 
     engine->outinfo->n_dimensions[idx] = QNN_TENSOR_RANK (output_tensor);
 
+    // TODO: Workaround! Need to handle the tensors of different type. For
+    // now, negotiate with float32 and convert from tensor type to float.
+    GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx) = GST_ML_TYPE_FLOAT32;
+
     GST_DEBUG ("Output tensor[%u] name: %s", idx,
         QNN_TENSOR_NAME (output_tensor));
+    GST_DEBUG ("Output tensor[%u] type: %s", idx, gst_ml_type_to_string (
+        GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx)));
 
     for (guint num = 0; num < engine->outinfo->n_dimensions[idx]; ++num) {
       engine->outinfo->tensors[idx][num] = QNN_TENSOR_DIMENSION (output_tensor, num);

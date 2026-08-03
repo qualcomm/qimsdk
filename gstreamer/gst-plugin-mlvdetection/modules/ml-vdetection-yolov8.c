@@ -65,7 +65,7 @@ gst_ml_module_parse_monoblock_frame (GstMLSubModule * submodule,
   // Extract the source tensor region with actual data.
   gst_ml_structure_get_source_region (pmeta->info, &region);
 
-  mltype = GST_ML_FRAME_TYPE (mlframe);
+  mltype = GST_ML_FRAME_TENSOR_TYPE (mlframe, 0);
   n_paxels = GST_ML_FRAME_DIM (mlframe, 0, 2);
 
   // We subtract 4 because the last 4 are the bbox coordinates.
@@ -160,7 +160,7 @@ gst_ml_module_parse_dualblock_frame (GstMLSubModule * submodule,
   // Extract the source tensor region with actual data.
   gst_ml_structure_get_source_region (pmeta->info, &region);
 
-  mltype = GST_ML_FRAME_TYPE (mlframe);
+  mltype = GST_ML_FRAME_TENSOR_TYPE (mlframe, 1);
   n_paxels = GST_ML_FRAME_DIM (mlframe, 0, 2);
   n_classes = GST_ML_FRAME_DIM (mlframe, 1, 1);
 

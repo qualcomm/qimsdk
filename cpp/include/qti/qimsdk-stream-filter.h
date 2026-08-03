@@ -150,8 +150,15 @@ public:
     FLOAT16, FLOAT32
   };
 
+  // Set the tensor element type shared by every tensor.
   TensorFilter& type(const std::string& t);
   TensorFilter& type(Type t);
+
+  // Set one tensor element type per tensor, matching the order later passed
+  // to dimensions(). Needed for models with mixed-dtype tensors (e.g. an
+  // INT32 text tensor alongside a FLOAT32 image tensor).
+  TensorFilter& type(const std::vector<std::string>& types);
+  TensorFilter& type(const std::vector<Type>& types);
 
   template <typename... UInts>
   TensorFilter& dimensions(UInts... dims) {

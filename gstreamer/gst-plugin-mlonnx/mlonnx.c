@@ -57,11 +57,8 @@ G_DEFINE_TYPE (GstMLOnnx, gst_ml_onnx, GST_TYPE_BASE_TRANSFORM);
 #define DEFAULT_PROP_MIN_BUFFERS              2
 #define DEFAULT_PROP_MAX_BUFFERS              10
 
-#define GST_ML_ONNX_TENSOR_TYPES "{ INT8, UINT8, INT16, UINT16, INT32, UINT32, INT64, UINT64, FLOAT16, FLOAT32 }"
-
 #define GST_ML_ONNX_CAPS                          \
-    "neural-network/tensors, "                    \
-    "type = (string) " GST_ML_ONNX_TENSOR_TYPES
+    GST_STATIC_CAPS ("neural-network/tensors")
 
 enum
 {
@@ -74,8 +71,7 @@ enum
   PROP_THREADS,
 };
 
-static GstStaticCaps gst_ml_onnx_static_caps =
-    GST_STATIC_CAPS (GST_ML_ONNX_CAPS);
+static GstStaticCaps gst_ml_onnx_static_caps = GST_ML_ONNX_CAPS;
 
 static GstCaps *
 gst_ml_onnx_src_caps (void)

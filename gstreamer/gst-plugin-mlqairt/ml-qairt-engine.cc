@@ -237,15 +237,23 @@ gst_ml_translate_priority (GstMLQairtExecPriority priority)
 }
 
 static gboolean
-gst_ml_info_populate_dimensions (GstMLInfo * info, guint idx, guint rank,
-    const uint32_t * dimensions)
+gst_ml_info_populate_tensor (GstMLInfo * info, guint idx, GstMLType type,
+    guint rank, const uint32_t * dimensions)
 {
+  if (type == GST_ML_TYPE_UNKNOWN) {
+    GST_ERROR ("Tensor[%u] has unsupported data type!", idx);
+    return FALSE;
+  }
+
   if (rank > GST_ML_TENSOR_MAX_DIMS) {
     GST_ERROR ("Tensor rank %u exceeds maximum %u!", rank, GST_ML_TENSOR_MAX_DIMS);
     return FALSE;
   }
 
+  GST_ML_INFO_TENSOR_TYPE (info, idx) = type;
   GST_ML_INFO_N_DIMENSIONS (info, idx) = rank;
+
+  GST_DEBUG ("Tensor[%u] type: %s", idx, gst_ml_type_to_string (type));
 
   for (guint num = 0; num < rank; num++) {
     GST_ML_INFO_TENSOR_DIM (info, idx, num) = dimensions[num];
@@ -259,9 +267,11 @@ static void
 gst_ml_frame_normalize (GstMLFrame * outframe, guint idx,
     qairt::DataType datatype, const qairt::QuantizeParams &qparams)
 {
-  // If output is not FLOAT32 and native type does not differ then nothing to do.
-  if (GST_ML_FRAME_TYPE (outframe) != GST_ML_TYPE_FLOAT32 ||
-      GST_ML_FRAME_TYPE (outframe) == gst_ml_type_from_data_type (datatype))
+  // If output is not FLOAT32 and native type does not differ then nothing to
+  // do.
+  if (GST_ML_FRAME_TENSOR_TYPE (outframe, idx) != GST_ML_TYPE_FLOAT32 ||
+      GST_ML_FRAME_TENSOR_TYPE (outframe, idx) ==
+          gst_ml_type_from_data_type (datatype))
     return;
 
   qairt::QuantizationEncoding encoding = qparams.getQuantizationEncoding ();
@@ -279,7 +289,7 @@ gst_ml_frame_normalize (GstMLFrame * outframe, guint idx,
   gfloat *output =
       reinterpret_cast<gfloat*>(GST_ML_FRAME_BLOCK_DATA (outframe, idx));
   gsize n_elements = gst_ml_info_tensor_size (&(outframe->info), idx) /
-      gst_ml_type_get_size (GST_ML_FRAME_TYPE (outframe));
+      gst_ml_type_get_size (GST_ML_FRAME_TENSOR_TYPE (outframe, idx));
 
   switch (datatype) {
     case qairt::DataType::Float32:
@@ -458,11 +468,9 @@ gst_ml_qairt_engine_build_input_tensors (GstMLQairtEngine * engine,
 
       GST_DEBUG ("Input tensor[%u] name: %s", idx, tinfo.getName ().c_str ());
 
-      if (idx == 0)
-        engine->ininfo->type = gst_ml_type_from_data_type (tinfo.getDataType ());
-
-      success = gst_ml_info_populate_dimensions (engine->ininfo, idx,
-          tinfo.getRank (), tinfo.getDimensions ());
+      success = gst_ml_info_populate_tensor (engine->ininfo, idx,
+          gst_ml_type_from_data_type (tinfo.getDataType ()), tinfo.getRank (),
+          tinfo.getDimensions ());
 
       if (!success)
         return FALSE;
@@ -477,8 +485,6 @@ gst_ml_qairt_engine_build_input_tensors (GstMLQairtEngine * engine,
 
   GST_DEBUG ("Number of input tensors: %u",
       GST_ML_INFO_N_TENSORS (engine->ininfo));
-  GST_DEBUG ("Input tensors type: %s",
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->ininfo)));
 
   return TRUE;
 }
@@ -535,13 +541,11 @@ gst_ml_qairt_engine_build_output_tensors (GstMLQairtEngine * engine,
     std::shared_ptr<qairt::Tensor> &tensor = engine->outputs[idx];
     const std::vector<uint32_t> &dims = tensor->getDimensions ();
 
-    if (idx == 0)
-      engine->outinfo->type = gst_ml_type_from_data_type (tensor->getDataType ());
-
     GST_DEBUG ("Output tensor[%u] name: %s", idx, tensor->getName ().c_str ());
 
-    success = gst_ml_info_populate_dimensions (engine->outinfo, idx,
-        dims.size (), dims.data ());
+    success = gst_ml_info_populate_tensor (engine->outinfo, idx,
+        gst_ml_type_from_data_type (tensor->getDataType ()), dims.size (),
+        dims.data ());
 
     if (!success)
       return FALSE;
@@ -551,8 +555,6 @@ gst_ml_qairt_engine_build_output_tensors (GstMLQairtEngine * engine,
 
   GST_DEBUG ("Number of output tensors: %u",
       GST_ML_INFO_N_TENSORS (engine->outinfo));
-  GST_DEBUG ("Output tensors type: %s",
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
 
   return TRUE;
 }
@@ -743,32 +745,45 @@ GstCaps *
 gst_ml_qairt_engine_get_output_caps (GstMLQairtEngine * engine)
 {
   GstCaps *caps = NULL;
-  GValue list = G_VALUE_INIT, value = G_VALUE_INIT;
+  GValue mltypes = G_VALUE_INIT;
 
   if (engine == NULL)
     return NULL;
 
   caps = gst_ml_info_to_caps (engine->outinfo);
 
-  // If current type is already FLOAT, return immediately.
-  if (GST_ML_INFO_TYPE (engine->outinfo) == GST_ML_TYPE_FLOAT32)
-    return caps;
+  g_value_init (&mltypes, GST_TYPE_ARRAY);
 
-  g_value_init (&list, GST_TYPE_LIST);
-  g_value_init (&value, G_TYPE_STRING);
+  for (guint idx = 0; idx < GST_ML_INFO_N_TENSORS (engine->outinfo); idx++) {
+    GstMLType type = GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx);
+    GValue value = G_VALUE_INIT;
 
-  g_value_set_string (&value, gst_ml_type_to_string (GST_ML_TYPE_FLOAT32));
-  gst_value_list_append_value (&list, &value);
+    g_value_init (&value, G_TYPE_STRING);
 
-  g_value_set_string (&value,
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
-  gst_value_list_append_value (&list, &value);
+    // If current type is already FLOAT, attach that same value for this tensor.
+    if (type == GST_ML_TYPE_FLOAT32) {
+      g_value_set_string (&value, gst_ml_type_to_string (type));
+      gst_value_array_append_and_take_value (&mltypes, &value);
+      continue;
+    }
+
+    GValue list = G_VALUE_INIT;
+    g_value_init (&list, GST_TYPE_LIST);
+
+    g_value_set_string (&value, gst_ml_type_to_string (GST_ML_TYPE_FLOAT32));
+    gst_value_list_append_value (&list, &value);
+
+    g_value_set_string (&value, gst_ml_type_to_string (type));
+    gst_value_list_append_and_take_value (&list, &value);
+
+    gst_value_array_append_and_take_value (&mltypes, &list);
+  }
 
   // Overwrite the type field by adding FLOAT in addition to current type.
-  gst_caps_set_value (caps, "type", &list);
+  gst_caps_set_value (caps, "type", &mltypes);
+  g_value_unset (&mltypes);
 
-  g_value_unset (&value);
-  g_value_unset (&list);
+  GST_DEBUG ("Output caps: %" GST_PTR_FORMAT, caps);
 
   return caps;
 }

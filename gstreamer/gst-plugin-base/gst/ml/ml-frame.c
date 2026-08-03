@@ -167,7 +167,7 @@ gst_ml_frame_get_tensor (GstMLFrame * frame, guint index)
     tensor.size = frame->mapinfo[index].size;
   }
 
-  tensor.type = frame->info.type;
+  tensor.type = GST_ML_INFO_TENSOR_TYPE (&frame->info, index);
   tensor.n_dimensions = frame->info.n_dimensions[index];
 
   for (num = 0; num < tensor.n_dimensions; num++)

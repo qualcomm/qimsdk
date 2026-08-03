@@ -355,7 +355,7 @@ gst_ml_snpe_engine_setup_input_tensors (GstMLSnpeEngine *engine)
   Snpe_UserBufferEncoding_Handle_t encoding = NULL;
   Snpe_IUserBuffer_Handle_t usrbuffer = NULL;
   const size_t *dimensions = NULL;
-  gint idx = 0, num = 0, n_tensors = 0, rank = 0, size = 0;
+  guint idx = 0, num = 0, n_tensors = 0, rank = 0, size = 0;
   gboolean success = FALSE;
 
   if ((engine->inputs = engine->UserBufferMapCreate ()) == NULL) {
@@ -372,7 +372,10 @@ gst_ml_snpe_engine_setup_input_tensors (GstMLSnpeEngine *engine)
   }
 
   n_tensors = engine->StringListSize (names);
-  engine->ininfo->n_tensors = n_tensors;
+  GST_ML_INFO_N_TENSORS (engine->ininfo) = n_tensors;
+
+  GST_DEBUG ("Number of input tensors: %u",
+      GST_ML_INFO_N_TENSORS (engine->ininfo));
 
   for (idx = 0; idx < n_tensors; idx++) {
     const char *name = engine->StringListAt (names, idx);
@@ -389,8 +392,11 @@ gst_ml_snpe_engine_setup_input_tensors (GstMLSnpeEngine *engine)
       goto cleanup;
     }
 
-    GST_ML_INFO_TYPE (engine->ininfo) =
+    GST_ML_INFO_TENSOR_TYPE (engine->ininfo, idx) =
         snpe_to_ml_type (engine->IBufferAttributesGetEncodingType (attribs));
+
+    GST_DEBUG ("Input tensor[%u] type: %s", idx,
+        gst_ml_type_to_string (GST_ML_INFO_TENSOR_TYPE (engine->ininfo, idx)));
 
     shape = engine->IBufferAttributesGetDims (attribs);
     dimensions = engine->TensorShapeGetDimensions (shape);
@@ -413,7 +419,8 @@ gst_ml_snpe_engine_setup_input_tensors (GstMLSnpeEngine *engine)
           GST_ML_INFO_TENSOR_DIM (engine->ininfo, idx, num));
     }
 
-    stride[rank - 1] = gst_ml_type_get_size (GST_ML_INFO_TYPE (engine->ininfo));
+    stride[rank - 1] =
+        gst_ml_type_get_size (GST_ML_INFO_TENSOR_TYPE (engine->ininfo, idx));
 
     // Total number of bytes between elements in each dimension.
     // Float tensor with dimensions [4, 3, 2] would have strides of [24, 8, 4].
@@ -442,11 +449,6 @@ gst_ml_snpe_engine_setup_input_tensors (GstMLSnpeEngine *engine)
     engine->UserBufferMapAdd (engine->inputs, name, usrbuffer);
   }
 
-  GST_DEBUG ("Number of input tensors: %u",
-      GST_ML_INFO_N_TENSORS (engine->ininfo));
-  GST_DEBUG ("Input tensors type: %s",
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->ininfo)));
-
 cleanup:
   if (names != NULL)
     engine->StringListDelete (names);
@@ -462,7 +464,7 @@ gst_ml_snpe_engine_setup_output_tensors (GstMLSnpeEngine *engine)
   Snpe_UserBufferEncoding_Handle_t encoding = NULL;
   Snpe_IUserBuffer_Handle_t usrbuffer = NULL;
   const size_t *dimensions = NULL;
-  gint idx = 0, num = 0, n_tensors = 0, rank = 0, size = 0;
+  guint idx = 0, num = 0, n_tensors = 0, rank = 0, size = 0;
   gboolean success = FALSE;
 
   if ((engine->outputs = engine->UserBufferMapCreate ()) == NULL) {
@@ -471,7 +473,10 @@ gst_ml_snpe_engine_setup_output_tensors (GstMLSnpeEngine *engine)
   }
 
   n_tensors = engine->StringListSize (engine->outnames);
-  engine->outinfo->n_tensors = n_tensors;
+  GST_ML_INFO_N_TENSORS (engine->outinfo) = n_tensors;
+
+  GST_DEBUG ("Number of output tensors: %u",
+      GST_ML_INFO_N_TENSORS (engine->outinfo));
 
   for (idx = 0; idx < n_tensors; idx++) {
     const char *name = engine->StringListAt (engine->outnames, idx);
@@ -488,8 +493,11 @@ gst_ml_snpe_engine_setup_output_tensors (GstMLSnpeEngine *engine)
       return FALSE;
     }
 
-    GST_ML_INFO_TYPE (engine->outinfo) =
+    GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx) =
         snpe_to_ml_type (engine->IBufferAttributesGetEncodingType (attribs));
+
+    GST_DEBUG ("Output tensor[%u] type: %s", idx,
+        gst_ml_type_to_string (GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx)));
 
     shape = engine->IBufferAttributesGetDims (attribs);
     dimensions = engine->TensorShapeGetDimensions (shape);
@@ -512,7 +520,8 @@ gst_ml_snpe_engine_setup_output_tensors (GstMLSnpeEngine *engine)
           GST_ML_INFO_TENSOR_DIM (engine->outinfo, idx, num));
     }
 
-    stride[rank - 1] = gst_ml_type_get_size (GST_ML_INFO_TYPE (engine->outinfo));
+    stride[rank - 1] =
+        gst_ml_type_get_size (GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx));
 
     // Total number of bytes between elements in each dimension.
     // Float tensor with dimensions [4, 3, 2] would have strides of [24, 8, 4].
@@ -540,11 +549,6 @@ gst_ml_snpe_engine_setup_output_tensors (GstMLSnpeEngine *engine)
 
     engine->UserBufferMapAdd (engine->outputs, name, usrbuffer);
   }
-
-  GST_DEBUG ("Number of output tensors: %u",
-      GST_ML_INFO_N_TENSORS (engine->outinfo));
-  GST_DEBUG ("Output tensors type: %s",
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
 
   return success;
 }
@@ -1000,32 +1004,42 @@ GstCaps *
 gst_ml_snpe_engine_get_output_caps  (GstMLSnpeEngine * engine)
 {
   GstCaps *caps = NULL;
-  GValue list = G_VALUE_INIT, value = G_VALUE_INIT;
+  GValue mltypes = G_VALUE_INIT, list = G_VALUE_INIT, value = G_VALUE_INIT;
+  guint idx = 0;
 
   if (engine == NULL)
     return NULL;
 
   caps = gst_ml_info_to_caps (engine->outinfo);
 
-  // If current type is already FLOAT, return immediately.
-  if (GST_ML_INFO_TYPE (engine->outinfo) == GST_ML_TYPE_FLOAT32)
-    return caps;
+  g_value_init (&mltypes, GST_TYPE_ARRAY);
 
-  g_value_init (&list, GST_TYPE_LIST);
-  g_value_init (&value, G_TYPE_STRING);
+  for (idx = 0; idx < GST_ML_INFO_N_TENSORS (engine->outinfo); idx++) {
+    GstMLType type = GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx);
 
-  g_value_set_string (&value, gst_ml_type_to_string (GST_ML_TYPE_FLOAT32));
-  gst_value_list_append_value (&list, &value);
+    g_value_init (&value, G_TYPE_STRING);
 
-  g_value_set_string (&value,
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
-  gst_value_list_append_value (&list, &value);
+    // If current type is already FLOAT, attach that same value for this tensor.
+    if (type == GST_ML_TYPE_FLOAT32) {
+      g_value_set_string (&value, gst_ml_type_to_string (type));
+      gst_value_array_append_and_take_value (&mltypes, &value);
+      continue;
+    }
+
+    g_value_init (&list, GST_TYPE_LIST);
+
+    g_value_set_string (&value, gst_ml_type_to_string (GST_ML_TYPE_FLOAT32));
+    gst_value_list_append_value (&list, &value);
+
+    g_value_set_string (&value, gst_ml_type_to_string (type));
+    gst_value_list_append_and_take_value (&list, &value);
+
+    gst_value_array_append_and_take_value (&mltypes, &list);
+  }
 
   // Overwrite the type field by adding FLOAT in addition to current type.
-  gst_caps_set_value (caps, "type", &list);
-
-  g_value_unset (&value);
-  g_value_unset (&list);
+  gst_caps_set_value (caps, "type", &mltypes);
+  g_value_unset (&mltypes);
 
   return caps;
 }
@@ -1112,7 +1126,8 @@ gst_ml_snpe_engine_update_output_caps (GstMLSnpeEngine * engine, GstCaps * caps)
     // Tensor shape is no longer needed, deallocate.
     engine->TensorShapeDelete (shape);
 
-    stride[rank - 1] = gst_ml_type_get_size (GST_ML_INFO_TYPE (&mlinfo));
+    stride[rank - 1] =
+        gst_ml_type_get_size (GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx));
 
     // Total number of bytes between elements in each dimension.
     // Float tensor with dimensions [4, 3, 2] would have strides of [24, 8, 4].
@@ -1124,11 +1139,12 @@ gst_ml_snpe_engine_update_output_caps (GstMLSnpeEngine * engine, GstCaps * caps)
 
     GST_DEBUG ("Output tensor[%u] size: %u", idx, size);
 
-    if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_INFO_TYPE (engine->outinfo)) {
+    if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx) ==
+            GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx)) {
       encoding = engine->IBufferAttributesGetEncoding (attribs);
-    } else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_FLOAT32) {
+    } else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx) == GST_ML_TYPE_FLOAT32) {
       encoding = engine->UserBufferEncodingFloatCreate ();
-    } else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_UINT8) {
+    } else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx) == GST_ML_TYPE_UINT8) {
       encoding = engine->UserBufferEncodingUnsigned8BitCreate ();
     } else {
       engine->IBufferAttributesDelete (attribs);
@@ -1150,10 +1166,11 @@ gst_ml_snpe_engine_update_output_caps (GstMLSnpeEngine * engine, GstCaps * caps)
     usrbuffer = engine->UtilCreateUserBuffer (NULL, size, strides, encoding);
     success = (usrbuffer != NULL) ? TRUE : FALSE;
 
-    if (GST_ML_INFO_TYPE (&mlinfo) != GST_ML_INFO_TYPE (engine->outinfo)) {
-      if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_FLOAT32)
+    if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx) !=
+            GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx)) {
+      if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx) == GST_ML_TYPE_FLOAT32)
         engine->UserBufferEncodingFloatDelete (encoding);
-      else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_UINT8)
+      else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx) == GST_ML_TYPE_UINT8)
         engine->UserBufferEncodingUnsigned8BitDelete (encoding);
     }
 
@@ -1166,15 +1183,13 @@ gst_ml_snpe_engine_update_output_caps (GstMLSnpeEngine * engine, GstCaps * caps)
     }
 
     engine->UserBufferMapAdd (engine->outputs, name, usrbuffer);
+
+    GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx) =
+      GST_ML_INFO_TENSOR_TYPE (&mlinfo, idx);
+
+    GST_DEBUG ("Output tensor[%u] type: %s", idx,
+      gst_ml_type_to_string (GST_ML_INFO_TENSOR_TYPE (engine->outinfo, idx)));
   }
-
-  // Update the tensor type.
-  GST_ML_INFO_TYPE (engine->outinfo) = GST_ML_INFO_TYPE (&mlinfo);
-
-  GST_DEBUG ("Number of output tensors: %u",
-      GST_ML_INFO_N_TENSORS (engine->outinfo));
-  GST_DEBUG ("Output tensors type: %s",
-      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
 
   return success;
 }
