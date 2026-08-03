@@ -193,7 +193,7 @@ gst_ml_module_process (gpointer instance, GstMLFrame * mlframe, gpointer output)
 
   indata = GST_FLOAT_PTR_CAST (GST_ML_FRAME_BLOCK_DATA (mlframe, 0));
   outdata = GST_VIDEO_FRAME_PLANE_DATA (vframe, 0);
-  mltype = GST_ML_FRAME_TYPE (mlframe);
+  mltype = GST_ML_FRAME_TENSOR_TYPE (mlframe, 0);
 
   // The 4th tensor dimension represents multiple the class scores per pixel.
   n_scores = (GST_ML_FRAME_N_DIMENSIONS (mlframe, 0) != 4) ? 1 :

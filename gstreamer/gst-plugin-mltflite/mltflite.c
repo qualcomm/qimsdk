@@ -61,15 +61,8 @@ G_DEFINE_TYPE (GstMLTFLite, gst_ml_tflite, GST_TYPE_BASE_TRANSFORM);
 #define DEFAULT_PROP_MIN_BUFFERS 2
 #define DEFAULT_PROP_MAX_BUFFERS 10
 
-#if !defined(HAVE_TFLITE_VERSION_H) || TF_MAJOR_VERSION > 2 || (TF_MAJOR_VERSION == 2 && TF_MINOR_VERSION >= 5)
-#define GST_ML_TFLITE_TENSOR_TYPES "{ INT8, UINT8, INT16, UINT16, INT32, UINT32, INT64, UINT64, FLOAT16, FLOAT32 }"
-#else
-#define GST_ML_TFLITE_TENSOR_TYPES "{ INT8, UINT8, INT16, UINT16, INT32, INT64, UINT64, FLOAT16, FLOAT32 }"
-#endif // !defined(HAVE_TFLITE_VERSION_H) || TF_MAJOR_VERSION > 2 || (TF_MAJOR_VERSION == 2 && TF_MINOR_VERSION >= 5)
-
-#define GST_ML_TFLITE_CAPS                        \
-    "neural-network/tensors, "                    \
-    "type = (string) " GST_ML_TFLITE_TENSOR_TYPES
+#define GST_ML_TFLITE_CAPS                       \
+    GST_STATIC_CAPS ("neural-network/tensors")
 
 #define RETRY_ON_FAILURE_CNT 3
 
@@ -86,8 +79,7 @@ enum
 #endif // HAVE_EXTERNAL_DELEGATE_H
 };
 
-static GstStaticCaps gst_ml_tflite_static_caps =
-    GST_STATIC_CAPS (GST_ML_TFLITE_CAPS);
+static GstStaticCaps gst_ml_tflite_static_caps = GST_ML_TFLITE_CAPS;
 
 static GstCaps *
 gst_ml_tflite_src_caps (void)

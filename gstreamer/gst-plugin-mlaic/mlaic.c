@@ -25,11 +25,8 @@ G_DEFINE_TYPE (GstMLAic, gst_ml_aic, GST_TYPE_ELEMENT);
 #define DEFAULT_PROP_MIN_BUFFERS   24
 #define DEFAULT_PROP_MAX_BUFFERS   24
 
-#define GST_ML_AIC_TENSOR_TYPES "{ INT8, UINT8, INT32, FLOAT16, FLOAT32 }"
-
 #define GST_ML_AIC_CAPS                        \
-    "neural-network/tensors, "                 \
-    "type = (string) " GST_ML_AIC_TENSOR_TYPES
+    GST_STATIC_CAPS ("neural-network/tensors")
 
 static GType gst_engine_request_get_type(void);
 #define GST_TYPE_ENGINE_REQUEST  (gst_engine_request_get_type())
@@ -492,7 +489,7 @@ gst_ml_aic_src_worker_task (gpointer userdata)
       // Set the offset to the next piece of memory that needs to be shared.
       offset += size;
 
-      mlmeta = gst_buffer_add_ml_tensor_meta (outbuffer, mlinfo->type,
+      mlmeta = gst_buffer_add_ml_tensor_meta (outbuffer, mlinfo->types[idx],
           mlinfo->n_dimensions[idx], mlinfo->tensors[idx]);
       mlmeta->id = idx;
     }

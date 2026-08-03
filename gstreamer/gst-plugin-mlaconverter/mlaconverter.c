@@ -57,16 +57,13 @@ static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE ("sink",
         ", layout = (string) interleaved, channels = (int) 1")
     );
 
-#define GST_ML_TFLITE_TENSOR_TYPES "{ FLOAT32 }"
-
 #define GST_SRC_PAD_CAPS                        \
-    "neural-network/tensors, "                    \
-    "type = (string) " GST_ML_TFLITE_TENSOR_TYPES
+    GST_STATIC_CAPS ("neural-network/tensors")
 
 static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS (GST_SRC_PAD_CAPS)
+    GST_SRC_PAD_CAPS
     );
 
 enum {
@@ -503,7 +500,6 @@ gst_ml_audio_converter_set_caps (GstBaseTransform * base, GstCaps * incaps,
 
   GST_LOG_OBJECT (mlconverter, "incaps %" GST_PTR_FORMAT ", outcaps %"
       GST_PTR_FORMAT, incaps, outcaps);
-
 
   if (!gst_audio_info_from_caps (&ininfo, incaps)) {
     GST_ERROR_OBJECT (mlconverter, "invalid incaps");

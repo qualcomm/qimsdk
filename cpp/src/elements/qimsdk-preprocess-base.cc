@@ -66,7 +66,7 @@ MLFrame build_mlframe(GstMLFrame* mlframe) {
 
   for (guint idx = 0; idx < n_tensors; ++idx) {
     MLTensor tensor;
-    tensor.type = to_tensor_type(GST_ML_FRAME_TYPE(mlframe));
+    tensor.type = to_tensor_type(GST_ML_FRAME_TENSOR_TYPE(mlframe, idx));
 
     const guint n_dims = GST_ML_FRAME_N_DIMENSIONS(mlframe, idx);
     tensor.dimensions.reserve(n_dims);

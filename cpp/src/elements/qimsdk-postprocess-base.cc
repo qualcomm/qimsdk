@@ -206,7 +206,7 @@ MLFrame build_mlframe(GstMLFrame* mlframe) {
 
   for (guint idx = 0; idx < n_tensors; ++idx) {
     MLTensor tensor;
-    tensor.type = to_tensor_type(GST_ML_FRAME_TYPE(mlframe));
+    tensor.type = to_tensor_type(GST_ML_FRAME_TENSOR_TYPE(mlframe, idx));
 
     const guint n_dims = GST_ML_FRAME_N_DIMENSIONS(mlframe, idx);
     tensor.dimensions.reserve(n_dims);
@@ -451,7 +451,7 @@ bool validate_inplace_mlframe_output(const MLFrame& output,
     if (!to_gst_ml_type(out_tensor.type, &gst_type))
       return false;
 
-    if (GST_ML_FRAME_TYPE(outmlframe) != gst_type)
+    if (GST_ML_FRAME_TENSOR_TYPE(outmlframe, idx) != gst_type)
       return false;
 
     const guint n_dims = GST_ML_FRAME_N_DIMENSIONS(outmlframe, idx);

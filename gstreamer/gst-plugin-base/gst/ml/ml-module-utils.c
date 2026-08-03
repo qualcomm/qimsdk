@@ -16,10 +16,45 @@ static GHashTable *ml_stage_table = NULL;
 G_LOCK_DEFINE_STATIC (ml_stage_mutex);
 
 
+// Append a comma separated list of the type names held by 'value'. Handles a
+// single string, a list of alternatives, or nothing usable at all.
+static void
+gst_ml_module_append_type_value (const GValue * value, GString * result)
+{
+  guint length = 0, idx = 0;
+
+  if (value == NULL) {
+    g_string_append (result, "UNKNOWN");
+    return;
+  }
+
+  if (G_VALUE_HOLDS_STRING (value)) {
+    g_string_append (result, g_value_get_string (value));
+    return;
+  }
+
+  if (!GST_VALUE_HOLDS_LIST (value)) {
+    g_string_append (result, "UNKNOWN");
+    return;
+  }
+
+  length = gst_value_list_get_size (value);
+
+  for (idx = 0; idx < length; idx++) {
+    const GValue *entry = gst_value_list_get_value (value, idx);
+
+    g_string_append (result, G_VALUE_HOLDS_STRING (entry) ?
+        g_value_get_string (entry) : "UNKNOWN");
+
+    if ((idx + 1) < length)
+      g_string_append (result, ", ");
+  }
+}
+
 static void
 gst_ml_module_get_type (GstStructure * structure, GString * result)
 {
-  const GValue *list = NULL;
+  const GValue *value = NULL;
   guint length = 0, idx = 0;
 
   if (!gst_structure_has_field (structure, "type")) {
@@ -27,20 +62,25 @@ gst_ml_module_get_type (GstStructure * structure, GString * result)
     return;
   }
 
-  list = gst_structure_get_value (structure, "type");
-  length = gst_value_list_get_size (list);
+  value = gst_structure_get_value (structure, "type");
 
-  g_string_append_printf (result, "%sType: ", CAPS_IDENTATION);
+  // Per-tensor types are an array parallel to 'dimensions'; print one line
+  // per tensor to match the layout used for the dimensions below.
+  if (GST_VALUE_HOLDS_ARRAY (value)) {
+    length = gst_value_array_get_size (value);
 
-  for (idx = 0; idx < length; idx++) {
-    const GValue *value = gst_value_list_get_value (list, idx);
+    for (idx = 0; idx < length; idx++) {
+      g_string_append_printf (result, "%sTensor %u type: ", CAPS_IDENTATION, idx);
+      gst_ml_module_append_type_value (gst_value_array_get_value (value, idx),
+          result);
+      g_string_append (result, "\n");
+    }
 
-    g_string_append (result, g_value_get_string (value));
-
-    if ((idx + 1) < length)
-      g_string_append (result, ", ");
+    return;
   }
 
+  g_string_append_printf (result, "%sType: ", CAPS_IDENTATION);
+  gst_ml_module_append_type_value (value, result);
   g_string_append (result, "\n");
 }
 

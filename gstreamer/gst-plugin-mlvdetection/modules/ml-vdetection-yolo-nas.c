@@ -257,17 +257,18 @@ gst_ml_module_parse_dualblock_frame (GstMLSubModule * submodule,
   // The 2nd dimension represents the number of paxels.
   n_paxels = GST_ML_FRAME_DIM (mlframe, 0, 1);
 
-  mltype = GST_ML_FRAME_TYPE (mlframe);
   if (GST_ML_FRAME_DIM (mlframe, 0, 2) == 4) {
     //Tensor dimensions looks like: <1, 8400, 4>, <1, 8400, 80>
     bboxes = GST_FLOAT_PTR_CAST (GST_ML_FRAME_BLOCK_DATA (mlframe, 0));
     scores = GST_FLOAT_PTR_CAST (GST_ML_FRAME_BLOCK_DATA (mlframe, 1));
     n_classes = GST_ML_FRAME_DIM (mlframe, 1, 2);
+    mltype = GST_ML_FRAME_TENSOR_TYPE (mlframe, 1);
   } else {
     //Tensor dimensions looks like: <1, 8400, 80>, <1, 8400, 4>
     bboxes = GST_FLOAT_PTR_CAST (GST_ML_FRAME_BLOCK_DATA (mlframe, 1));
     scores = GST_FLOAT_PTR_CAST (GST_ML_FRAME_BLOCK_DATA (mlframe, 0));
     n_classes = GST_ML_FRAME_DIM (mlframe, 0, 2);
+    mltype = GST_ML_FRAME_TENSOR_TYPE (mlframe, 0);
   }
 
   for (idx = 0; idx < n_paxels; idx++) {

@@ -670,35 +670,66 @@ TensorFilter& TensorFilter::type(const std::string& t) {
   return *this;
 }
 
-TensorFilter& TensorFilter::type(Type t) {
-  const char* s = nullptr;
+static const char* tensor_type_to_string(TensorFilter::Type t) {
   switch (t) {
-  case Type::UINT8:
-    s = "UINT8";
-    break;
-  case Type::UINT16:
-    s = "UINT16";
-    break;
-  case Type::UINT32:
-    s = "UINT32";
-    break;
-  case Type::INT8:
-    s = "INT8";
-    break;
-  case Type::INT16:
-    s = "INT16";
-    break;
-  case Type::INT32:
-    s = "INT32";
-    break;
-  case Type::FLOAT16:
-    s = "FLOAT16";
-    break;
-  case Type::FLOAT32:
-    s = "FLOAT32";
-    break;
+  case TensorFilter::Type::UINT8:
+    return "UINT8";
+  case TensorFilter::Type::UINT16:
+    return "UINT16";
+  case TensorFilter::Type::UINT32:
+    return "UINT32";
+  case TensorFilter::Type::INT8:
+    return "INT8";
+  case TensorFilter::Type::INT16:
+    return "INT16";
+  case TensorFilter::Type::INT32:
+    return "INT32";
+  case TensorFilter::Type::FLOAT16:
+    return "FLOAT16";
+  case TensorFilter::Type::FLOAT32:
+    return "FLOAT32";
   }
-  return type(s ? s : "UINT8");
+  return "UINT8";
+}
+
+TensorFilter& TensorFilter::type(Type t) {
+  return type(tensor_type_to_string(t));
+}
+
+TensorFilter& TensorFilter::type(const std::vector<std::string>& types) {
+  if (types.size() == 1) {
+    return type(types.front());
+  }
+
+  GstStructure* st = gst_caps_get_structure(impl_->cached_caps_, 0);
+  if (!st) {
+    return *this;
+  }
+  if (gst_structure_has_field(st, "type")) {
+    gst_structure_remove_field(st, "type");
+  }
+
+  GValue outer = G_VALUE_INIT;
+  g_value_init(&outer, GST_TYPE_ARRAY);
+  for (const auto& t : types) {
+    GValue sv = G_VALUE_INIT;
+    g_value_init(&sv, G_TYPE_STRING);
+    g_value_set_string(&sv, t.c_str());
+    gst_value_array_append_value(&outer, &sv);
+    g_value_unset(&sv);
+  }
+  gst_structure_set_value(st, "type", &outer);
+  g_value_unset(&outer);
+  return *this;
+}
+
+TensorFilter& TensorFilter::type(const std::vector<Type>& types) {
+  std::vector<std::string> names;
+  names.reserve(types.size());
+  for (Type t : types) {
+    names.emplace_back(tensor_type_to_string(t));
+  }
+  return type(names);
 }
 
 static void

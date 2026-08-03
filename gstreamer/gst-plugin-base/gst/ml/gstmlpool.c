@@ -357,7 +357,7 @@ gst_ml_buffer_pool_alloc (GstBufferPool * pool, GstBuffer ** buffer,
   while (priv->addmeta && (idx < priv->info.n_tensors)) {
     GST_DEBUG_OBJECT (mlpool, "Adding GstMLTensorMeta");
 
-    meta = gst_buffer_add_ml_tensor_meta (newbuffer, priv->info.type,
+    meta = gst_buffer_add_ml_tensor_meta (newbuffer, priv->info.types[idx],
         priv->info.n_dimensions[idx], priv->info.tensors[idx]);
     meta->id = idx;
 

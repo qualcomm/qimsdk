@@ -196,7 +196,7 @@ gst_ml_aic_populate_info (GstMLAicEngine * engine, gint idx,
   for (dim = 0; dim < binding->dims_size(); ++dim)
     mlinfo->tensors[num][dim] = binding->dims(dim);
 
-  mlinfo->type = gst_ml_aic_to_ml_type (binding->type());
+  mlinfo->types[num] = gst_ml_aic_to_ml_type (binding->type());
   mlinfo->n_tensors++;
 
   // Reorder tensors in case they are not sorted by DMA offset values.
@@ -207,6 +207,11 @@ gst_ml_aic_populate_info (GstMLAicEngine * engine, gint idx,
     if (previnfo->dma_buf_index() == info->dma_buf_index() &&
         previnfo->dma_offset() > info->dma_offset()) {
       gint n_dimensions, dimensions[GST_ML_TENSOR_MAX_DIMS];
+      GstMLType type;
+
+      type = mlinfo->types[num];
+      mlinfo->types[num] = mlinfo->types[num - 1];
+      mlinfo->types[num - 1] = type;
 
       n_dimensions = mlinfo->n_dimensions[num];
       mlinfo->n_dimensions[num] = mlinfo->n_dimensions[num - 1];
@@ -545,20 +550,22 @@ gst_ml_aic_engine_new (GstStructure * settings)
   }
 
   GST_DEBUG ("Number of input tensors: %u", engine->ininfo->n_tensors);
-  GST_DEBUG ("Input tensors type: %s",
-      gst_ml_type_to_string (engine->ininfo->type));
 
   for (idx = 0; idx < GST_ML_INFO_N_TENSORS (engine->ininfo); idx++) {
+    GST_DEBUG ("Input tensor[%u] type: %s", idx,
+        gst_ml_type_to_string (engine->ininfo->types[idx]));
+
     for (num = 0; num < GST_ML_INFO_N_DIMENSIONS (engine->ininfo, idx); ++num)
       GST_DEBUG ("Input tensor[%u] Dimension[%u]: %u", idx, num,
           engine->ininfo->tensors[idx][num]);
   }
 
   GST_DEBUG ("Number of output tensors: %u", engine->outinfo->n_tensors);
-  GST_DEBUG ("Output tensors type: %s",
-      gst_ml_type_to_string (engine->outinfo->type));
 
   for (idx = 0; idx < GST_ML_INFO_N_TENSORS (engine->outinfo); idx++) {
+    GST_DEBUG ("Output tensor[%u] type: %s", idx,
+        gst_ml_type_to_string (engine->outinfo->types[idx]));
+
     for (num = 0; num < GST_ML_INFO_N_DIMENSIONS (engine->outinfo, idx); ++num)
       GST_DEBUG ("Output tensor[%u] Dimension[%u]: %u", idx, num,
           engine->outinfo->tensors[idx][num]);

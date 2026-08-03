@@ -145,11 +145,8 @@ G_DEFINE_TYPE (GstMLVideoConverterParentPool,
 #define GST_ML_VIDEO_FORMATS \
     "{ RGBA, BGRA, ABGR, ARGB, RGBx, BGRx, xRGB, xBGR, BGR, RGB, GRAY8, NV12, NV21, YUY2, UYVY, NV12_Q08C }"
 
-#define GST_ML_TENSOR_TYPES "{ INT8, UINT8, INT16, UINT16, INT32, UINT32, INT64, UINT64, FLOAT16, FLOAT32 }"
-
 #define GST_ML_VIDEO_CONVERTER_SRC_CAPS    \
-    "neural-network/tensors, "             \
-    "type = (string) " GST_ML_TENSOR_TYPES
+    GST_STATIC_CAPS ("neural-network/tensors")
 
 #define GST_ML_TENSOR_LAYOUT_HWC \
     (GstTensorLayout){ .n = -1, .d = -1, .h = 0, .w = 1, .c = 2 }
@@ -203,7 +200,7 @@ enum
 static guint signals[LAST_SIGNAL];
 
 static GstStaticCaps gst_ml_video_converter_static_src_caps =
-    GST_STATIC_CAPS (GST_ML_VIDEO_CONVERTER_SRC_CAPS);
+    GST_ML_VIDEO_CONVERTER_SRC_CAPS;
 
 static GstCaps *
 gst_ml_video_converter_sink_caps (void)
@@ -370,7 +367,7 @@ init_formats (GValue * formats, ...)
 }
 
 static GstTensorLayout
-gst_ml_info_get_layout (GstMLInfo * mlinfo)
+gst_ml_info_get_tensor_layout (GstMLInfo * mlinfo)
 {
   GstTensorLayout layout = GST_ML_TENSOR_LAYOUT_UNKNOWN;
   guint width = 0, height = 0;
@@ -1560,7 +1557,7 @@ gst_ml_video_converter_normalize (GstMLVideoConverter * mlconverter)
 
           // Convert value to actual tensor type
           value = gst_ml_convert_uint8_to_mltype (
-              GST_ML_INFO_TYPE (mlconverter->mlinfo), value);
+              GST_ML_INFO_TENSOR_TYPE (mlconverter->mlinfo, 0), value);
 
           // Apply normalization
           value = (value - mean[num]) * sigma[num];
@@ -1569,7 +1566,7 @@ gst_ml_video_converter_normalize (GstMLVideoConverter * mlconverter)
               (column + vblit->destination.x)) * outbpp + num * offset;
 
           gst_ml_tensor_assign_value (
-              GST_ML_INFO_TYPE (mlconverter->mlinfo), outdata, outidx, value);
+              GST_ML_INFO_TENSOR_TYPE (mlconverter->mlinfo, 0), outdata, outidx, value);
         }
       }
     }
@@ -1610,7 +1607,7 @@ gst_ml_video_converter_translate_ml_caps (GstMLVideoConverter * mlconverter,
     return tmplcaps;
 
   // Get tensor layout based on tensor dimensions
-  tensorlayout = gst_ml_info_get_layout (&mlinfo);
+  tensorlayout = gst_ml_info_get_tensor_layout (&mlinfo);
 
   if (GST_ML_TENSOR_LAYOUT_IS_UNKNOWN (tensorlayout))
     return tmplcaps;
@@ -1688,14 +1685,22 @@ gst_ml_video_converter_translate_video_caps (GstMLVideoConverter * mlconverter,
   GstCaps *result = NULL;
   GstStructure *structure = NULL;
   GValue dimensions = G_VALUE_INIT, entry = G_VALUE_INIT, dimension = G_VALUE_INIT;
+  GValue types = G_VALUE_INIT, type = G_VALUE_INIT;
   const GValue *value;
 
   if (gst_caps_is_empty (caps) || gst_caps_is_any (caps))
     return gst_caps_new_empty_simple ("neural-network/tensors");
 
-  result = gst_caps_new_simple ("neural-network/tensors",
-      "type", G_TYPE_STRING, gst_ml_type_to_string (GST_ML_TYPE_UINT8),
-      NULL);
+  result = gst_caps_new_empty_simple ("neural-network/tensors");
+
+  g_value_init (&types, GST_TYPE_ARRAY);
+  g_value_init (&type, G_TYPE_STRING);
+
+  g_value_set_string (&type, gst_ml_type_to_string (GST_ML_TYPE_UINT8));
+  gst_value_array_append_and_take_value (&types, &type);
+
+  gst_caps_set_value (result, "type", &types);
+  g_value_unset (&types);
 
   structure = gst_caps_get_structure (caps, 0);
 
@@ -1805,7 +1810,10 @@ gst_ml_video_converter_create_pool (GstMLVideoConverter * mlconverter,
     size *= GST_ROUND_UP_4 (
         GST_ML_INFO_TENSOR_DIM_H (mlconverter->tensorlayout, &info));
     size *= GST_ML_INFO_TENSOR_DIM_D (mlconverter->tensorlayout, &info);
-    size *= gst_ml_type_get_size (info.type);
+    size *= gst_ml_type_get_size (GST_ML_INFO_TENSOR_TYPE (&info, 0));
+
+    gst_buffer_pool_config_add_option (
+        config, GST_ML_BUFFER_POOL_OPTION_CONTINUOUS);
   } else {
     // Unknown tensor layout, use the default size calculated from ML info.
     size = gst_ml_info_size (&info);
@@ -1821,8 +1829,6 @@ gst_ml_video_converter_create_pool (GstMLVideoConverter * mlconverter,
       config, GST_ML_BUFFER_POOL_OPTION_TENSOR_META);
   gst_buffer_pool_config_add_option (
       config, GST_ML_BUFFER_POOL_OPTION_KEEP_MAPPED);
-  gst_buffer_pool_config_add_option (
-      config, GST_ML_BUFFER_POOL_OPTION_CONTINUOUS);
 
   if (!gst_buffer_pool_set_config (pool, config)) {
     GST_WARNING_OBJECT (mlconverter, "Failed to set pool configuration!");
@@ -2100,7 +2106,7 @@ gst_ml_video_converter_transform_caps (GstBaseTransform * base,
     GstPadDirection direction, GstCaps * caps, GstCaps * filter)
 {
   GstMLVideoConverter *mlconverter = GST_ML_VIDEO_CONVERTER (base);
-  GstCaps *result = NULL, *intersection = NULL;
+  GstCaps *result = NULL, *intersection = NULL, *peercaps = NULL;
   GstPad *pad = NULL;
   const GValue *rate = NULL, *dims = NULL, *depth = NULL;
   gint idx = 0, length = 0;
@@ -2113,6 +2119,18 @@ gst_ml_video_converter_transform_caps (GstBaseTransform * base,
   if (direction == GST_PAD_SINK) {
     pad = GST_BASE_TRANSFORM_SRC_PAD (base);
     result = gst_pad_get_pad_template_caps (pad);
+    peercaps = gst_pad_peer_query_caps (pad, result);
+
+    if (peercaps == NULL || gst_caps_is_empty (peercaps)) {
+      GST_ERROR_OBJECT (mlconverter, "Failed to query peer caps on pad %"
+          GST_PTR_FORMAT "!", pad);
+      gst_caps_unref (result);
+
+      return NULL;
+    }
+
+    gst_caps_unref (result);
+    result = peercaps;
   } else {
     pad = GST_BASE_TRANSFORM_SINK_PAD (base);
 
@@ -2297,7 +2315,7 @@ gst_ml_video_converter_set_caps (GstBaseTransform * base, GstCaps * incaps,
   }
 
   // Get tensor layout based on tensor dimensions
-  mlconverter->tensorlayout = gst_ml_info_get_layout (&mlinfo);
+  mlconverter->tensorlayout = gst_ml_info_get_tensor_layout (&mlinfo);
 
   if (GST_ML_TENSOR_LAYOUT_IS_UNKNOWN (mlconverter->tensorlayout) &&
       !gst_ml_video_converter_is_signal_process (mlconverter)) {
@@ -2313,7 +2331,7 @@ gst_ml_video_converter_set_caps (GstBaseTransform * base, GstCaps * incaps,
   }
 
   // Get the number of bytes that represent the ML type.
-  n_bytes = gst_ml_type_get_size (GST_ML_INFO_TYPE (&mlinfo));
+  n_bytes = gst_ml_type_get_size (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0));
 
   // Adjust height with the depth number of the tensor.
   GST_VIDEO_INFO_HEIGHT (&outinfo) *= GST_ML_INFO_TENSOR_DIM_D (
@@ -2353,7 +2371,7 @@ gst_ml_video_converter_set_caps (GstBaseTransform * base, GstCaps * incaps,
   GST_VIDEO_INFO_SIZE (&outinfo) *= n_bytes;
 
   // Additionally adjust the total size depending on the depth size.
-  GST_VIDEO_INFO_SIZE (&outinfo) *= GST_ML_INFO_TENSOR_DIM_D (
+    GST_VIDEO_INFO_SIZE (&outinfo) *= GST_ML_INFO_TENSOR_DIM_D (
       mlconverter->tensorlayout, &mlinfo);
   // Additionally adjust the total size depending on the batch size.
   GST_VIDEO_INFO_SIZE (&outinfo) *= GST_ML_INFO_TENSOR_DIM_N (
@@ -2406,23 +2424,23 @@ gst_ml_video_converter_set_caps (GstBaseTransform * base, GstCaps * incaps,
   mlconverter->composition->bgcolor = 0x00000000;
   mlconverter->composition->bgfill = TRUE;
 
-  if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_INT64)
+  if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0) == GST_ML_TYPE_INT64)
     mlconverter->composition->datatype |= GST_VIDEO_DATA_TYPE_I64;
-  else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_UINT64)
+  else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0) == GST_ML_TYPE_UINT64)
     mlconverter->composition->datatype |= GST_VIDEO_DATA_TYPE_U64;
-  else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_INT32)
+  else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0) == GST_ML_TYPE_INT32)
     mlconverter->composition->datatype |= GST_VIDEO_DATA_TYPE_I32;
-  else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_UINT32)
+  else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0) == GST_ML_TYPE_UINT32)
     mlconverter->composition->datatype |= GST_VIDEO_DATA_TYPE_U32;
-  else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_INT16)
+  else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0) == GST_ML_TYPE_INT16)
     mlconverter->composition->datatype |= GST_VIDEO_DATA_TYPE_I16;
-  else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_UINT16)
+  else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0) == GST_ML_TYPE_UINT16)
     mlconverter->composition->datatype |= GST_VIDEO_DATA_TYPE_U16;
-  else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_FLOAT16)
+  else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0) == GST_ML_TYPE_FLOAT16)
     mlconverter->composition->datatype |= GST_VIDEO_DATA_TYPE_F16;
-  else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_FLOAT32)
+  else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0) == GST_ML_TYPE_FLOAT32)
     mlconverter->composition->datatype |= GST_VIDEO_DATA_TYPE_F32;
-  else if (GST_ML_INFO_TYPE (&mlinfo) == GST_ML_TYPE_INT8)
+  else if (GST_ML_INFO_TENSOR_TYPE (&mlinfo, 0) == GST_ML_TYPE_INT8)
     mlconverter->composition->datatype |= GST_VIDEO_DATA_TYPE_I8;
 
   for (idx = 0; idx < GST_VIDEO_MAX_COMPONENTS; idx++) {
