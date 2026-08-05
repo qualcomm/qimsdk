@@ -2241,8 +2241,11 @@ gst_overlay_draw_ovelay_blits (GstVOverlay * overlay,
   gst_video_blits_resize (composition->blits, index);
 
 cleanup:
-  if (!success)
-    gst_video_blits_release (composition->blits);
+  if (!success) {
+    g_clear_pointer (&(composition->blits), gst_video_blits_release);
+
+    gst_video_composition_unref (composition);
+  }
 
   GST_OVERLAY_UNLOCK (overlay);
   return success;
@@ -2390,7 +2393,7 @@ gst_overlay_set_caps (GstBaseTransform * base, GstCaps * incaps,
   gst_base_transform_set_in_place (base, TRUE);
 
   if (overlay->converter != NULL)
-    gst_video_converter_engine_free (overlay->converter);
+    gst_video_converter_engine_unref (overlay->converter);
 
   overlay->converter =
       gst_video_converter_engine_new (gst_video_converter_default_backend(), NULL);
@@ -2419,7 +2422,7 @@ gst_overlay_transform_ip (GstBaseTransform * base, GstBuffer * buffer)
 {
   GstVOverlay *overlay = GST_OVERLAY (base);
   GstVideoMeta *vmeta = NULL;
-  GstVideoComposition composition = GST_VIDEO_COMPOSITION_INIT;
+  GstVideoComposition *composition = NULL;
   GstClockTime time = GST_CLOCK_TIME_NONE;
   gboolean success = FALSE;
 
@@ -2443,23 +2446,28 @@ gst_overlay_transform_ip (GstBaseTransform * base, GstBuffer * buffer)
     return GST_FLOW_ERROR;
   }
 
-  composition.buffer = buffer;
-  composition.info = overlay->vinfo;
+  composition = gst_video_composition_new ();
+  composition->buffer = buffer;
+  composition->info = *(overlay->vinfo);
 
   // Extract metadata entries from the buffer and create overlay blit objects.
-  if (!gst_overlay_draw_ovelay_blits (overlay, &composition)) {
+  if (!gst_overlay_draw_ovelay_blits (overlay, composition)) {
     GST_ERROR_OBJECT (overlay, "Failed to draw overlay frames!");
     return GST_FLOW_ERROR;
   }
 
   // Check if there is need for applying any overlay frames.
-  if (composition.blits == NULL)
+  if (composition->blits == NULL) {
+    gst_video_composition_unref (composition);
     return GST_FLOW_OK;
+  }
 
   success = gst_video_converter_engine_compose (overlay->converter,
       &composition, 1, NULL);
 
-  gst_video_blits_release (composition.blits);
+  g_clear_pointer (&(composition->blits), gst_video_blits_release);
+
+  gst_video_composition_unref (composition);
 
   if (!success) {
     GST_ERROR_OBJECT (overlay, "Failed to apply overlays!");
@@ -2641,7 +2649,7 @@ gst_overlay_finalize (GObject * object)
   if (overlay->masks != NULL)
     g_array_free (overlay->masks, TRUE);
 
-  gst_video_converter_engine_free (overlay->converter);
+  gst_video_converter_engine_unref (overlay->converter);
 
   for (idx = 0; idx < GST_OVERLAY_TYPE_MAX; idx++) {
     if (overlay->ovlpools[idx] != NULL)

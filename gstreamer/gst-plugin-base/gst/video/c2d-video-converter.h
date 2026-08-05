@@ -74,7 +74,7 @@ gst_c2d_video_converter_free (GstC2dVideoConverter * convert);
  */
 GST_VIDEO_API gboolean
 gst_c2d_video_converter_compose (GstC2dVideoConverter * convert,
-                                 GstVideoComposition * compositions,
+                                 GstVideoComposition ** compositions,
                                  guint n_compositions, gpointer * fence);
 
 /**

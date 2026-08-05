@@ -14,6 +14,7 @@
 #include <gst/ml/ml-post-process-depth-map.h>
 #include <gst/video/video.h>
 #include <gst/video/video-utils.h>
+#include <gst/video/video-converter-engine.h>
 
 static PyObject *
 _gst_ml_frame_get_memory_view (PyObject * self, PyObject * args)
@@ -1266,6 +1267,382 @@ _gst_video_region_of_interest_meta_get_quadrilateral (PyObject * self,
       quadrilateral.d.x, quadrilateral.d.y);
 }
 
+static PyObject *
+_gst_video_composition_get_blits (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL;
+  GstVideoComposition *composition = NULL;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!", py_composition_type, &py_composition)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  if (composition->blits == NULL)
+    Py_RETURN_NONE;
+
+  return pyg_boxed_new (gst_video_blits_get_type (), composition->blits,
+      TRUE, TRUE);
+}
+
+static PyObject *
+_gst_video_composition_set_blits (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL, *py_blits = NULL;
+  GstVideoComposition *composition = NULL;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!O", py_composition_type, &py_composition,
+          &py_blits)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  if (py_blits == Py_None) {
+    g_clear_pointer (&(composition->blits), gst_video_blits_unref);
+    Py_RETURN_NONE;
+  }
+
+  if (!pyg_boxed_check (py_blits, gst_video_blits_get_type ())) {
+    PyErr_SetString (PyExc_TypeError, "value must be a GstQtiVideo.Blits");
+    return NULL;
+  }
+
+  g_clear_pointer (&(composition->blits), gst_video_blits_unref);
+  composition->blits =
+      gst_video_blits_ref (pyg_boxed_get (py_blits, GstVideoBlits));
+
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+_gst_video_composition_get_buffer (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL;
+  GstVideoComposition *composition = NULL;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!", py_composition_type, &py_composition)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  if (composition->buffer == NULL)
+    Py_RETURN_NONE;
+
+  return pyg_boxed_new (GST_TYPE_BUFFER, composition->buffer, FALSE, FALSE);
+}
+
+static PyObject *
+_gst_video_composition_set_buffer (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL, *py_buffer = NULL;
+  GstVideoComposition *composition = NULL;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!O", py_composition_type, &py_composition,
+          &py_buffer)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  if (py_buffer == Py_None) {
+    composition->buffer = NULL;
+    Py_RETURN_NONE;
+  }
+
+  if (!pyg_boxed_check (py_buffer, GST_TYPE_BUFFER)) {
+    PyErr_SetString (PyExc_TypeError, "value must be a Gst.Buffer");
+    return NULL;
+  }
+
+  composition->buffer = pyg_boxed_get (py_buffer, GstBuffer);
+
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+_gst_video_composition_get_info (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL;
+  GstVideoComposition *composition = NULL;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!", py_composition_type, &py_composition)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  return pyg_boxed_new (GST_TYPE_VIDEO_INFO, &composition->info, TRUE, TRUE);
+}
+
+static PyObject *
+_gst_video_composition_set_info (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL, *py_info = NULL;
+  GstVideoComposition *composition = NULL;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!O", py_composition_type, &py_composition,
+          &py_info)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  if (!pyg_boxed_check (py_info, GST_TYPE_VIDEO_INFO)) {
+    PyErr_SetString (PyExc_TypeError, "value must be a GstVideo.VideoInfo");
+    return NULL;
+  }
+
+  composition->info = *pyg_boxed_get (py_info, GstVideoInfo);
+
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+_gst_video_composition_get_offsets (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL, *py_list = NULL;
+  GstVideoComposition *composition = NULL;
+  guint idx = 0;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!", py_composition_type, &py_composition)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  if ((py_list = PyList_New (GST_VIDEO_MAX_COMPONENTS)) == NULL) {
+    PyErr_NoMemory ();
+    return NULL;
+  }
+
+  for (idx = 0; idx < GST_VIDEO_MAX_COMPONENTS; idx++) {
+    PyList_SET_ITEM (py_list, (Py_ssize_t) idx,
+        PyFloat_FromDouble (composition->offsets[idx]));
+  }
+
+  return py_list;
+}
+
+static PyObject *
+_gst_video_composition_set_offsets (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL, *py_seq = NULL, *sequence = NULL;
+  GstVideoComposition *composition = NULL;
+  guint idx = 0, n_entries = 0;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!O", py_composition_type, &py_composition,
+          &py_seq)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  sequence = PySequence_Fast (py_seq, "offsets must be a sequence");
+  if (sequence == NULL)
+    return NULL;
+
+  if ((n_entries = PySequence_Fast_GET_SIZE (sequence)) != GST_VIDEO_MAX_COMPONENTS) {
+    Py_DECREF (sequence);
+    PyErr_Format (PyExc_ValueError, "offsets must have exactly %u entries",
+        GST_VIDEO_MAX_COMPONENTS);
+    return NULL;
+  }
+
+  for (idx = 0; idx < n_entries; idx++) {
+    composition->offsets[idx] =
+        PyFloat_AsDouble (PySequence_Fast_GET_ITEM (sequence, idx));
+  }
+
+  Py_DECREF (sequence);
+
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+_gst_video_composition_get_scales (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL, *py_list = NULL;
+  GstVideoComposition *composition = NULL;
+  guint idx = 0;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!", py_composition_type, &py_composition)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  if ((py_list = PyList_New (GST_VIDEO_MAX_COMPONENTS)) == NULL) {
+    PyErr_NoMemory ();
+    return NULL;
+  }
+
+  for (idx = 0; idx < GST_VIDEO_MAX_COMPONENTS; idx++) {
+    PyList_SET_ITEM (py_list, (Py_ssize_t) idx,
+        PyFloat_FromDouble (composition->scales[idx]));
+  }
+
+  return py_list;
+}
+
+static PyObject *
+_gst_video_composition_set_scales (PyObject * self, PyObject * args)
+{
+  PyTypeObject *py_composition_type = NULL;
+  PyObject *py_composition = NULL, *py_seq = NULL, *sequence = NULL;
+  GstVideoComposition *composition = NULL;
+  guint idx = 0, n_entries = 0;
+
+  py_composition_type = pygobject_lookup_class (gst_video_composition_get_type ());
+  if (!PyArg_ParseTuple (args, "O!O", py_composition_type, &py_composition,
+          &py_seq)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  composition = pyg_boxed_get (py_composition, GstVideoComposition);
+
+  sequence = PySequence_Fast (py_seq, "scales must be a sequence");
+  if (sequence == NULL)
+    return NULL;
+
+  if ((n_entries = PySequence_Fast_GET_SIZE (sequence)) != GST_VIDEO_MAX_COMPONENTS) {
+    Py_DECREF (sequence);
+    PyErr_Format (PyExc_ValueError, "scales must have exactly %u entries",
+        GST_VIDEO_MAX_COMPONENTS);
+    return NULL;
+  }
+
+  for (idx = 0; idx < n_entries; idx++) {
+    composition->scales[idx] =
+        PyFloat_AsDouble (PySequence_Fast_GET_ITEM (sequence, idx));
+  }
+
+  Py_DECREF (sequence);
+
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+_gst_video_converter_engine_compose (PyObject * self, PyObject * args)
+{
+  PyTypeObject *engine_type = NULL;
+  PyObject *py_engine = NULL, *py_compositions = NULL, *py_fence = NULL;
+  GstVideoConverterEngine *engine = NULL;
+  GstVideoComposition **compositions = NULL;
+  gpointer fence = NULL;
+  gboolean success = FALSE, is_async = FALSE;
+  Py_ssize_t n_compositions = 0, idx = 0;
+
+  engine_type = pygobject_lookup_class (gst_video_converter_engine_get_type ());
+  if (!PyArg_ParseTuple (args, "O!Op", engine_type, &py_engine,
+          &py_compositions, &is_async)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  engine = pyg_boxed_get (py_engine, GstVideoConverterEngine);
+
+  if ((n_compositions = PySequence_Length (py_compositions)) < 0)
+    return NULL;
+
+  compositions = g_new0 (GstVideoComposition *, n_compositions);
+
+  for (idx = 0; idx < n_compositions; idx++) {
+    PyObject *py_item = PySequence_GetItem (py_compositions, idx);
+
+    if (py_item == NULL) {
+      g_free (compositions);
+      return NULL;
+    }
+
+    if (!pyg_boxed_check (py_item, gst_video_composition_get_type ())) {
+      Py_DECREF (py_item);
+      g_free (compositions);
+      PyErr_SetString (PyExc_TypeError,
+          "compositions must be a sequence of GstQtiVideo.Composition");
+      return NULL;
+    }
+
+    compositions[idx] = pyg_boxed_get (py_item, GstVideoComposition);
+    Py_DECREF (py_item);
+  }
+
+  success = gst_video_converter_engine_compose (engine, compositions,
+      (guint) n_compositions, is_async ? &fence : NULL);
+
+  g_free (compositions);
+
+  if (!success || !is_async)
+    return Py_BuildValue ("(OO)", success ? Py_True : Py_False, Py_None);
+
+  if ((py_fence = pyg_pointer_new (G_TYPE_POINTER, fence)) == NULL)
+    return NULL;
+
+  return Py_BuildValue ("(ON)", Py_True, py_fence);
+}
+
+static PyObject *
+_gst_video_converter_engine_wait_fence (PyObject * self, PyObject * args)
+{
+  PyTypeObject *engine_type = NULL;
+  PyObject *py_engine = NULL, *py_fence = NULL;
+  GstVideoConverterEngine *engine = NULL;
+  gpointer fence = NULL;
+  gboolean success = FALSE;
+
+  engine_type = pygobject_lookup_class (gst_video_converter_engine_get_type ());
+  if (!PyArg_ParseTuple (args, "O!O", engine_type, &py_engine, &py_fence)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  engine = pyg_boxed_get (py_engine, GstVideoConverterEngine);
+
+  if (py_fence == Py_None) {
+    success = TRUE;
+  } else {
+    if (!pyg_pointer_check (py_fence, G_TYPE_POINTER)) {
+      PyErr_SetString (PyExc_TypeError, "expected a fence pointer or None");
+      return NULL;
+    }
+
+    fence = pyg_pointer_get_ptr (py_fence);
+    success = gst_video_converter_engine_wait_fence (engine, fence);
+  }
+
+  return PyBool_FromLong (success);
+}
+
 static PyMethodDef _gi_gst_qti_functions[] = {
     {"ml_frame_get_memory_view", (PyCFunction) _gst_ml_frame_get_memory_view, METH_VARARGS, NULL},
     {"ml_keypoint_get_name", (PyCFunction) _gst_ml_keypoint_get_name, METH_VARARGS, NULL},
@@ -1301,6 +1678,18 @@ static PyMethodDef _gi_gst_qti_functions[] = {
     {"ml_depth_map_get_xtraparams", (PyCFunction) _gst_ml_depth_map_get_xtraparams, METH_VARARGS, NULL},
     {"ml_depth_map_set_xtraparams", (PyCFunction) _gst_ml_depth_map_set_xtraparams, METH_VARARGS, NULL},
     {"video_region_of_interest_meta_get_quadrilateral", (PyCFunction) _gst_video_region_of_interest_meta_get_quadrilateral, METH_VARARGS, NULL},
+    {"video_converter_engine_compose", (PyCFunction) _gst_video_converter_engine_compose, METH_VARARGS, NULL},
+    {"video_converter_engine_wait_fence", (PyCFunction) _gst_video_converter_engine_wait_fence, METH_VARARGS, NULL},
+    {"video_composition_get_blits", (PyCFunction) _gst_video_composition_get_blits, METH_VARARGS, NULL},
+    {"video_composition_set_blits", (PyCFunction) _gst_video_composition_set_blits, METH_VARARGS, NULL},
+    {"video_composition_get_buffer", (PyCFunction) _gst_video_composition_get_buffer, METH_VARARGS, NULL},
+    {"video_composition_set_buffer", (PyCFunction) _gst_video_composition_set_buffer, METH_VARARGS, NULL},
+    {"video_composition_get_info", (PyCFunction) _gst_video_composition_get_info, METH_VARARGS, NULL},
+    {"video_composition_set_info", (PyCFunction) _gst_video_composition_set_info, METH_VARARGS, NULL},
+    {"video_composition_get_offsets", (PyCFunction) _gst_video_composition_get_offsets, METH_VARARGS, NULL},
+    {"video_composition_set_offsets", (PyCFunction) _gst_video_composition_set_offsets, METH_VARARGS, NULL},
+    {"video_composition_get_scales", (PyCFunction) _gst_video_composition_get_scales, METH_VARARGS, NULL},
+    {"video_composition_set_scales", (PyCFunction) _gst_video_composition_set_scales, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}
 };
 

@@ -21,9 +21,6 @@ G_BEGIN_DECLS
 #define GST_VIDEO_BLIT_INIT \
     { NULL, NULL, 0, {{0, 0}, {0, 0}, {0, 0}, {0, 0}}, \
         {0, 0, 0, 0}, 255, GST_VIDEO_ROTATE_0 }
-#define GST_VIDEO_COMPOSITION_INIT \
-    { NULL, NULL, NULL, 0, FALSE, { 0.0, 0.0, 0.0, 0.0 }, \
-        { 1.0, 1.0, 1.0, 1.0 }, GST_VIDEO_DATA_TYPE_U8 }
 
 /**
  * GST_VIDEO_CONVERTER_OPT_FCV_OP_MODE:
@@ -39,6 +36,9 @@ typedef struct _GstVideoComposition GstVideoComposition;
 
 #define GST_TYPE_VIDEO_BLITS (gst_video_blits_get_type ())
 GST_VIDEO_API GType gst_video_blits_get_type (void);
+
+#define GST_TYPE_VIDEO_COMPOSITION (gst_video_composition_get_type ())
+GST_VIDEO_API GType gst_video_composition_get_type (void);
 
 /**
  * GstFcvOpMode:
@@ -91,7 +91,8 @@ struct _GstVideoBlit
  * GstVideoComposition:
  * @blits: A #GstVideoBlits used as inputs.
  * @buffer: The #GstBuffer used as output.
- * @info: A #GstVideoInfo for mapping.
+ * @info: The #GstVideoInfo for mapping the output buffer, owned by the
+ *        composition.
  * @bgcolor: Background color to be applied if bgfill is set to TRUE.
  * @bgfill: Whether to fill the background of the frame image with bgcolor.
  * @offsets: (array fixed-size=4) (element-type gdouble):
@@ -104,10 +105,14 @@ struct _GstVideoBlit
  */
 struct _GstVideoComposition
 {
+  /*< private >*/
+  gatomicrefcount  refcount;
+
+  /*< public >*/
   GstVideoBlits    *blits;
 
   GstBuffer        *buffer;
-  GstVideoInfo     *info;
+  GstVideoInfo     info;
 
   guint32          bgcolor;
   gboolean         bgfill;
@@ -117,6 +122,41 @@ struct _GstVideoComposition
 
   GstVideoDataType datatype;
 };
+
+/**
+ * gst_video_composition_new: (constructor)
+ *
+ * Allocate a new #GstVideoComposition that is also initialized.
+ *
+ * Returns: (transfer full): A new #GstVideoComposition.
+ */
+GST_VIDEO_API GstVideoComposition *
+gst_video_composition_new (void);
+
+/**
+ * gst_video_composition_ref: (skip)
+ * @composition: (transfer none): A #GstVideoComposition
+ *
+ * Atomically increments the reference count of @composition by one.
+ * This function is thread-safe and may be called from any thread.
+ *
+ * Returns: (transfer none): A pointer to the object passed in @composition
+ */
+GST_VIDEO_API GstVideoComposition *
+gst_video_composition_ref (GstVideoComposition * composition);
+
+/**
+ * gst_video_composition_unref: (skip)
+ * @composition: (transfer none): A #GstVideoComposition
+ *
+ * Atomically decrements the reference count of @composition by one. If the
+ * reference count drops to 0, release the blits and free the
+ * GstVideoComposition.
+ *
+ * This function is thread-safe and may be called from any thread.
+ */
+GST_VIDEO_API void
+gst_video_composition_unref (GstVideoComposition * composition);
 
 /**
  * gst_video_blits_new: (constructor)

@@ -45,7 +45,7 @@ gst_fcv_video_converter_free (GstFcvVideoConverter * convert);
  */
 GST_VIDEO_API gboolean
 gst_fcv_video_converter_compose (GstFcvVideoConverter * convert,
-                                 GstVideoComposition * compositions,
+                                 GstVideoComposition ** compositions,
                                  guint n_compositions, gpointer * fence);
 
 /**

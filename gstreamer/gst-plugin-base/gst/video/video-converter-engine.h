@@ -16,8 +16,7 @@ G_BEGIN_DECLS
 typedef struct _GstVideoConverterEngine GstVideoConverterEngine;
 
 #define GST_TYPE_VIDEO_CONVERTER_ENGINE (gst_video_converter_engine_get_type())
-G_DECLARE_FINAL_TYPE (GstVideoConverterEngine, gst_video_converter_engine,
-    GST, VIDEO_CONVERTER_ENGINE, GObject)
+GST_VIDEO_API GType gst_video_converter_engine_get_type (void);
 
 /**
  * GstVideoConverterBackend:
@@ -53,31 +52,45 @@ gst_video_converter_default_backend (void);
 /**
  * gst_video_converter_engine_new:
  * @backend: The type of the underlying converter.
- * @settings: A #GstStructure with backend specific options.
+ * @settings: (nullable): A #GstStructure with backend specific options.
  *
  * Initialize instance of video converter engine.
  *
- * Returns: (transfer full): A new #GstVideoConverterEngine or NULL on failure
+ * Returns: (transfer full) (nullable): A new #GstVideoConverterEngine or NULL
+ * on failure
  */
 GST_VIDEO_API GstVideoConverterEngine *
 gst_video_converter_engine_new (GstVideoConverterBackend backend,
                                 GstStructure * settings);
 
 /**
- * gst_video_converter_engine_free:
- * @engine: Pointer to video converter engine.
+ * gst_video_converter_engine_ref: (skip)
+ * @engine: (transfer none): A #GstVideoConverterEngine
  *
- * Deinitialise the video converter engine.
+ * Atomically increments the reference count of @engine by one.
+ *
+ * Returns: (transfer none): A pointer to the object passed in @engine
+ */
+GST_VIDEO_API GstVideoConverterEngine *
+gst_video_converter_engine_ref (GstVideoConverterEngine * engine);
+
+/**
+ * gst_video_converter_engine_unref: (skip)
+ * @engine: (transfer none): A #GstVideoConverterEngine
+ *
+ * Atomically decrements the reference count of @engine by one. If the
+ * reference count drops to 0, the engine and its backend are freed.
  */
 GST_VIDEO_API void
-gst_video_converter_engine_free (GstVideoConverterEngine * engine);
+gst_video_converter_engine_unref (GstVideoConverterEngine * engine);
 
 /**
  * gst_video_converter_engine_compose:
  * @engine: Pointer to video converter engine.
- * @compositions: Array of composition frames.
+ * @compositions: (array length=n_compositions): Array of composition frames.
  * @n_compositions: Number of compositions.
- * @fence: Optional fence to be filled if provided and used for async operation.
+ * @fence: (skip): Optional fence to be filled if provided and used for async
+ *         operation.
  *
  * Submit the a number of video composition which will be executed together.
  *
@@ -89,13 +102,13 @@ gst_video_converter_engine_free (GstVideoConverterEngine * engine);
  */
 GST_VIDEO_API gboolean
 gst_video_converter_engine_compose (GstVideoConverterEngine * engine,
-                                    GstVideoComposition * compositions,
+                                    GstVideoComposition ** compositions,
                                     guint n_compositions, gpointer * fence);
 
 /**
  * gst_video_converter_engine_wait_fence:
  * @engine: Pointer to video converter engine.
- * @fence: Asynchronously fence object associated with a compose request.
+ * @fence: (skip): Asynchronously fence object associated with a compose request.
  *
  * Wait for the sumbitted to the engine compositions to finish.
  *

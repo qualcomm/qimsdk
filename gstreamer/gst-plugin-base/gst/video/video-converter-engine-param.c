@@ -7,9 +7,6 @@
 
 #include <gst/utils/common-utils.h>
 
-GST_DEBUG_CATEGORY_EXTERN (gst_video_converter_engine_debug);
-#define GST_CAT_DEFAULT gst_video_converter_engine_debug
-
 /**
  * GstVideoBlits:
  * @refcount: thread safe reference counter
@@ -24,6 +21,10 @@ struct _GstVideoBlits {
 
 G_DEFINE_BOXED_TYPE (GstVideoBlits, gst_video_blits,
     (GBoxedCopyFunc) gst_video_blits_ref, (GBoxedFreeFunc) gst_video_blits_unref);
+
+G_DEFINE_BOXED_TYPE (GstVideoComposition, gst_video_composition,
+    (GBoxedCopyFunc) gst_video_composition_ref,
+    (GBoxedFreeFunc) gst_video_composition_unref);
 
 GType
 gst_fcv_op_mode_get_type (void)
@@ -151,4 +152,43 @@ gst_video_blits_resize (GstVideoBlits * vblits, guint size)
 {
   g_return_if_fail (vblits != NULL);
   g_array_set_size (vblits->entries, size);
+}
+
+GstVideoComposition *
+gst_video_composition_new (void)
+{
+  GstVideoComposition *composition = g_slice_new0 (GstVideoComposition);
+  guint idx = 0;
+
+  g_atomic_ref_count_init (&composition->refcount);
+  gst_video_info_init (&composition->info);
+
+  // Every other field defaults to its zero value, scales to the identity.
+  for (idx = 0; idx < GST_VIDEO_MAX_COMPONENTS; idx++)
+    composition->scales[idx] = 1.0;
+
+  composition->datatype = GST_VIDEO_DATA_TYPE_U8;
+
+  return composition;
+}
+
+GstVideoComposition *
+gst_video_composition_ref (GstVideoComposition * composition)
+{
+  g_return_val_if_fail (composition != NULL, NULL);
+  g_atomic_ref_count_inc (&composition->refcount);
+
+  return composition;
+}
+
+void
+gst_video_composition_unref (GstVideoComposition * composition)
+{
+  g_return_if_fail (composition != NULL);
+
+  if (!g_atomic_ref_count_dec (&composition->refcount))
+    return;
+
+  g_clear_pointer (&(composition->blits), gst_video_blits_unref);
+  g_slice_free (GstVideoComposition, composition);
 }

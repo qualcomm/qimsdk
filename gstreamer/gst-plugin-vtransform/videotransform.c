@@ -693,7 +693,7 @@ gst_video_transform_set_caps (GstBaseTransform * base, GstCaps * incaps,
   vtrans->outfeature = g_quark_from_static_string (feature);
 
   if (vtrans->converter != NULL)
-    gst_video_converter_engine_free (vtrans->converter);
+    gst_video_converter_engine_unref (vtrans->converter);
 
   vtrans->converter = gst_video_converter_engine_new (vtrans->backend,
       vtrans->backendparam);
@@ -1599,7 +1599,7 @@ gst_video_transform_transform (GstBaseTransform * base, GstBuffer * inbuffer,
 {
   GstVideoTransform *vtrans = GST_VIDEO_TRANSFORM_CAST (base);
   GstVideoBlit *vblit = NULL;
-  GstVideoComposition composition = GST_VIDEO_COMPOSITION_INIT;
+  GstVideoComposition *composition = NULL;
   GstClockTime time = GST_CLOCK_TIME_NONE;
   const GstVideoMeta *meta = NULL;
   gboolean success = FALSE;
@@ -1629,8 +1629,9 @@ gst_video_transform_transform (GstBaseTransform * base, GstBuffer * inbuffer,
 
   GST_VIDEO_TRANSFORM_LOCK (vtrans);
 
-  composition.blits = gst_video_blits_new_sized (1);
-  vblit = gst_video_blits_entry (composition.blits, 0);
+  composition = gst_video_composition_new ();
+  composition->blits = gst_video_blits_new_sized (1);
+  vblit = gst_video_blits_entry (composition->blits, 0);
 
   vblit->buffer = inbuffer;
   vblit->mask = 0;
@@ -1656,16 +1657,15 @@ gst_video_transform_transform (GstBaseTransform * base, GstBuffer * inbuffer,
   vblit->rotate = vtrans->rotation;
   vblit->mask |= GST_VIDEO_CONVERTER_MASK_ROTATION;
 
-  composition.buffer = outbuffer;
-  composition.info = vtrans->outinfo;
-  composition.datatype = GST_VIDEO_DATA_TYPE_U8;
+  composition->buffer = outbuffer;
+  composition->info = *(vtrans->outinfo);
 
-  composition.bgcolor = vtrans->background;
-  composition.bgfill = TRUE;
+  composition->bgcolor = vtrans->background;
+  composition->bgfill = TRUE;
 
   success = gst_video_converter_engine_compose (vtrans->converter,
       &composition, 1, NULL);
-  gst_video_blits_unref (composition.blits);
+  gst_video_composition_unref (composition);
 
   GST_VIDEO_TRANSFORM_UNLOCK (vtrans);
 
@@ -1878,7 +1878,7 @@ gst_video_transform_finalize (GObject * object)
   GstVideoTransform *vtrans = GST_VIDEO_TRANSFORM (object);
 
   if (vtrans->converter != NULL)
-    gst_video_converter_engine_free (vtrans->converter);
+    gst_video_converter_engine_unref (vtrans->converter);
 
   if (vtrans->ininfo != NULL)
     gst_video_info_free (vtrans->ininfo);

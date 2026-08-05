@@ -42,7 +42,7 @@ custom_lib_set_cfg (CustomLib * customlib,
 
   // for reference functionality
   if (customlib->converter != NULL) {
-    gst_video_converter_engine_free (customlib->converter);
+    gst_video_converter_engine_unref (customlib->converter);
   }
 
   customlib->converter =
@@ -151,32 +151,32 @@ custom_lib_process_buffer (CustomLib * custom_lib,
     GstBuffer * inbuffer, GstBuffer * outbuffer)
 {
   GstVideoBlit *vblit = NULL;
-  GstVideoComposition composition = GST_VIDEO_COMPOSITION_INIT;
+  GstVideoComposition *composition = gst_video_composition_new ();
   GstClockTime time = GST_CLOCK_TIME_NONE;
+  CustomCmdStatus ret = CUSTOM_STATUS_OK;
   gboolean success = FALSE;
 
   if (NULL == custom_lib) {
     GST_ERROR ("No library has been provided!");
-    return CUSTOM_STATUS_FAIL;
+    ret = CUSTOM_STATUS_FAIL;
+    goto cleanup;
   }
 
   time = gst_util_get_timestamp ();
 
-  composition.blits = gst_video_blits_new_sized (1);
-  vblit = gst_video_blits_entry (composition.blits, 0);
+  composition->blits = gst_video_blits_new_sized (1);
+  vblit = gst_video_blits_entry (composition->blits, 0);
 
   vblit->buffer = inbuffer;
   vblit->mask |= GST_VIDEO_CONVERTER_MASK_FLIP_VERTICAL;
 
-  composition.buffer = outbuffer;
-  composition.datatype = GST_VIDEO_DATA_TYPE_U8;
+  composition->buffer = outbuffer;
 
-  composition.bgcolor = 0;
-  composition.bgfill = FALSE;
+  composition->bgcolor = 0;
+  composition->bgfill = FALSE;
 
   success = gst_video_converter_engine_compose (custom_lib->converter,
       &composition, 1, NULL);
-  gst_video_blits_unref (composition.blits);
 
   time = GST_CLOCK_DIFF (time, gst_util_get_timestamp ());
 
@@ -188,10 +188,12 @@ custom_lib_process_buffer (CustomLib * custom_lib,
 
   if (!success) {
     GST_ERROR ("Failed to process composition!");
-    return CUSTOM_STATUS_FAIL;
+    ret = CUSTOM_STATUS_FAIL;
   }
 
-  return CUSTOM_STATUS_OK;
+cleanup:
+  gst_video_composition_unref (composition);
+  return ret;
 }
 
 void
@@ -199,7 +201,7 @@ custom_lib_delete_handle (CustomLib * custom_lib)
 {
   if (custom_lib) {
     if (custom_lib->converter != NULL)
-      gst_video_converter_engine_free (custom_lib->converter);
+      gst_video_converter_engine_unref (custom_lib->converter);
 
     free (custom_lib);
   }

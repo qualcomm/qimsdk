@@ -135,7 +135,7 @@ struct _GstMLVideoConverter {
 
   /// Video converter engine.
   GstVideoConverterEngine  *converter;
-  GstVideoComposition      composition;
+  GstVideoComposition      *composition;
 
   /// The type of hardware being utilized.
   gchar                hw_util[10];

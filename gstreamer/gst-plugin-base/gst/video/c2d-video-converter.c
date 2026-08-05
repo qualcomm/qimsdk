@@ -306,14 +306,20 @@ gst_c2d_composition_object_area (C2D_OBJECT * objects, guint index)
 static inline gint
 gst_c2d_compare_compositions (const void * a, const void * b)
 {
-  const GstVideoComposition *l_composition = (const GstVideoComposition*) a;
-  const GstVideoComposition *r_composition = (const GstVideoComposition*) b;
+  const GstVideoComposition *l_composition =
+      *(const GstVideoComposition * const *) a;
+  const GstVideoComposition *r_composition =
+      *(const GstVideoComposition * const *) b;
   gint l_dims = 0, r_dims = 0;
 
-  l_dims = GST_VIDEO_INFO_WIDTH (l_composition->info) *
-      GST_VIDEO_INFO_HEIGHT (l_composition->info);
-  r_dims = GST_VIDEO_INFO_WIDTH (r_composition->info) *
-      GST_VIDEO_INFO_HEIGHT (r_composition->info);
+  // Move NULL entries to the end, they are rejected by the compose loop.
+  if ((l_composition == NULL) || (r_composition == NULL))
+    return (l_composition == NULL) - (r_composition == NULL);
+
+  l_dims = GST_VIDEO_INFO_WIDTH (&l_composition->info) *
+      GST_VIDEO_INFO_HEIGHT (&l_composition->info);
+  r_dims = GST_VIDEO_INFO_WIDTH (&r_composition->info) *
+      GST_VIDEO_INFO_HEIGHT (&r_composition->info);
 
   return (l_dims < r_dims) - (l_dims > r_dims);
 }
@@ -361,20 +367,20 @@ gst_c2d_blits_compatible (const GstVideoComposition * l_composition,
 
     // Adjust the dimensions of the target rectangles to be in the same scale.
     r_rect.x = gst_util_uint64_scale_int (r_rect.x,
-        GST_VIDEO_INFO_WIDTH (l_composition->info),
-        GST_VIDEO_INFO_WIDTH (r_composition->info));
+        GST_VIDEO_INFO_WIDTH (&l_composition->info),
+        GST_VIDEO_INFO_WIDTH (&r_composition->info));
 
     r_rect.y = gst_util_uint64_scale_int (r_rect.y,
-        GST_VIDEO_INFO_HEIGHT (l_composition->info),
-        GST_VIDEO_INFO_HEIGHT (r_composition->info));
+        GST_VIDEO_INFO_HEIGHT (&l_composition->info),
+        GST_VIDEO_INFO_HEIGHT (&r_composition->info));
 
     r_rect.w = gst_util_uint64_scale_int (r_rect.w,
-        GST_VIDEO_INFO_WIDTH (l_composition->info),
-        GST_VIDEO_INFO_WIDTH (r_composition->info));
+        GST_VIDEO_INFO_WIDTH (&l_composition->info),
+        GST_VIDEO_INFO_WIDTH (&r_composition->info));
 
     r_rect.h = gst_util_uint64_scale_int (r_rect.h,
-        GST_VIDEO_INFO_HEIGHT (l_composition->info),
-        GST_VIDEO_INFO_HEIGHT (r_composition->info));
+        GST_VIDEO_INFO_HEIGHT (&l_composition->info),
+        GST_VIDEO_INFO_HEIGHT (&r_composition->info));
 
     // Target rectangles may not match but must have maximum of 1 pixel delta.
     if ((ABS (l_rect.x - r_rect.x) > 1) || (ABS (l_rect.y - r_rect.y) > 1) ||
@@ -389,24 +395,24 @@ gst_c2d_blits_compatible (const GstVideoComposition * l_composition,
 
 static inline gboolean
 gst_c2d_optimize_composition (GstVideoBlit * blit,
-    const GstVideoComposition * compositions, const guint index)
+    GstVideoComposition * const * compositions, const guint index)
 {
-  const GstVideoComposition *composition = &(compositions[index]);
+  const GstVideoComposition *composition = compositions[index];
   const GstVideoComposition *l_composition = NULL;
   gint l_score = -1, score = -1;
   gdouble l_ratio = 0.0, ratio = 0.0;
   guint num = 0, l_resolution = 0, resolution = 0, l_size = 0, size = 0;
   gboolean optimized = FALSE;
 
-  gst_util_fraction_to_double (GST_VIDEO_INFO_WIDTH (composition->info),
-      GST_VIDEO_INFO_HEIGHT (composition->info), &ratio);
+  gst_util_fraction_to_double (GST_VIDEO_INFO_WIDTH (&composition->info),
+      GST_VIDEO_INFO_HEIGHT (&composition->info), &ratio);
 
-  resolution = GST_VIDEO_INFO_WIDTH (composition->info) *
-      GST_VIDEO_INFO_HEIGHT (composition->info);
+  resolution = GST_VIDEO_INFO_WIDTH (&composition->info) *
+      GST_VIDEO_INFO_HEIGHT (&composition->info);
 
   // Find the best compatible blit composition to current one.
   for (num = 0; num < index; num++) {
-    l_composition = &(compositions[num]);
+    l_composition = compositions[num];
 
     l_size = gst_video_blits_size (l_composition->blits);
     size = gst_video_blits_size (composition->blits);
@@ -419,15 +425,15 @@ gst_c2d_optimize_composition (GstVideoBlit * blit,
     if (l_composition->bgcolor != composition->bgcolor)
       continue;
 
-    gst_util_fraction_to_double (GST_VIDEO_INFO_WIDTH (l_composition->info),
-        GST_VIDEO_INFO_HEIGHT (l_composition->info), &l_ratio);
+    gst_util_fraction_to_double (GST_VIDEO_INFO_WIDTH (&l_composition->info),
+        GST_VIDEO_INFO_HEIGHT (&l_composition->info), &l_ratio);
 
     // Both target surfaces must have the same aspect ratio within tolerance.
     if (FABS (l_ratio - ratio) > 0.005)
       continue;
 
-    l_resolution = GST_VIDEO_INFO_WIDTH (l_composition->info) *
-        GST_VIDEO_INFO_HEIGHT (l_composition->info);
+    l_resolution = GST_VIDEO_INFO_WIDTH (&l_composition->info) *
+        GST_VIDEO_INFO_HEIGHT (&l_composition->info);
 
     // The blit surface must have the same or lower resolution.
     if (resolution > l_resolution)
@@ -440,11 +446,11 @@ gst_c2d_optimize_composition (GstVideoBlit * blit,
     // Increase the score if both target blit surfaces have the same dimensions.
     l_score = (l_resolution == resolution) ? 1 : 0;
     // Increase the score if both target blit surfaces have the same format flags.
-    l_score += (l_composition->info->finfo->flags ==
-        composition->info->finfo->flags) ? 1 : 0;
+    l_score += (l_composition->info.finfo->flags ==
+        composition->info.finfo->flags) ? 1 : 0;
     // Increase the score if both target blit surfaces have the same format.
-    l_score += (GST_VIDEO_INFO_FORMAT (l_composition->info) ==
-        GST_VIDEO_INFO_FORMAT (composition->info)) ? 1 : 0;
+    l_score += (GST_VIDEO_INFO_FORMAT (&l_composition->info) ==
+        GST_VIDEO_INFO_FORMAT (&composition->info)) ? 1 : 0;
 
     if (l_score <= score)
       continue;
@@ -1022,7 +1028,7 @@ gst_c2d_retrieve_surface_id (GstC2dVideoConverter * convert,
 
 gboolean
 gst_c2d_video_converter_compose (GstC2dVideoConverter * convert,
-    GstVideoComposition * compositions, guint n_compositions, gpointer * fence)
+    GstVideoComposition ** compositions, guint n_compositions, gpointer * fence)
 {
   GArray *requests = NULL;
   C2D_OBJECT objects[GST_C2D_MAX_DRAW_OBJECTS] = { 0, };
@@ -1036,23 +1042,24 @@ gst_c2d_video_converter_compose (GstC2dVideoConverter * convert,
   g_array_set_size (requests, n_compositions);
 
   // Sort compositions by output frame dimensions.
-  qsort (compositions, n_compositions, sizeof (GstVideoComposition),
+  qsort (compositions, n_compositions, sizeof (GstVideoComposition *),
       gst_c2d_compare_compositions);
 
   for (idx = 0; idx < n_compositions; idx++) {
-    GstVideoComposition *composition = &(compositions[idx]);
+    GstVideoComposition *composition = compositions[idx];
     GstC2dRequest *request = &g_array_index (requests, GstC2dRequest, idx);
     GstVideoFrame *inframe = NULL, *outframe = NULL;
     GstVideoBlit l_blit = GST_VIDEO_BLIT_INIT;
     guint n_blits = 0, n_objects = 0;
     gboolean optimized = FALSE;
 
-    // Sanity checks, output frame and blit entries must not be NULL.
+    // Sanity checks, composition, output frame and blits must not be NULL.
+    g_return_val_if_fail (composition != NULL, FALSE);
     g_return_val_if_fail (composition->buffer != NULL, FALSE);
     g_return_val_if_fail (composition->blits != NULL, FALSE);
 
     outframe = request->frame = g_slice_new0 (GstVideoFrame);
-    success = gst_video_frame_map (outframe, composition->info,
+    success = gst_video_frame_map (outframe, &composition->info,
         composition->buffer, GST_MAP_READ | GST_VIDEO_FRAME_MAP_FLAG_NO_REF);
 
     if (!success) {

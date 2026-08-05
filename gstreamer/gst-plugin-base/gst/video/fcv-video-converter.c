@@ -2251,7 +2251,7 @@ gst_fcv_video_converter_process (GstFcvVideoConverter * convert,
 
 gboolean
 gst_fcv_video_converter_compose (GstFcvVideoConverter * convert,
-    GstVideoComposition * compositions, guint n_compositions, gpointer * fence)
+    GstVideoComposition ** compositions, guint n_compositions, gpointer * fence)
 {
   GstFcvObject objects[GST_FCV_MAX_DRAW_OBJECTS] = { 0, };
   guint idx = 0, num = 0, n_objects = 0, area = 0, n_blits = 0;
@@ -2263,14 +2263,15 @@ gst_fcv_video_converter_compose (GstFcvVideoConverter * convert,
     GST_WARNING ("Asynchronous composition operations are not supported!");
 
   for (idx = 0; idx < n_compositions; idx++) {
-    GstVideoComposition *composition = &(compositions[idx]);
+    GstVideoComposition *composition = compositions[idx];
     gboolean success = FALSE;
 
-    // Sanity checks, output frame and blit entries must not be NULL.
+    // Sanity checks, composition, output frame and blits must not be NULL.
+    g_return_val_if_fail (composition != NULL, FALSE);
     g_return_val_if_fail (composition->buffer != NULL, FALSE);
     g_return_val_if_fail (composition->blits != NULL, FALSE);
 
-    success = gst_video_frame_map (&outframe, composition->info,
+    success = gst_video_frame_map (&outframe, &composition->info,
         composition->buffer, GST_MAP_READWRITE | GST_VIDEO_FRAME_MAP_FLAG_NO_REF);
 
     if (!success) {
