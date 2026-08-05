@@ -43,6 +43,7 @@ struct _GstC2VDecoder {
 
   /// Properties
   gboolean           secure;
+  gboolean           slice;
 };
 
 struct _GstC2VDecoderClass {

@@ -20,10 +20,15 @@ G_DEFINE_TYPE (GstC2VDecoder, gst_c2_vdec, GST_TYPE_VIDEO_DECODER);
 
 #define GST_VIDEO_FORMATS "{ NV12, P010_10LE, NV12_Q08C, NV12_Q10LE32C }"
 
+#define DEFAULT_PROP_SECURE FALSE
+#define DEFAULT_PROP_SLICE  FALSE
+#define GST_C2_VDEC_FENCE_WAIT_TIMEOUT_MS 500
+
 enum
 {
   PROP_0,
-  PROP_SECURE
+  PROP_SECURE,
+  PROP_SLICE,
 };
 
 static GstStaticPadTemplate gst_c2_vdec_sink_pad_template =
@@ -189,6 +194,48 @@ gst_c2_vdec_setup_parameters (GstC2VDecoder * c2vdec,
   }
 #endif // CODEC2_CONFIG_VERSION_1_0
 
+  if (c2vdec->slice != DEFAULT_PROP_SLICE) {
+    GstC2VideoFence video_fence = { TRUE, GST_C2_FENCE_TYPE_TX};
+    GstC2VideoFenceTypeInfo fence_info = GST_C2_VIDEO_FENCE_TYPE_INFO_SW;
+    gboolean enable = TRUE;
+    guint32 slice_mode = 1;
+
+    success = gst_c2_engine_set_parameter (c2vdec->engine,
+        GST_C2_PARAM_LOW_LATENCY, GST_PTR_CAST (&enable));
+    if (!success) {
+      GST_ERROR_OBJECT (c2vdec, "Failed to set low latency parameter!");
+      return FALSE;
+    }
+
+    success = gst_c2_engine_set_parameter (c2vdec->engine,
+        GST_C2_PARAM_ENABLE_PICTURE_ORDER, GST_PTR_CAST (&enable));
+    if (!success) {
+      GST_ERROR_OBJECT (c2vdec, "Failed to set decode order parameter!");
+      return FALSE;
+    }
+
+    success = gst_c2_engine_set_parameter (c2vdec->engine,
+        GST_C2_PARAM_DECODE_SLICE_MODE, GST_PTR_CAST (&slice_mode));
+    if (!success) {
+      GST_ERROR_OBJECT (c2vdec, "Failed to set decode slice mode parameter!");
+      return FALSE;
+    }
+
+    success = gst_c2_engine_set_parameter (c2vdec->engine,
+        GST_C2_PARAM_VIDEO_FENCE, GST_PTR_CAST (&video_fence));
+    if (!success) {
+      GST_ERROR_OBJECT (c2vdec, "Failed to set video output fence parameter!");
+      return FALSE;
+    }
+
+    success = gst_c2_engine_set_parameter (c2vdec->engine,
+        GST_C2_PARAM_VIDEO_FENCE_TYPE_INFO, GST_PTR_CAST (&fence_info));
+    if (!success) {
+      GST_ERROR_OBJECT (c2vdec, "Failed to set video output fence type parameter!");
+      return FALSE;
+    }
+  }
+
   return TRUE;
 }
 
@@ -206,6 +253,11 @@ gst_c2_vdec_event_handler (guint type, gpointer payload, gpointer userdata)
   } else if (type == GST_C2_EVENT_DROP) {
     guint64 index = *((guint64*) payload);
     GstVideoCodecFrame *frame = NULL;
+
+    if (c2vdec->slice == TRUE) {
+      GST_DEBUG_OBJECT (c2vdec, "Received drop in slice, index: %lu", index);
+      return;
+    }
 
     GST_DEBUG_OBJECT (c2vdec, "Received engine drop frame: %lu", index);
 
@@ -228,6 +280,13 @@ gst_c2_vdec_buffer_available (GstBuffer * buffer, gpointer userdata)
   GstVideoMeta *vmeta = NULL;
   GstFlowReturn ret = GST_FLOW_OK;
   guint64 index = 0;
+
+  // Wait output fence before consuming decoded buffer.
+  if (c2vdec->slice && !gst_c2_engine_wait_buffer_fence (c2vdec->engine, buffer,
+          GST_C2_VDEC_FENCE_WAIT_TIMEOUT_MS)) {
+    GST_WARNING_OBJECT (c2vdec, "Fence wait failed on output buffer %"
+        GST_PTR_FORMAT, buffer);
+  }
 
  if (!GST_BUFFER_FLAG_IS_SET (buffer, GST_BUFFER_FLAG_MARKER)) {
     gst_buffer_list_add (c2vdec->incomplete_buffers, buffer);
@@ -512,6 +571,8 @@ gst_c2_vdec_set_format (GstVideoDecoder * decoder, GstVideoCodecState * state)
   if (c2vdec->secure) {
     name = g_strconcat(name, ".secure", NULL);
     pool_type = GST_C2_POOL_TYPE_DEFAULT_GRAPHIC;
+  } else if (c2vdec->slice) {
+    name = g_strconcat(name, ".low_latency", NULL);
   }
 
   if ((c2vdec->name != NULL) && !g_str_equal (c2vdec->name, name)) {
@@ -538,7 +599,7 @@ gst_c2_vdec_set_format (GstVideoDecoder * decoder, GstVideoCodecState * state)
     return FALSE;
   }
 
-  if (c2vdec->secure)
+  if ((c2vdec->secure) || (c2vdec->slice))
     g_free (name);
 
   return TRUE;
@@ -605,6 +666,9 @@ gst_c2_vdec_set_property (GObject * object, guint prop_id, const GValue * value,
     case PROP_SECURE:
       c2vdec->secure = g_value_get_boolean (value);
       break;
+    case PROP_SLICE:
+      c2vdec->slice = g_value_get_boolean (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -620,6 +684,9 @@ gst_c2_vdec_get_property (GObject * object, guint prop_id, GValue * value,
   switch (prop_id) {
     case PROP_SECURE:
       g_value_set_boolean (value, c2vdec->secure);
+      break;
+    case PROP_SLICE:
+      g_value_set_boolean (value, c2vdec->slice);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -668,9 +735,13 @@ gst_c2_vdec_class_init (GstC2VDecoderClass * klass)
       &gst_c2_vdec_src_pad_template);
 
   g_object_class_install_property (gobject, PROP_SECURE,
-    g_param_spec_boolean ("secure", "Secure", "Secure Playback"
+    g_param_spec_boolean ("secure", "Secure Playback",
         "If property is enabled it will select the codec2 secure component",
-        FALSE, G_PARAM_READWRITE));
+        DEFAULT_PROP_SECURE, G_PARAM_READWRITE));
+  g_object_class_install_property (gobject, PROP_SLICE,
+    g_param_spec_boolean ("slice", "Slice Decode", "Decoder processes with "
+        "slices as output instead of access units", DEFAULT_PROP_SLICE,
+        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_READY));
 
   vdec_class->start = GST_DEBUG_FUNCPTR (gst_c2_vdec_start);
   vdec_class->stop = GST_DEBUG_FUNCPTR (gst_c2_vdec_stop);
@@ -712,4 +783,3 @@ GST_PLUGIN_DEFINE (
     PACKAGE_SUMMARY,
     PACKAGE_ORIGIN
 )
-

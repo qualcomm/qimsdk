@@ -19,7 +19,7 @@ enum {
   GST_C2_EVENT_UNKNOWN,
   GST_C2_EVENT_EOS,
   GST_C2_EVENT_ERROR,
-  GST_C2_EVENT_DROP
+  GST_C2_EVENT_DROP,
 };
 
 enum
@@ -177,6 +177,22 @@ gst_c2_engine_drain (GstC2Engine * engine, gboolean eos);
  */
 GST_API gboolean
 gst_c2_engine_queue (GstC2Engine * engine, GstC2QueueItem * item);
+
+/**
+ * gst_c2_engine_wait_buffer_fence:
+ * @engine: Pointer to Codec2 engine instance.
+ * @buffer: Pointer to GStreamer buffer.
+ * @timeout_ms: Timeout in milliseconds.
+ *
+ * Wait for the Codec2 fence associated with the given GStreamer buffer, if
+ * present. If no fence metadata is associated with the buffer this call
+ * succeeds immediately.
+ *
+ * return: TRUE on success or FALSE on failure.
+ */
+GST_API gboolean
+gst_c2_engine_wait_buffer_fence (GstC2Engine * engine, GstBuffer * buffer,
+    guint timeout_ms);
 
 G_END_DECLS
 
