@@ -180,15 +180,6 @@ gst_vsplit_request_release (GstVSplitRequest * request)
 }
 
 static inline void
-gst_video_composition_cleanup (gpointer userdata)
-{
-  GstVideoComposition *composition = (GstVideoComposition*) userdata;
-
-  // Free only video blits, output frame is owned by the request.
-  g_clear_pointer (&(composition->blits), gst_video_blits_unref);
-}
-
-static inline void
 gst_data_queue_free_item (gpointer userdata)
 {
  GstDataQueueItem *item = userdata;
@@ -330,8 +321,8 @@ gst_video_split_composition_update_regions (GstVideoSplitSrcPad * srcpad,
   vblit->mask |= GST_VIDEO_CONVERTER_MASK_DESTINATION;
 
   destination->x = destination->y = 0;
-  destination->w = maxwidth =  GST_VIDEO_INFO_WIDTH (composition->info);
-  destination->h = maxheight = GST_VIDEO_INFO_HEIGHT (composition->info);
+  destination->w = maxwidth =  GST_VIDEO_INFO_WIDTH (&composition->info);
+  destination->h = maxheight = GST_VIDEO_INFO_HEIGHT (&composition->info);
 
   // Recalculate the destination width or height depending on the ratios.
   if ((source.w * destination->h) > (source.h * destination->w))
@@ -601,7 +592,7 @@ gst_video_split_stop_worker_task (GstVideoSplit * vsplit)
 
 static gboolean
 gst_video_split_populate_frames_and_compositions (GstVideoSplit * vsplit,
-    GstBuffer * inbuffer, GPtrArray * buffers, GArray * compositions)
+    GstBuffer * inbuffer, GPtrArray * buffers, GPtrArray * compositions)
 {
   GList *list = NULL;
   GPtrArray *outbuffers = NULL;
@@ -609,7 +600,7 @@ gst_video_split_populate_frames_and_compositions (GstVideoSplit * vsplit,
   GstVideoComposition *composition = NULL;
   GstVideoRegionOfInterestMeta *roimeta = NULL;
   gpointer state = NULL;
-  guint idx = 0, num = 0, id = 0, n_metas = 0, n_entries = 0, i = 0;
+  guint idx = 0, num = 0, id = 0, n_metas = 0, n_entries = 0;
   gboolean success = TRUE;
   GstVideoMeta *meta = NULL;
   GstVideoInfo *ininfo = NULL;
@@ -653,9 +644,6 @@ gst_video_split_populate_frames_and_compositions (GstVideoSplit * vsplit,
     idx = g_list_index (vsplit->srcpads, srcpad);
     g_ptr_array_index (buffers, idx) = outbuffers;
 
-    // Resize the number of compositions.
-    g_array_set_size (compositions, compositions->len + n_entries);
-
     // Aquire buffer for each frame and update the converter parameters.
     for (idx = 0; idx < outbuffers->len; idx++, id++) {
       GstVideoBlit *vblit = NULL;
@@ -668,27 +656,23 @@ gst_video_split_populate_frames_and_compositions (GstVideoSplit * vsplit,
         break;
       }
 
-      composition = &(g_array_index (compositions, GstVideoComposition, id));
+      composition = gst_video_composition_new ();
+      g_ptr_array_add (compositions, composition);
       g_ptr_array_index (outbuffers, idx) = outbuffer;
 
       meta = gst_buffer_get_video_meta (outbuffer);
 
-      success = gst_video_info_modify_with_meta (outinfo, meta);
+      // Each composition keeps its own copy as output buffers may differ.
+      composition->info = *outinfo;
+      success = gst_video_info_modify_with_meta (&composition->info, meta);
 
       if (!success)
         GST_ERROR_OBJECT (vsplit, "Failed to derive info from meta");
 
       composition->buffer = outbuffer;
-      composition->info = outinfo;
-      composition->datatype = GST_VIDEO_DATA_TYPE_U8;
 
       composition->bgcolor = 0x00000000;
       composition->bgfill = TRUE;
-
-      for (i = 0; i < GST_VIDEO_MAX_COMPONENTS; ++i) {
-        composition->scales[i] = 1.0;
-        composition->offsets[i] = 0.0;
-      }
 
       composition->blits = gst_video_blits_new_sized (1);
       vblit = gst_video_blits_entry (composition->blits, 0);
@@ -736,7 +720,7 @@ gst_video_split_sinkpad_chain (GstPad * pad, GstObject * parent,
   GstVideoSplitSinkPad *sinkpad = GST_VIDEO_SPLIT_SINKPAD (pad);
   GstVideoSplit *vsplit = GST_VIDEO_SPLIT (parent);
   GstVSplitRequest *request = NULL;
-  GArray *compositions = NULL;
+  GPtrArray *compositions = NULL;
   GstClockTime time = GST_CLOCK_TIME_NONE;
   gboolean success = FALSE;
 
@@ -756,14 +740,8 @@ gst_video_split_sinkpad_chain (GstPad * pad, GstObject * parent,
 
   request->inbuffer = inbuffer;
 
-  compositions = g_array_new (FALSE, FALSE, sizeof (GstVideoComposition));
-
-  if (compositions == NULL) {
-    GST_ERROR_OBJECT (pad, "Failed to allocate memory for compositions!");
-    goto cleanup;
-  }
-
-  g_array_set_clear_func (compositions, gst_video_composition_cleanup);
+  compositions = g_ptr_array_new_with_free_func (
+      (GDestroyNotify) gst_video_composition_unref);
 
   // Populate total number of compositions and their output frames.
   success = gst_video_split_populate_frames_and_compositions (vsplit,
@@ -776,7 +754,7 @@ gst_video_split_sinkpad_chain (GstPad * pad, GstObject * parent,
 
   if (compositions->len != 0) {
     success = gst_video_converter_engine_compose (vsplit->converter,
-        (GstVideoComposition*) compositions->data, compositions->len,
+        (GstVideoComposition**) compositions->pdata, compositions->len,
         &(request->fence));
 
     if (!success) {
@@ -785,7 +763,7 @@ gst_video_split_sinkpad_chain (GstPad * pad, GstObject * parent,
     }
   }
 
-  g_array_free (compositions, TRUE);
+  g_ptr_array_free (compositions, TRUE);
   gst_data_queue_push_object (sinkpad->requests, GST_MINI_OBJECT (request));
 
   time = GST_CLOCK_DIFF (time, gst_util_get_timestamp ());
@@ -800,7 +778,9 @@ cleanup:
   if ((request == NULL) || (request->inbuffer == NULL))
     gst_buffer_unref (inbuffer);
 
-  g_array_free (compositions, TRUE);
+  if (compositions != NULL)
+    g_ptr_array_free (compositions, TRUE);
+
   gst_vsplit_request_release (request);
 
   return GST_FLOW_ERROR;
@@ -1322,7 +1302,7 @@ gst_video_split_change_state (GstElement * element, GstStateChange transition)
   switch (transition) {
     case GST_STATE_CHANGE_READY_TO_PAUSED:
       if (vsplit->converter != NULL)
-        gst_video_converter_engine_free (vsplit->converter);
+        gst_video_converter_engine_unref (vsplit->converter);
 
       vsplit->converter = gst_video_converter_engine_new (vsplit->backend, NULL);
 
@@ -1394,7 +1374,7 @@ gst_video_split_finalize (GObject * object)
   GstVideoSplit *vsplit = GST_VIDEO_SPLIT (object);
 
   if (vsplit->converter != NULL)
-    gst_video_converter_engine_free (vsplit->converter);
+    gst_video_converter_engine_unref (vsplit->converter);
 
   if (vsplit->srcpads != NULL)
     g_list_free (vsplit->srcpads);

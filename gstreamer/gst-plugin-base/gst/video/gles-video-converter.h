@@ -45,7 +45,7 @@ gst_gles_video_converter_free (GstGlesVideoConverter * convert);
  */
 GST_VIDEO_API gboolean
 gst_gles_video_converter_compose (GstGlesVideoConverter * convert,
-                                  GstVideoComposition * compositions,
+                                  GstVideoComposition ** compositions,
                                   guint n_compositions, gpointer * fence);
 
 /**

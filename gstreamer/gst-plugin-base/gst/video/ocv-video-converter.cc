@@ -2885,7 +2885,7 @@ gst_ocv_video_converter_process (GstOcvVideoConverter * convert,
 
 gboolean
 gst_ocv_video_converter_compose (GstOcvVideoConverter * convert,
-    GstVideoComposition * compositions, guint n_compositions, gpointer * fence)
+    GstVideoComposition ** compositions, guint n_compositions, gpointer * fence)
 {
   GstOcvObject objects[GST_OCV_MAX_DRAW_OBJECTS] = {};
   guint32 idx = 0, n_objects = 0, num = 0, area = 0;
@@ -2896,16 +2896,18 @@ gst_ocv_video_converter_compose (GstOcvVideoConverter * convert,
     GST_WARNING ("Asynchronous composition operations are not supported!");
 
   for (idx = 0; idx < n_compositions; idx++) {
-    GstVideoComposition *composition = &(compositions[idx]);
+    GstVideoComposition *composition = compositions[idx];
     GArray *inframes = NULL;
     GstVideoFrame outframe = {};
     guint n_blits = 0;
+
+    g_return_val_if_fail (composition != NULL, FALSE);
 
     n_blits = gst_video_blits_size (composition->blits);
     inframes = g_array_sized_new (FALSE, FALSE, sizeof (GstVideoFrame), n_blits);
     g_array_set_size (inframes, n_blits);
 
-    success = gst_video_frame_map (&outframe, composition->info,
+    success = gst_video_frame_map (&outframe, &composition->info,
         composition->buffer,
         (GstMapFlags)(GST_MAP_READWRITE | GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
 
@@ -3000,8 +3002,8 @@ gst_ocv_video_converter_compose (GstOcvVideoConverter * convert,
       n_objects += 2;
     }
 
-    if (compositions[idx].bgfill && (area > 0)) {
-      guint32 color = compositions[idx].bgcolor;
+    if (composition->bgfill && (area > 0)) {
+      guint32 color = composition->bgcolor;
       gst_ocv_video_converter_fill_background (convert, &outframe, color);
     }
 

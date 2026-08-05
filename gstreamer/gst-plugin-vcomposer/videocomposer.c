@@ -196,8 +196,8 @@ gst_video_composition_populate_output_metas (GstVideoComposer * vcomposer,
       destination = vblit->destination;
     } else {
       destination.x = destination.y = 0;
-      destination.w = GST_VIDEO_INFO_WIDTH (composition->info);
-      destination.h = GST_VIDEO_INFO_HEIGHT (composition->info);
+      destination.w = GST_VIDEO_INFO_WIDTH (&composition->info);
+      destination.h = GST_VIDEO_INFO_HEIGHT (&composition->info);
     }
 
     while ((meta = gst_buffer_iterate_meta (inbuffer, &state))) {
@@ -738,7 +738,7 @@ gst_video_composer_negotiated_src_caps (GstAggregator * aggregator,
   GST_DEBUG_OBJECT (vcomposer, "Negotiated caps %" GST_PTR_FORMAT, caps);
 
   if (vcomposer->converter != NULL)
-    gst_video_converter_engine_free (vcomposer->converter);
+    gst_video_converter_engine_unref (vcomposer->converter);
 
   vcomposer->converter = gst_video_converter_engine_new (vcomposer->backend, NULL);
 
@@ -795,7 +795,7 @@ gst_video_composer_aggregate_frames (GstVideoAggregator * vaggregator,
 {
   GstVideoComposer *vcomposer = GST_VIDEO_COMPOSER (vaggregator);
   GList *list = NULL;
-  GstVideoComposition composition = GST_VIDEO_COMPOSITION_INIT;
+  GstVideoComposition *composition = NULL;
   GstClockTime time = GST_CLOCK_TIME_NONE;
   gboolean success = TRUE;
   guint idx = 0, n_inputs = 0;
@@ -806,7 +806,8 @@ gst_video_composer_aggregate_frames (GstVideoAggregator * vaggregator,
 
   GST_OBJECT_LOCK (vaggregator);
 
-  composition.blits =
+  composition = gst_video_composition_new ();
+  composition->blits =
       gst_video_blits_new_sized (GST_ELEMENT (vcomposer)->numsinkpads);
 
   for (list = GST_ELEMENT (vcomposer)->sinkpads; list != NULL; list = list->next) {
@@ -830,7 +831,7 @@ gst_video_composer_aggregate_frames (GstVideoAggregator * vaggregator,
     // Index to the current blit object to be populated.
     idx = n_inputs;
 
-    vblit = gst_video_blits_entry (composition.blits, idx);
+    vblit = gst_video_blits_entry (composition->blits, idx);
     vblit->buffer = inbuffer;
 
     vblit->info = &GST_VIDEO_AGGREGATOR_PAD (sinkpad)->info;
@@ -881,7 +882,7 @@ gst_video_composer_aggregate_frames (GstVideoAggregator * vaggregator,
     GST_TRACE_OBJECT (sinkpad, "Prepared %" GST_PTR_FORMAT, inbuffer);
   }
 
-  composition.info = &GST_VIDEO_AGGREGATOR (vaggregator)->info;
+  composition->info = GST_VIDEO_AGGREGATOR (vaggregator)->info;
 
   GST_OBJECT_UNLOCK (vaggregator);
 
@@ -893,25 +894,24 @@ gst_video_composer_aggregate_frames (GstVideoAggregator * vaggregator,
   }
 
   // Resize the blits array as actual number is may be less then the maximum.
-  gst_video_blits_resize (composition.blits, n_inputs);
+  gst_video_blits_resize (composition->blits, n_inputs);
 
-  composition.buffer = outbuffer;
-  composition.bgfill = TRUE;
-  composition.datatype = GST_VIDEO_DATA_TYPE_U8;
+  composition->buffer = outbuffer;
+  composition->bgfill = TRUE;
 
   meta = gst_buffer_get_video_meta (outbuffer);
 
-  success = gst_video_info_modify_with_meta (composition.info, meta);
+  success = gst_video_info_modify_with_meta (&composition->info, meta);
 
   if (!success)
     GST_WARNING_OBJECT (vcomposer, "Failed to derive info from meta");
 
   GST_VIDEO_COMPOSER_LOCK (vcomposer);
-  composition.bgcolor = vcomposer->background;
+  composition->bgcolor = vcomposer->background;
   GST_VIDEO_COMPOSER_UNLOCK (vcomposer);
 
   // Transfer metadata from the input buffers to the output buffer.
-  gst_video_composition_populate_output_metas (vcomposer, &composition);
+  gst_video_composition_populate_output_metas (vcomposer, composition);
 
   success = gst_video_converter_engine_compose (vcomposer->converter,
       &composition, 1, NULL);
@@ -929,7 +929,7 @@ gst_video_composer_aggregate_frames (GstVideoAggregator * vaggregator,
       (GST_TIME_AS_USECONDS (time) % 1000), vcomposer->hw_util);
 
 cleanup:
-  g_clear_pointer (&(composition.blits), gst_video_blits_unref);
+  gst_video_composition_unref (composition);
   return success ? GST_FLOW_OK : GST_FLOW_ERROR;
 }
 
@@ -1062,7 +1062,7 @@ gst_video_composer_finalize (GObject * object)
   GstVideoComposer *vcomposer = GST_VIDEO_COMPOSER (object);
 
   if (vcomposer->converter != NULL)
-    gst_video_converter_engine_free (vcomposer->converter);
+    gst_video_converter_engine_unref (vcomposer->converter);
 
   if (vcomposer->outpool != NULL) {
     gst_buffer_pool_set_active (vcomposer->outpool, FALSE);

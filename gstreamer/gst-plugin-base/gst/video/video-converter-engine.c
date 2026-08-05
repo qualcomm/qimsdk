@@ -50,7 +50,7 @@ typedef void (*GstVideoConvFreeFunction) (gpointer converter);
  * Returns: TRUE on success or FALSE on failure
  */
 typedef gboolean (*GstVideoConvComposeFunction) (
-    gpointer converter, GstVideoComposition *compositions, guint n_compositions,
+    gpointer converter, GstVideoComposition **compositions, guint n_compositions,
     gpointer *fence);
 /**
  * GstVideoConvWaitFenceFunction:
@@ -73,7 +73,6 @@ typedef void (*GstVideoConvFlushFunction) (gpointer converter);
 
 /**
  * GstVideoConverterEngine:
- * @parent: Parent instance.
  * @converter: Pointer underlying converter backend.
  * @new: Pointer to the new function of the underlying converter.
  * @free: Pointer to the free function of the underlying converter.
@@ -81,10 +80,10 @@ typedef void (*GstVideoConvFlushFunction) (gpointer converter);
  * @wait_fence: Pointer to the wait_fence function of the underlying converter.
  * @flush: Pointer to the flush function of the underlying converter.
  *
- * Base class for video converter engine.
+ * Boxed type wrapping a video converter engine backend.
  */
 struct _GstVideoConverterEngine {
-  GObject                       parent;
+  gatomicrefcount               refcount;
 
   gpointer                      converter;
 
@@ -96,26 +95,20 @@ struct _GstVideoConverterEngine {
   GstVideoConvFlushFunction     flush;
 };
 
-G_DEFINE_TYPE (GstVideoConverterEngine, gst_video_converter_engine, G_TYPE_OBJECT)
+G_DEFINE_BOXED_TYPE (GstVideoConverterEngine, gst_video_converter_engine,
+    (GBoxedCopyFunc) gst_video_converter_engine_ref,
+    (GBoxedFreeFunc) gst_video_converter_engine_unref)
 
-static void
-gst_video_converter_engine_class_init (GstVideoConverterEngineClass * klass)
+static inline void
+gst_video_converter_initialize_debug_category (void)
 {
-  GST_DEBUG_CATEGORY_INIT (gst_video_converter_engine_debug,
-      "video-converter-engine", 0, "QTI Video Converter Engine");
-}
+  static gsize catonce = 0;
 
-static void
-gst_video_converter_engine_init (GstVideoConverterEngine * engine)
-{
-  engine->converter = NULL;
-
-  engine->new = NULL;
-  engine->free = NULL;
-
-  engine->compose = NULL;
-  engine->wait_fence = NULL;
-  engine->flush = NULL;
+  if (g_once_init_enter (&catonce)) {
+    GST_DEBUG_CATEGORY_INIT (gst_video_converter_engine_debug,
+        "video-converter-engine", 0, "QTI Video Converter Engine");
+    g_once_init_leave (&catonce, TRUE);
+  }
 }
 
 GType
@@ -168,14 +161,16 @@ gst_video_converter_engine_new (GstVideoConverterBackend backend,
 {
   GstVideoConverterEngine *engine = NULL;
 
-  engine = g_object_new (GST_TYPE_VIDEO_CONVERTER_ENGINE, NULL);
-  g_return_val_if_fail (engine != NULL, FALSE);
+  gst_video_converter_initialize_debug_category ();
+
+  engine = g_slice_new0 (GstVideoConverterEngine);
+  g_return_val_if_fail (engine != NULL, NULL);
+  g_atomic_ref_count_init (&engine->refcount);
 
   switch (backend) {
     case GST_VIDEO_CONVERTER_BACKEND_NONE:
       // No engine required
-      g_object_unref (engine);
-      return NULL;
+      goto cleanup;
 #ifdef HAVE_ADRENO_C2D2_H
     case GST_VIDEO_CONVERTER_BACKEND_C2D:
       engine->new = (GstVideoConvNewFunction) gst_c2d_video_converter_new;
@@ -233,23 +228,37 @@ gst_video_converter_engine_new (GstVideoConverterBackend backend,
   return engine;
 
 cleanup:
-  g_object_unref (engine);
+  gst_video_converter_engine_unref (engine);
   return NULL;
 }
 
+GstVideoConverterEngine *
+gst_video_converter_engine_ref (GstVideoConverterEngine * engine)
+{
+  g_return_val_if_fail (engine != NULL, NULL);
+  g_atomic_ref_count_inc (&engine->refcount);
+  return engine;
+}
+
 void
-gst_video_converter_engine_free (GstVideoConverterEngine * engine)
+gst_video_converter_engine_unref (GstVideoConverterEngine * engine)
 {
   if (engine == NULL)
     return;
 
-  engine->free (engine->converter);
-  g_object_unref (engine);
+  if (!g_atomic_ref_count_dec (&engine->refcount))
+    return;
+
+  // Backend may be missing if the engine failed during construction.
+  if (engine->converter != NULL)
+    engine->free (engine->converter);
+
+  g_slice_free (GstVideoConverterEngine, engine);
 }
 
 gboolean
 gst_video_converter_engine_compose (GstVideoConverterEngine * engine,
-    GstVideoComposition * compositions, guint n_compositions, gpointer * fence)
+    GstVideoComposition ** compositions, guint n_compositions, gpointer * fence)
 {
   g_return_val_if_fail (engine != NULL, FALSE);
   g_return_val_if_fail ((compositions != NULL) && (n_compositions != 0), FALSE);

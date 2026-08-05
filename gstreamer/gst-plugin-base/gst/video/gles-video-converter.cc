@@ -43,7 +43,7 @@ struct _GstNormalizeRequest
 {
   // Video frame which will be normalized.
   GstBuffer          *buffer;
-  const GstVideoInfo *info;
+  GstVideoInfo       info;
 
   // Offset and scale factors for each component of the pixel.
   gdouble            offsets[GST_VIDEO_MAX_COMPONENTS];
@@ -507,8 +507,8 @@ gst_gles_update_object (::ib2c::Object * object, const guint64 surface_id,
 
     object->mask |= ::ib2c::ConfigMask::kDestination;
   } else {
-    width = GST_VIDEO_INFO_WIDTH (composition->info);
-    height = GST_VIDEO_INFO_HEIGHT (composition->info);
+    width = GST_VIDEO_INFO_WIDTH (&composition->info);
+    height = GST_VIDEO_INFO_HEIGHT (&composition->info);
   }
 
   if (vblit->mask & GST_VIDEO_CONVERTER_MASK_ROTATION)
@@ -602,7 +602,7 @@ gst_gles_retrieve_surface_id (GstGlesVideoConverter * convert,
 
 gboolean
 gst_gles_video_converter_compose (GstGlesVideoConverter * convert,
-    GstVideoComposition * compositions, guint n_compositions, gpointer * fence)
+    GstVideoComposition ** compositions, guint n_compositions, gpointer * fence)
 {
   GArray *fds = NULL, *normalizations = NULL;
   GstNormalizeRequest *normrequest = NULL;
@@ -621,12 +621,14 @@ gst_gles_video_converter_compose (GstGlesVideoConverter * convert,
   g_return_val_if_fail (fds != NULL, FALSE);
 
   for (idx = 0; idx < n_compositions; idx++) {
-    GstVideoComposition *composition = &(compositions[idx]);
-    GstBuffer *outbuffer = composition->buffer;
+    GstVideoComposition *composition = compositions[idx];
+    GstBuffer *outbuffer = NULL;
 
-    // Sanity checks, output frame and blit entries must not be NULL.
-    g_return_val_if_fail (outbuffer != NULL, FALSE);
+    g_return_val_if_fail (composition != NULL, FALSE);
+    g_return_val_if_fail (composition->buffer != NULL, FALSE);
     g_return_val_if_fail (composition->blits != NULL, FALSE);
+
+    outbuffer = composition->buffer;
 
     std::vector<::ib2c::Object> objects;
     n_blits = gst_video_blits_size (composition->blits);
@@ -662,7 +664,7 @@ gst_gles_video_converter_compose (GstGlesVideoConverter * convert,
     GST_GLES_LOCK (convert);
 
     surface_id = gst_gles_retrieve_surface_id (convert, convert->outsurfaces,
-        "Output", outbuffer, composition->info, composition->datatype);
+        "Output", outbuffer, &composition->info, composition->datatype);
     GST_GLES_UNLOCK (convert);
 
     if (!(success = (surface_id != 0))) {
@@ -698,7 +700,7 @@ gst_gles_video_converter_compose (GstGlesVideoConverter * convert,
         (composition->datatype == GST_VIDEO_DATA_TYPE_U16 ||
             composition->datatype == GST_VIDEO_DATA_TYPE_I16);
 
-    normalize |= (GST_VIDEO_INFO_FORMAT (composition->info) == GST_VIDEO_FORMAT_GRAY8) &&
+    normalize |= (GST_VIDEO_INFO_FORMAT (&composition->info) == GST_VIDEO_FORMAT_GRAY8) &&
         (composition->datatype == GST_VIDEO_DATA_TYPE_F16 ||
             composition->datatype == GST_VIDEO_DATA_TYPE_F32);
 
@@ -751,7 +753,7 @@ gst_gles_video_converter_compose (GstGlesVideoConverter * convert,
 
         normrequest = &(g_array_index (normalizations, GstNormalizeRequest, idx));
 
-        success = gst_video_frame_map (&frame, normrequest->info,
+        success = gst_video_frame_map (&frame, &normrequest->info,
             normrequest->buffer,
             (GstMapFlags)(GST_MAP_READWRITE  | GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
 
@@ -828,7 +830,7 @@ gst_gles_video_converter_wait_fence (GstGlesVideoConverter * convert,
 
     normrequest = &(g_array_index (normalizations, GstNormalizeRequest, idx));
 
-    success = gst_video_frame_map (&frame, normrequest->info, normrequest->buffer,
+    success = gst_video_frame_map (&frame, &normrequest->info, normrequest->buffer,
         (GstMapFlags)(GST_MAP_READWRITE  | GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
 
     if (!success) {

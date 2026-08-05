@@ -42,3 +42,75 @@ def __region_of_interest_meta_get_quadrilateral(meta) -> GstQtiVideo.Quadrilater
 GstQtiVideo.region_of_interest_meta_get_quadrilateral = \
     __region_of_interest_meta_get_quadrilateral
 __all__.append('region_of_interest_meta_get_quadrilateral')
+
+
+class ConverterEngine(GstQtiVideo.ConverterEngine):
+    def compose(self, compositions, is_async=False):  # type: ignore[override]
+        """
+        Submit compositions for execution.
+
+        is_async selects synchronous (default) or asynchronous composition.
+        """
+        return _gi_gst_qti.video_converter_engine_compose(
+            self, compositions, is_async)
+
+    def wait_fence(self, fence):
+        """Wait for an async compose() to finish. fence=None returns True immediately."""
+        return _gi_gst_qti.video_converter_engine_wait_fence(self, fence)
+
+override(ConverterEngine)
+__all__.append("ConverterEngine")
+
+
+class Composition(GstQtiVideo.Composition):
+    @property
+    def blits(self):
+        """Get or set the #GstQtiVideo.Blits used as inputs, or None if unset."""
+        return _gi_gst_qti.video_composition_get_blits(self)
+
+    @blits.setter
+    def blits(self, value):
+        _gi_gst_qti.video_composition_set_blits(self, value)
+
+    @property
+    def buffer(self):
+        """Get or set the #Gst.Buffer used as output, or None if unset."""
+        return _gi_gst_qti.video_composition_get_buffer(self)
+
+    @buffer.setter
+    def buffer(self, value):
+        _gi_gst_qti.video_composition_set_buffer(self, value)
+
+    @property
+    def info(self):
+        """Get or set the #GstVideo.VideoInfo used for mapping.
+
+        The composition stores its own copy, modify the returned object and
+        assign it back to apply changes.
+        """
+        return _gi_gst_qti.video_composition_get_info(self)
+
+    @info.setter
+    def info(self, value):
+        _gi_gst_qti.video_composition_set_info(self, value)
+
+    @property
+    def offsets(self):
+        """Get or set the component offset factors used in the normalize operation."""
+        return _gi_gst_qti.video_composition_get_offsets(self)
+
+    @offsets.setter
+    def offsets(self, value):
+        _gi_gst_qti.video_composition_set_offsets(self, value)
+
+    @property
+    def scales(self):
+        """Get or set the component scale factors used in the normalize operation."""
+        return _gi_gst_qti.video_composition_get_scales(self)
+
+    @scales.setter
+    def scales(self, value):
+        _gi_gst_qti.video_composition_set_scales(self, value)
+
+override(Composition)
+__all__.append("Composition")
