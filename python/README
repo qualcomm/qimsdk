@@ -1,0 +1,13 @@
+# Setup
+cd <python_sdk>
+pip install -e .
+
+# Setup in VENV
+cd <python_sdk>
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e .
+
+# Run example
+python3 examples/camera_preview.py
