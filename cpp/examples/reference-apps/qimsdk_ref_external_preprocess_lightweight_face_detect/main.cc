@@ -11,6 +11,7 @@ SPDX-License-Identifier: BSD-3-Clause-Clear
 #include <vector>
 
 #include <qti/qimsdk.h>
+#include <getopt.h>
 
 using namespace qti;
 
@@ -150,6 +151,13 @@ bool convert_nv12_to_y8(const MLVideoImage& image,
 static const std::string home_path =
     std::getenv("HOME") ? std::getenv("HOME") : "";
 
+// Base path for sample assets (media/, models/, labels/ live under it).
+// Set from the --model-base-path argument, or the default location.
+static std::string model_base_path;
+
+// Input source location, overridden via the --input-config argument.
+static std::string input_config;
+
 //  Example pipeline:
 //
 //    filesrc → qtdemux → h264parse → v4l2h264dec
@@ -170,7 +178,7 @@ void create_and_execute_pipeline() {
 
   // Reads the input media file as raw bytes.
   Element src("filesrc", "src");
-  src.set("location", home_path + "/Downloads/qimsdk_samples/media/face_sample.mp4");
+  src.set("location", input_config);
 
   // Extracts elementary streams from the MP4 container.
   Element demux("qtdemux", "demux");
@@ -244,7 +252,7 @@ void create_and_execute_pipeline() {
   // Executes the ML model and attaches tensor outputs to each frame.
   Element inference("qtimltflite", "inference");
   inference.set("delegate", "gpu");
-  inference.set("model", home_path + "/Downloads/qimsdk_samples/models/face_det_lite_w8a8.tflite");
+  inference.set("model", model_base_path + "/models/face_det_lite_w8a8.tflite");
 
   // Queues tensor outputs before postprocessing.
   Element q3("queue", "q3");
@@ -252,7 +260,7 @@ void create_and_execute_pipeline() {
   // Decodes model output tensors into face-detection metadata.
   Element postprocess("qtimlpostprocess", "postprocess");
   postprocess.set("module", "qfd");
-  postprocess.set("labels", home_path + "/Downloads/qimsdk_samples/labels/qfd-labels.json");
+  postprocess.set("labels", model_base_path + "/labels/qfd-labels.json");
 
   // Queues metadata into the muxer's ML sink pad.
   Element q4("queue", "q4");
@@ -319,9 +327,63 @@ void create_and_execute_pipeline() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char **argv) {
   if (home_path.empty()) {
     std::cerr << "Error: HOME environment variable is not set." << std::endl;
+    return 1;
+  }
+
+  // Base path for sample assets; override via --model-base-path argument.
+  model_base_path = home_path + "/Downloads/qimsdk_samples";
+  // Path for sample input assets; override via --input-config argument.
+  input_config = home_path + "/Downloads/qimsdk_samples/media/face_sample.mp4";
+
+  const std::string default_model_base_path = model_base_path;
+  const std::string default_input_config = input_config;
+
+  static struct option long_options[] = {
+    {"model-base-path", required_argument, 0, 'm'},
+    {"input-config", required_argument, 0, 'i'},
+    {"help", no_argument, 0, 'h'},
+    {0, 0, 0, 0}
+  };
+
+  auto print_usage = [&](std::ostream &out) {
+    out << "Usage: " << argv[0] << " [OPTIONS]\n"
+        << "\n"
+        << "Options:\n"
+        << "  -m, --model-base-path PATH   Base path for models and labels\n"
+        << "                                (default: " << default_model_base_path << ")\n"
+        << "  -i, --input-config VALUE     Input source configuration (camera number, device, or file path)\n"
+        << "                                (default: " << default_input_config << ")\n"
+        << "  -h, --help                   Show this help message and exit\n";
+  };
+
+  opterr = 0;  // Suppress getopt_long's own diagnostics; print_usage covers it.
+
+  int option_index = 0;
+  int c;
+  while ((c = getopt_long(argc, argv, "m:i:h", long_options, &option_index)) != -1) {
+    switch (c) {
+      case 'm':
+        model_base_path = optarg;
+        break;
+      case 'i':
+        input_config = optarg;
+        break;
+      case 'h':
+        print_usage(std::cout);
+        return 0;
+      case '?':
+      default:
+        print_usage(std::cerr);
+        return 1;
+    }
+  }
+
+  if (optind != argc) {
+    std::cerr << "Error: unexpected argument '" << argv[optind] << "'\n\n";
+    print_usage(std::cerr);
     return 1;
   }
 

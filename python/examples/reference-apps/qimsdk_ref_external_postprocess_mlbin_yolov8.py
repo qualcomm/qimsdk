@@ -4,11 +4,40 @@
 
 """Custom object-detection postprocess example."""
 
+import argparse
+import sys
 import json
 
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 import os
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 import gi
 gi.require_version("GLib", "2.0")
@@ -59,7 +88,7 @@ def load_labels(path: str) -> List[Dict[str, object]]:
 if "HOME" not in os.environ:
     raise EnvironmentError("Error: HOME environment variable is not set.")
 
-LABELS = load_labels(f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/yolov8.json")
+LABELS = load_labels(f"{model_base_path}/labels/yolov8.json")
 
 name_array = np.array([l["name"] for l in LABELS], dtype=object)
 color_array = np.array([l["color"] for l in LABELS], dtype=np.uint32)
@@ -328,7 +357,7 @@ def create_and_execute_pipeline() -> None:
     # Reads the input media file as raw bytes.
     src = (
         Element("filesrc", "src")
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4")
+        .set("location", input_config)
     )
 
     # Extracts elementary streams from the MP4 container.
@@ -359,7 +388,7 @@ def create_and_execute_pipeline() -> None:
         .set("inference-delegate", "external")
         .set("inference-external-delegate-path", "libQnnTFLiteDelegate.so")
         .set("inference-external-delegate-options", "QNNExternalDelegate,backend_type=htp;")
-        .set("inference-model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/yolov8_det_quantized.tflite")
+        .set("inference-model", f"{model_base_path}/models/yolov8_det_quantized.tflite")
         .set_postprocess_handler(detection_callback)
     )
 

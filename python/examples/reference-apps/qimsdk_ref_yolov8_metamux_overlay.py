@@ -6,6 +6,35 @@
 
 from qimsdk import Pipeline, TextFilter, VideoFilter
 import os
+import argparse
+import sys
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 #  Example pipeline:
 #
@@ -31,7 +60,7 @@ def create_and_execute_pipeline() -> None:
     # fullscreen=true renders the output fullscreen on the target display.
     pipeline = (
         Pipeline("ml-pipeline")
-        .add("filesrc", "src", "location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4")
+        .add("filesrc", "src", "location", input_config)
         .add("qtdemux", "demux")
         .add("h264parse", "parse")
         .add("v4l2h264dec", "decoder", "output-io-mode", 4, "capture-io-mode", 4)
@@ -44,10 +73,10 @@ def create_and_execute_pipeline() -> None:
             "delegate", "external",
             "external-delegate-path", "libQnnTFLiteDelegate.so",
             "external-delegate-options", "QNNExternalDelegate,backend_type=htp;",
-            "model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/yolov8_det_quantized.tflite",
+            "model", f"{model_base_path}/models/yolov8_det_quantized.tflite",
         )
         .add("queue", "q4")
-        .add("qtimlpostprocess", "postprocessing", "module", "yolov8", "labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/yolov8.json")
+        .add("qtimlpostprocess", "postprocessing", "module", "yolov8", "labels", f"{model_base_path}/labels/yolov8.json")
         .add_stream_filter("mlf", TextFilter())
         .add("qtimetamux", "mlmuxer")
         .add("queue", "q5")

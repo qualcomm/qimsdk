@@ -6,6 +6,31 @@
 
 from qimsdk import Element, Pipeline, TensorFilter, VideoFilter
 import os
+import argparse
+import sys
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--input-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4",
+                    help="Input source configuration (camera number, device, or file path)")
+parser.add_argument("--output-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/tensor_520_520.rgb",
+                    help="Output file location")
+args = parser.parse_args()
+
+input_config = args.input_config
+output_config = args.output_config
 
 #  Example pipeline:
 #
@@ -21,7 +46,7 @@ def create_and_execute_pipeline() -> None:
     # Reads the input media file as raw bytes.
     src = (
         Element("filesrc", "src")
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4")
+        .set("location", input_config)
     )
 
     # Extracts elementary streams from the MP4 container.
@@ -53,7 +78,7 @@ def create_and_execute_pipeline() -> None:
     sink = (
         Element("multifilesink", "sink")
         .set("max-files", 1)
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/tensor_520_520.rgb")
+        .set("location", output_config)
     )
 
     # Creates the pipeline, adds and links elements, and executes it.

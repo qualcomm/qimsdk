@@ -17,12 +17,41 @@ C++ flow mirrored here:
     Transform keypoints to region-normalized coordinates
 """
 
+import argparse
+import sys
 import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 import os
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/pose_sample.mp4",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 import numpy as np
 
@@ -127,8 +156,8 @@ def load_labels(path: str) -> List[Dict[str, object]]:
 
 
 def load_pose_labels() -> List[LabelEntry]:
-    if Path(f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/posenet.json").exists():
-        return [LabelEntry(str(x["name"]), np.uint32(x["color"])) for x in load_labels(f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/posenet.json")]
+    if Path(f"{model_base_path}/labels/posenet.json").exists():
+        return [LabelEntry(str(x["name"]), np.uint32(x["color"])) for x in load_labels(f"{model_base_path}/labels/posenet.json")]
 
     print("[POSE] WARNING: posenet labels not found; using fallback labels")
     return [LabelEntry(f"kp_{i}", DEFAULT_COLOR) for i in range(KPS_COUNT)]
@@ -139,7 +168,7 @@ def load_settings() -> Tuple[float, List[KeypointLinkIds], List[KeypointLinkIds]
     links = [KeypointLinkIds(a, b) for a, b in TRAVERSAL_LINKS]
     connections = [KeypointLinkIds(a, b) for a, b in CONNECTIONS]
 
-    path = Path(f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/posenet_settings.json")
+    path = Path(f"{model_base_path}/labels/posenet_settings.json")
     if path.exists():
         if not path.exists():
             return
@@ -616,7 +645,7 @@ def create_and_execute_pipeline() -> None:
     # Reads the input media file as raw bytes.
     src = (
         Element("filesrc", "src")
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/pose_sample.mp4")
+        .set("location", input_config)
     )
 
     # Extracts elementary streams from the MP4 container.
@@ -661,7 +690,7 @@ def create_and_execute_pipeline() -> None:
         .set("delegate", "external")
         .set("external-delegate-path", "libQnnTFLiteDelegate.so")
         .set("external-delegate-options", "QNNExternalDelegate,backend_type=htp;")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/posenet_mobilenet_v1_075_481_641_quant.tflite")
+        .set("model", f"{model_base_path}/models/posenet_mobilenet_v1_075_481_641_quant.tflite")
     )
 
     # Decodes model output tensors into pose metadata via the external callback.

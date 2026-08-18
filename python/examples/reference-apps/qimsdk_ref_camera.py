@@ -4,7 +4,29 @@
 
 """Basic camera preview using explicit linking."""
 
+import argparse
+import sys
+
 from qimsdk import Element, Pipeline, VideoFilter
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--input-config",
+                    default="0",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+input_config = args.input_config
 
 #  Example pipeline:
 #
@@ -17,6 +39,7 @@ def create_and_execute_pipeline() -> None:
 
     # Captures frames from the camera source.
     source = Element("qtiqmmfsrc", "source")
+    source.set("camera", int(input_config))
 
     # Stream filters used in branch links.
     # They define specific stream characteristics from the supported options.

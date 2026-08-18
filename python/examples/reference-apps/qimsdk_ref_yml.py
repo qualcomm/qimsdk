@@ -5,13 +5,22 @@
 """Run a pipeline from YAML. Use shipped configs as quick smoke tests."""
 
 import argparse
+import sys
 from pathlib import Path
 
 from qimsdk import Pipeline
 
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
 def create_and_execute_pipeline() -> None:
 
-    parser = argparse.ArgumentParser(description="Run an IMSDK pipeline from YAML config.")
+    parser = HelpOnErrorArgumentParser(description="Run an IMSDK pipeline from YAML config.")
     parser.add_argument("config", help="Path to YAML configuration file")
     args = parser.parse_args()
 

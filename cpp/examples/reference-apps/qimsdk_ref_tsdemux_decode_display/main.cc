@@ -7,11 +7,15 @@
 #include <cstdlib>
 
 #include <qti/qimsdk.h>
+#include <getopt.h>
 
 using namespace qti;
 
 static const std::string home_path =
     std::getenv("HOME") ? std::getenv("HOME") : "";
+
+// Input source location, overridden via the --input-config argument.
+static std::string input_config;
 
 //  Example pipeline:
 //
@@ -24,7 +28,7 @@ void create_and_execute_pipeline() {
 
   // Reads a sequence of input files as stream data.
   Element src("multifilesrc", "src");
-  src.set("location", home_path + "/Downloads/qimsdk_samples/media/ai_demo_sample.ts");
+  src.set("location", input_config);
   src.set("stop-index", 0);
 
   // Extracts elementary streams from the transport stream.
@@ -68,9 +72,53 @@ void create_and_execute_pipeline() {
   pipeline.start().wait().stop();
 }
 
-int main() {
+int main(int argc, char **argv) {
   if (home_path.empty()) {
     std::cerr << "Error: HOME environment variable is not set." << std::endl;
+    return 1;
+  }
+
+  input_config = home_path + "/Downloads/qimsdk_samples/media/ai_demo_sample.ts";
+
+  const std::string default_input_config = input_config;
+
+  static struct option long_options[] = {
+    {"input-config", required_argument, 0, 'i'},
+    {"help", no_argument, 0, 'h'},
+    {0, 0, 0, 0}
+  };
+
+  auto print_usage = [&](std::ostream &out) {
+    out << "Usage: " << argv[0] << " [OPTIONS]\n"
+        << "\n"
+        << "Options:\n"
+        << "  -i, --input-config VALUE   Input file path or pattern\n"
+        << "                              (default: " << default_input_config << ")\n"
+        << "  -h, --help                 Show this help message and exit\n";
+  };
+
+  opterr = 0;  // Suppress getopt_long's own diagnostics; print_usage covers it.
+
+  int option_index = 0;
+  int c;
+  while ((c = getopt_long(argc, argv, "i:h", long_options, &option_index)) != -1) {
+    switch (c) {
+      case 'i':
+        input_config = optarg;
+        break;
+      case 'h':
+        print_usage(std::cout);
+        return 0;
+      case '?':
+      default:
+        print_usage(std::cerr);
+        return 1;
+    }
+  }
+
+  if (optind != argc) {
+    std::cerr << "Error: unexpected argument '" << argv[optind] << "'\n\n";
+    print_usage(std::cerr);
     return 1;
   }
 
