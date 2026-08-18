@@ -1,0 +1,138 @@
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
+#include <iostream>
+#include <cstdlib>
+
+#include <qti/qimsdk.h>
+
+using namespace qti;
+
+static const std::string home_path =
+    std::getenv("HOME") ? std::getenv("HOME") : "";
+
+//  Example pipeline:
+//
+//    src → demux → parse → decoder → [vf] → split → q4 → composer → display
+//                                        └→ q1 → preprocessing → q2 → inferencing → q3 → postprocessing → [mlf] ─┘
+//
+//  The pipeline reads an MP4/H.264 file, decodes it through the hardware decoder,
+//  overlays detected objects, and displays the result through Wayland.
+
+void create_and_execute_pipeline() {
+
+  // Reads the input media file as raw bytes.
+  Element src("filesrc", "src");
+  src.set("location", home_path + "/Downloads/qimsdk_samples/media/ai_demo_sample.mp4");
+
+  // Extracts elementary streams from the MP4 container.
+  Element demux("qtdemux", "demux");
+
+  // Prepares the H.264 bitstream for the decoder.
+  Element parse("h264parse", "parse");
+
+  // Decodes the compressed H.264 stream into raw video frames.
+  //
+  // The I/O mode is configured to enforce DMA buffer usage,
+  // avoiding unnecessary buffer copies.
+  Element decoder("v4l2h264dec", "decoder");
+  decoder.set("output-io-mode", 4);
+  decoder.set("capture-io-mode", 4);
+
+  // Splits decoded frames into display and ML branches.
+  Element split("tee", "split");
+
+  // Queues frames from tee into the ML branch.
+  Element q1("queue", "q1");
+
+  // Converts raw video frames into model input tensor format.
+  Element preprocessing("qtimlvconverter", "preprocessing");
+
+  // Queues converted tensors before inference.
+  Element q2("queue", "q2");
+
+  // Executes the ML model and attaches tensor outputs to each frame.
+  Element inferencing("qtimltflite", "inferencing");
+  inferencing.set("delegate", "external");
+  inferencing.set("external-delegate-path", "libQnnTFLiteDelegate.so");
+  inferencing.set("external-delegate-options", "QNNExternalDelegate,backend_type=htp;");
+  inferencing.set("model", home_path + "/Downloads/qimsdk_samples/models/yolov8_det_quantized.tflite");
+
+  // Queues data between pipeline stages.
+  Element q3("queue", "q3");
+
+  // Decodes model output tensors into metadata for downstream overlay.
+  Element postprocessing("qtimlpostprocess", "postprocessing");
+  postprocessing.set("module", "yolov8");
+  postprocessing.set("labels", home_path + "/Downloads/qimsdk_samples/labels/yolov8.json");
+
+  // Queues frames from tee into the composer branch.
+  Element q4("queue", "q4");
+
+  // Composites multiple input streams into a single output frame.
+  Element composer("qtivcomposer", "composer");
+
+  // Render video stream on display.
+  //
+  // async=false enforce state transition to ensure the buffers are returned on time.
+  // sync=true keeps rendering synchronized to the pipeline clock.
+  // fullscreen=true renders the output fullscreen on the target display.
+  Element display("waylandsink", "display");
+  display.set("fullscreen", true);
+
+  // Stream filters used in branch links.
+  // They define specific stream characteristics from the supported options.
+  auto vf = VideoFilter().format("NV12");
+  auto mlf = VideoFilter().resolution(640, 360).format("RGBA");
+
+  // Creates the pipeline, adds and links elements, and executes it.
+  //
+  // Explicit linking is applied
+  Pipeline pipeline("ml-pipeline");
+  pipeline.add(src)
+          .add(demux)
+          .add(parse)
+          .add(decoder)
+          .add_stream_filter("vf", vf)
+          .add(split)
+          .add(q1)
+          .add(preprocessing)
+          .add(q2)
+          .add(inferencing)
+          .add(q3)
+          .add(postprocessing)
+          .add_stream_filter("mlf", mlf)
+          .add(q4)
+          .add(composer)
+          .add(display)
+          .link("src", "demux", "parse", "decoder", "vf", "split")
+          .link("split", "q4", "composer")
+          .link("split", "q1", "preprocessing", "q2", "inferencing", "q3", "postprocessing", "mlf", "composer")
+          .link("composer", "display");
+
+  pipeline.get("composer").input(1).set("alpha", 0.5);
+
+  pipeline.execute();
+}
+
+int main() {
+  if (home_path.empty()) {
+    std::cerr << "Error: HOME environment variable is not set." << std::endl;
+    return 1;
+  }
+
+  // Route GStreamer logs through the QIMSDK logger and enable debug output.
+  qti::SetImsdkGstLogMode(qti::ImsdkGstLogMode::ImsdkLog);
+  qti::SetImsdkLogLevel(qti::ImsdkLogLevel::Debug);
+
+  try {
+    create_and_execute_pipeline();
+  } catch (const std::exception &ex) {
+    std::cerr << "Exception: " << ex.what() << std::endl;
+    return 1;
+  }
+
+  return 0;
+}
