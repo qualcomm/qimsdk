@@ -5,6 +5,35 @@
 
 from qimsdk import Element, Pipeline, VideoFilter
 import os
+import argparse
+import sys
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ppe_sample.mp4",
+                    help="Input file path or pattern")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 #  Example pipeline:
 #
@@ -20,7 +49,7 @@ def create_and_execute_pipeline() -> None:
     # Reads the input media file as raw bytes.
     src = (
         Element("filesrc", "src")
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ppe_sample.mp4")
+        .set("location", input_config)
     )
 
     # Extracts elementary streams from the MP4 container.
@@ -51,10 +80,10 @@ def create_and_execute_pipeline() -> None:
         .set("inference-delegate", "external")
         .set("inference-external-delegate-path", "libQnnTFLiteDelegate.so")
         .set("inference-external-delegate-options", "QNNExternalDelegate,backend_type=htp;")
-        .set("inference-model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/foot_track_net-person-foot-detection-w8a8.tflite")
+        .set("inference-model", f"{model_base_path}/models/foot_track_net-person-foot-detection-w8a8.tflite")
         .set("postprocess-module", "qpd")
-        .set("postprocess-labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/foot_track_net.json")
-        .set("postprocess-settings", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/foot_track_net_settings.json")
+        .set("postprocess-labels", f"{model_base_path}/labels/foot_track_net.json")
+        .set("postprocess-settings", f"{model_base_path}/labels/foot_track_net_settings.json")
     )
 
     # Executes the ML model and attaches the results to the corresponding video frame.
@@ -67,9 +96,9 @@ def create_and_execute_pipeline() -> None:
         .set("inference-delegate", "external")
         .set("inference-external-delegate-path", "libQnnTFLiteDelegate.so")
         .set("inference-external-delegate-options", "QNNExternalDelegate,backend_type=htp;")
-        .set("inference-model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/gear_guard_net-ppe-detection-w8a8.tflite")
+        .set("inference-model", f"{model_base_path}/models/gear_guard_net-ppe-detection-w8a8.tflite")
         .set("postprocess-module", "yolov8")
-        .set("postprocess-labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/gear_guard_net.json")
+        .set("postprocess-labels", f"{model_base_path}/labels/gear_guard_net.json")
     )
 
     # Renders ML metadata over the video frame.

@@ -4,8 +4,32 @@
 
 """Camera preview + still image capture using CamSrc and explicit links."""
 
-import time
+import argparse
+import sys
 import os
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--input-config",
+                    default="0",
+                    help="Input source configuration (camera number, device, or file path)")
+parser.add_argument("--output-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/encoder_output.mp4",
+                    help="Output file location")
+args = parser.parse_args()
+
+input_config = args.input_config
+output_config = args.output_config
 
 from qimsdk import CamSrc, Element, Pipeline, VideoFilter
 
@@ -21,6 +45,7 @@ def create_and_execute_pipeline() -> None:
 
     # Captures frames from the camera source.
     source = CamSrc("source")
+    source.set("camera", int(input_config))
 
     # Stream filters used in branch links.
     # They define specific stream characteristics from the supported options.
@@ -42,7 +67,7 @@ def create_and_execute_pipeline() -> None:
     # Writes output stream to a file.
     sink = (
         Element("filesink", "sink")
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/encoder_output.mp4")
+        .set("location", output_config)
     )
 
     # Creates the pipeline, adds and links elements, and executes it.

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -42,14 +43,29 @@ void create_and_execute_pipeline(const std::string& config_path) {
 } // namespace
 
 int main(int argc, char** argv) {
+  auto print_usage = [&](std::ostream &out) {
+    out << "Usage: " << argv[0] << " [OPTIONS] <config.yaml>\n"
+        << "\n"
+        << "Arguments:\n"
+        << "  config.yaml           Path to YAML configuration file\n"
+        << "\n"
+        << "Options:\n"
+        << "  -h, --help            Show this help message and exit\n";
+  };
+
+  if (argc == 2 && (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0)) {
+    print_usage(std::cout);
+    return 0;
+  }
+
   // Route GStreamer logs through QIMSDK logger and enable debug output.
   qti::SetImsdkGstLogMode(qti::ImsdkGstLogMode::ImsdkLog);
   qti::SetImsdkLogLevel(qti::ImsdkLogLevel::Debug);
 
   // Require YAML config path from command line.
-  if (argc < 2) {
-    std::cerr << "Error: Missing YAML config path." << std::endl;
-    std::cerr << "Usage: " << argv[0] << " <config.yaml>" << std::endl;
+  if (argc != 2) {
+    std::cerr << "Error: " << (argc < 2 ? "Missing YAML config path." : "Unexpected extra arguments.") << "\n\n";
+    print_usage(std::cerr);
     return 1;
   }
 

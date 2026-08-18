@@ -12,6 +12,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <getopt.h>
 
 #include <qti/qimsdk.h>
 
@@ -464,6 +465,13 @@ bool decode_image_classification(const MLFrame& frame,
 static const std::string home_path =
     std::getenv("HOME") ? std::getenv("HOME") : "";
 
+// Base path for sample assets (media/, models/, labels/ live under it).
+// Set from the --model-base-path argument, or the default location.
+static std::string model_base_path;
+
+// Camera index, overridden via the --input-config argument.
+static std::string input_config;
+
 //  Example pipeline:
 //
 //    source → [vf] → t_split_1
@@ -487,7 +495,7 @@ void create_and_execute_pipeline() {
   // Executes the ML model and attaches tensor outputs to each frame.
   Element stage_01_inference("qtimltflite", "stage_01_inference");
   stage_01_inference.set("delegate", "gpu");
-  stage_01_inference.set("model", home_path + "/Downloads/qimsdk_samples/models/palm_detection_full.tflite");
+  stage_01_inference.set("model", model_base_path + "/models/palm_detection_full.tflite");
 
   // Converts raw video frames into model input tensor format.
   Element stage_02_preproc("qtimlvconverter", "stage_02_preproc");
@@ -496,20 +504,21 @@ void create_and_execute_pipeline() {
   // Executes the ML model and attaches tensor outputs to each frame.
   Element stage_02_inference("qtimltflite", "stage_02_inference");
   stage_02_inference.set("delegate", "xnnpack");
-  stage_02_inference.set("model", home_path + "/Downloads/qimsdk_samples/models/hand_landmark_full.tflite");
+  stage_02_inference.set("model", model_base_path + "/models/hand_landmark_full.tflite");
 
   // Executes the ML model and attaches tensor outputs to each frame.
   Element stage_03_1_inference("qtimltflite", "stage_03_1_inference");
   stage_03_1_inference.set("delegate", "gpu");
-  stage_03_1_inference.set("model", home_path + "/Downloads/qimsdk_samples/models/gesture_embedder.tflite");
+  stage_03_1_inference.set("model", model_base_path + "/models/gesture_embedder.tflite");
 
   // Executes the ML model and attaches tensor outputs to each frame.
   Element stage_03_2_inference("qtimltflite", "stage_03_2_inference");
   stage_03_2_inference.set("delegate", "gpu");
-  stage_03_2_inference.set("model", home_path + "/Downloads/qimsdk_samples/models/canned_gesture_classifier.tflite");
+  stage_03_2_inference.set("model", model_base_path + "/models/canned_gesture_classifier.tflite");
 
   // Captures frames from the camera source.
   Element source("qtiqmmfsrc", "source");
+  source.set("camera", std::stoi(input_config));
 
   // Splits decoded frames into display and ML branches.
   Element t_split_1("tee", "t_split_1");
@@ -579,11 +588,11 @@ void create_and_execute_pipeline() {
   Element q21("queue", "q21");
 
   static const std::vector<LabelEntry> palmd_labels =
-      load_labels(home_path + "/Downloads/qimsdk_samples/labels/palmd_labels.json");
+      load_labels(model_base_path + "/labels/palmd_labels.json");
   static const std::vector<LabelEntry> hlandmarks_labels =
-      load_labels(home_path + "/Downloads/qimsdk_samples/labels/hlandmarks.json");
+      load_labels(model_base_path + "/labels/hlandmarks.json");
   static const std::vector<LabelEntry> gesture_rec_labels =
-      load_labels(home_path + "/Downloads/qimsdk_samples/labels/gesture_rec.json");
+      load_labels(model_base_path + "/labels/gesture_rec.json");
 
   // ML postprocessing element.
   MLPostprocess stage_01_postproc("stage_01_postproc");
@@ -692,9 +701,62 @@ void create_and_execute_pipeline() {
   pipeline.execute();
 }
 
-int main() {
+int main(int argc, char **argv) {
   if (home_path.empty()) {
     std::cerr << "Error: HOME environment variable is not set." << std::endl;
+    return 1;
+  }
+
+  // Base path for sample assets; override via --model-base-path argument.
+  model_base_path = home_path + "/Downloads/qimsdk_samples";
+  input_config = "0";
+
+  const std::string default_model_base_path = model_base_path;
+  const std::string default_input_config = input_config;
+
+  static struct option long_options[] = {
+    {"model-base-path", required_argument, 0, 'm'},
+    {"input-config", required_argument, 0, 'i'},
+    {"help", no_argument, 0, 'h'},
+    {0, 0, 0, 0}
+  };
+
+  auto print_usage = [&](std::ostream &out) {
+    out << "Usage: " << argv[0] << " [OPTIONS]\n"
+        << "\n"
+        << "Options:\n"
+        << "  -m, --model-base-path PATH   Base path for models and labels\n"
+        << "                                (default: " << default_model_base_path << ")\n"
+        << "  -i, --input-config VALUE     Input source configuration (camera number, device, or file path)\n"
+        << "                                (default: " << default_input_config << ")\n"
+        << "  -h, --help                   Show this help message and exit\n";
+  };
+
+  opterr = 0;  // Suppress getopt_long's own diagnostics; print_usage covers it.
+
+  int option_index = 0;
+  int c;
+  while ((c = getopt_long(argc, argv, "m:i:h", long_options, &option_index)) != -1) {
+    switch (c) {
+      case 'm':
+        model_base_path = optarg;
+        break;
+      case 'i':
+        input_config = optarg;
+        break;
+      case 'h':
+        print_usage(std::cout);
+        return 0;
+      case '?':
+      default:
+        print_usage(std::cerr);
+        return 1;
+    }
+  }
+
+  if (optind != argc) {
+    std::cerr << "Error: unexpected argument '" << argv[optind] << "'\n\n";
+    print_usage(std::cerr);
     return 1;
   }
 

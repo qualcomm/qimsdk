@@ -4,7 +4,17 @@
 
 """Basic AppSink -> AppSrc forwarding sample"""
 
+import argparse
+import sys
+
 from qimsdk import AppSink, AppSrc, Element, Pipeline, VideoFilter
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
 
 #  Example pipeline:
 #
@@ -74,6 +84,9 @@ def create_and_execute_pipeline() -> None:
 
 
 def main() -> None:
+
+    parser = HelpOnErrorArgumentParser(description=__doc__)
+    parser.parse_args()
 
     from qimsdk import ImsdkGstLogMode, ImsdkLogLevel, SetImsdkGstLogMode, SetImsdkLogLevel
     SetImsdkGstLogMode(ImsdkGstLogMode.ImsdkLog)

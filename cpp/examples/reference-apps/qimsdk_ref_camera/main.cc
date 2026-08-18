@@ -4,10 +4,15 @@
  */
 
 #include <iostream>
+#include <string>
+#include <getopt.h>
 
 #include <qti/qimsdk.h>
 
 using namespace qti;
+
+// Camera index, overridden via the --input-config argument.
+static std::string input_config;
 
 //  Example pipeline:
 //
@@ -20,6 +25,7 @@ void create_and_execute_pipeline() {
 
   // Captures frames from the camera source.
   Element source("qtiqmmfsrc", "source");
+  source.set("camera", std::stoi(input_config));
 
   // Render video stream on display.
   //
@@ -44,7 +50,51 @@ void create_and_execute_pipeline() {
           .execute();
 }
 
-int main() {
+int main(int argc, char **argv) {
+  input_config = "0";
+
+  const std::string default_input_config = input_config;
+
+  static struct option long_options[] = {
+    {"input-config", required_argument, 0, 'i'},
+    {"help", no_argument, 0, 'h'},
+    {0, 0, 0, 0}
+  };
+
+  auto print_usage = [&](std::ostream &out) {
+    out << "Usage: " << argv[0] << " [OPTIONS]\n"
+        << "\n"
+        << "Options:\n"
+        << "  -i, --input-config VALUE   Input source configuration (camera number, device, or file path)\n"
+        << "                              (default: " << default_input_config << ")\n"
+        << "  -h, --help                 Show this help message and exit\n";
+  };
+
+  opterr = 0;  // Suppress getopt_long's own diagnostics; print_usage covers it.
+
+  int option_index = 0;
+  int c;
+  while ((c = getopt_long(argc, argv, "i:h", long_options, &option_index)) != -1) {
+    switch (c) {
+      case 'i':
+        input_config = optarg;
+        break;
+      case 'h':
+        print_usage(std::cout);
+        return 0;
+      case '?':
+      default:
+        print_usage(std::cerr);
+        return 1;
+    }
+  }
+
+  if (optind != argc) {
+    std::cerr << "Error: unexpected argument '" << argv[optind] << "'\n\n";
+    print_usage(std::cerr);
+    return 1;
+  }
+
   // Route GStreamer logs through the QIMSDK logger and enable debug output.
   qti::SetImsdkGstLogMode(qti::ImsdkGstLogMode::ImsdkLog);
   qti::SetImsdkLogLevel(qti::ImsdkLogLevel::Debug);

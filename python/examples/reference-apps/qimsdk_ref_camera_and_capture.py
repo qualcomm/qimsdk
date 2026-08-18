@@ -4,8 +4,33 @@
 
 """Camera preview + still image capture using CamSrc and explicit links."""
 
+import argparse
+import sys
 import time
 import os
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--input-config",
+                    default="0",
+                    help="Input source configuration (camera number, device, or file path)")
+parser.add_argument("--output-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/image_%d.jpeg",
+                    help="Output file location")
+args = parser.parse_args()
+
+input_config = args.input_config
+output_config = args.output_config
 
 from qimsdk import CamSrc, Element, ImageFilter, Pipeline, VideoFilter
 
@@ -22,6 +47,7 @@ def create_and_execute_pipeline() -> None:
 
     # Captures frames from the camera source.
     source = CamSrc("source")
+    source.set("camera", int(input_config))
 
     # Restricts the preview stream to NV12/1080p/30fps before display.
     vf = VideoFilter().format("NV12").resolution(1920, 1080).framerate(30)
@@ -41,7 +67,7 @@ def create_and_execute_pipeline() -> None:
     imagesink = (
         Element("multifilesink", "imagesink")
         .set("enable-last-sample", False)
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/image_%d.jpeg")
+        .set("location", output_config)
     )
 
     # Creates the pipeline, adds and links elements, and executes it.

@@ -5,8 +5,16 @@
 """USB camera preview using explicit linking."""
 
 import argparse
+import sys
 
 from qimsdk import Element, Pipeline, VideoFilter
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
 
 #  Example pipeline:
 #
@@ -60,14 +68,17 @@ def main() -> None:
     SetImsdkGstLogMode(ImsdkGstLogMode.ImsdkLog)
     SetImsdkLogLevel(ImsdkLogLevel.Debug)
 
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = HelpOnErrorArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument(
-        "device", nargs="?", default="/dev/video2",
-        help="V4L2 device node to capture from (default: %(default)s)",
+        "--input-config", default="/dev/video2",
+        help="V4L2 device node to capture from",
     )
     args = parser.parse_args()
 
-    create_and_execute_pipeline(args.device)
+    create_and_execute_pipeline(args.input_config)
 
 
 if __name__ == "__main__":

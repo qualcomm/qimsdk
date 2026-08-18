@@ -4,7 +4,36 @@
 
 """Custom lightweight-face-detection preprocess example (native qfd postprocess)."""
 
+import argparse
+import sys
 import os
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/face_sample.mp4",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 from typing import List
 
@@ -161,7 +190,7 @@ def create_and_execute_pipeline() -> None:
     # Reads the input media file as raw bytes.
     src = (
         Element("filesrc", "src")
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/face_sample.mp4")
+        .set("location", input_config)
     )
 
     # Extracts elementary streams from the MP4 container.
@@ -210,7 +239,7 @@ def create_and_execute_pipeline() -> None:
     inferencing = (
         Element("qtimltflite", "inferencing")
         .set("delegate", "gpu")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/face_det_lite_w8a8.tflite")
+        .set("model", f"{model_base_path}/models/face_det_lite_w8a8.tflite")
     )
 
     # Queues tensor outputs before postprocessing.
@@ -220,7 +249,7 @@ def create_and_execute_pipeline() -> None:
     postprocessing = (
         Element("qtimlpostprocess", "postprocessing")
         .set("module", "qfd")
-        .set("labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/qfd-labels.json")
+        .set("labels", f"{model_base_path}/labels/qfd-labels.json")
     )
 
     # Restricts the postprocessing output to a text metadata stream.

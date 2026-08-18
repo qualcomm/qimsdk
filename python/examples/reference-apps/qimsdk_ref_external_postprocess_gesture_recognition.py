@@ -4,6 +4,8 @@
 
 """Custom tensor postprocess example."""
 
+import argparse
+import sys
 import gi
 gi.require_version("GLib", "2.0")
 gi.require_version("Gst", "1.0")
@@ -14,8 +16,35 @@ from gi.repository import GLib, Gst, GstQtiML
 import json
 
 import numpy as np
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Tuple
 import os
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default="0",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 from qimsdk import (Element, Pipeline, VideoFilter, TextFilter, MLPostprocess,
     ObjectDetections, Poses, Tensors, ImageClassifications)
@@ -128,11 +157,11 @@ def load_labels(path: str) -> List[Dict[str, object]]:
 if "HOME" not in os.environ:
     raise EnvironmentError("Error: HOME environment variable is not set.")
 
-DET_LABELS = load_labels(f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/palmd_labels.json")
+DET_LABELS = load_labels(f"{model_base_path}/labels/palmd_labels.json")
 
-POSE_LABELS = load_labels(f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/hlandmarks.json")
+POSE_LABELS = load_labels(f"{model_base_path}/labels/hlandmarks.json")
 
-CLS_LABELS = load_labels(f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/gesture_rec.json")
+CLS_LABELS = load_labels(f"{model_base_path}/labels/gesture_rec.json")
 
 det_lmk_label_array = np.array([l["name"] for l in LANDMARK_NAMES], dtype=object)
 
@@ -689,6 +718,7 @@ def create_and_execute_pipeline() -> None:
 
     # Captures frames from the camera source.
     src = Element("qtiqmmfsrc", "src")
+    src.set("camera", int(input_config))
 
     # Restricts the camera stream to NV12/1080p/30fps.
     vf = VideoFilter().format("NV12").resolution(1920, 1080).framerate(30)
@@ -711,7 +741,7 @@ def create_and_execute_pipeline() -> None:
     stage_01_inference = (
         Element("qtimltflite", "stage_01_inference")
         .set("delegate", "gpu")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/palm_detection_full.tflite")
+        .set("model", f"{model_base_path}/models/palm_detection_full.tflite")
     )
 
     # Queues inference output tensors before palm-detection postprocessing.
@@ -760,7 +790,7 @@ def create_and_execute_pipeline() -> None:
     stage_02_inference = (
         Element("qtimltflite", "stage_02_inference")
         .set("delegate", "xnnpack")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/hand_landmark_full.tflite")
+        .set("model", f"{model_base_path}/models/hand_landmark_full.tflite")
     )
 
     # Splits stage 02's inference output into the landmarks and gesture branches.
@@ -798,7 +828,7 @@ def create_and_execute_pipeline() -> None:
     stage_03_1_inference = (
         Element("qtimltflite", "stage_03_1_inference")
         .set("delegate", "gpu")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/gesture_embedder.tflite")
+        .set("model", f"{model_base_path}/models/gesture_embedder.tflite")
     )
 
     # Queues gesture-embedder output tensors before the classifier inference.
@@ -810,7 +840,7 @@ def create_and_execute_pipeline() -> None:
     stage_03_2_inference = (
         Element("qtimltflite", "stage_03_2_inference")
         .set("delegate", "gpu")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/canned_gesture_classifier.tflite")
+        .set("model", f"{model_base_path}/models/canned_gesture_classifier.tflite")
     )
 
     # Queues classifier output tensors before gesture postprocessing.

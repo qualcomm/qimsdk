@@ -6,6 +6,27 @@
 
 from qimsdk import Element, H264Filter, Pipeline, VideoFilter
 import os
+import argparse
+import sys
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--input-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.ts",
+                    help="Input file path or pattern")
+args = parser.parse_args()
+
+input_config = args.input_config
 
 #  Example pipeline:
 #
@@ -21,7 +42,7 @@ def create_and_execute_pipeline() -> None:
     # Reads a sequence of input files as stream data.
     src = (
         Element("multifilesrc", "src")
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.ts")
+        .set("location", input_config)
         .set("stop-index", 0)
     )
 

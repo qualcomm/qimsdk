@@ -5,6 +5,35 @@
 
 from qimsdk import Element, Pipeline, TextFilter, VideoFilter
 import os
+import argparse
+import sys
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default="0",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 #  Example pipeline:
 #
@@ -19,6 +48,7 @@ def create_and_execute_pipeline() -> None:
 
     # Captures frames from the camera source.
     source = Element("qtiqmmfsrc", "source")
+    source.set("camera", int(input_config))
 
     # Restricts the camera stream to NV12/1080p/30fps.
     videostream = VideoFilter().format("NV12").resolution(1920, 1080).framerate(30)
@@ -42,15 +72,15 @@ def create_and_execute_pipeline() -> None:
     stage_01_inferencing = (
         Element("qtimltflite", "stage_01_inferencing")
         .set("delegate", "gpu")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/palm_detection_full.tflite")
+        .set("model", f"{model_base_path}/models/palm_detection_full.tflite")
     )
 
     # Decodes model output tensors into metadata for downstream overlay.
     stage_01_postprocessing = (
         Element("qtimlpostprocess", "stage_01_postprocessing")
         .set("module", "palmd")
-        .set("labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/palmd_labels.json")
-        .set("settings", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/palmd_settings.json")
+        .set("labels", f"{model_base_path}/labels/palmd_labels.json")
+        .set("settings", f"{model_base_path}/labels/palmd_settings.json")
     )
 
     # Stream filter marking the palm-detection ML branch output as text metadata.
@@ -106,7 +136,7 @@ def create_and_execute_pipeline() -> None:
     stage_02_inferencing = (
         Element("qtimltflite", "stage_02_inferencing")
         .set("delegate", "xnnpack")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/hand_landmark_full.tflite")
+        .set("model", f"{model_base_path}/models/hand_landmark_full.tflite")
     )
 
     # Splits decoded frames into display and ML branches.
@@ -128,8 +158,8 @@ def create_and_execute_pipeline() -> None:
     stage_02_1_postprocessing = (
         Element("qtimlpostprocess", "stage_02_1_postprocessing")
         .set("module", "hlandmark")
-        .set("labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/hlandmarks.json")
-        .set("settings", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/hlandmark_settings.json")
+        .set("labels", f"{model_base_path}/labels/hlandmarks.json")
+        .set("settings", f"{model_base_path}/labels/hlandmark_settings.json")
     )
 
     # Stream filter marking the hand-landmark ML branch output as text metadata.
@@ -145,21 +175,21 @@ def create_and_execute_pipeline() -> None:
     stage_03_1_inferencing = (
         Element("qtimltflite", "stage_03_1_inferencing")
         .set("delegate", "gpu")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/gesture_embedder.tflite")
+        .set("model", f"{model_base_path}/models/gesture_embedder.tflite")
     )
 
     # Executes the ML model and attaches tensor outputs to each frame.
     stage_03_2_inferencing = (
         Element("qtimltflite", "stage_03_2_inferencing")
         .set("delegate", "gpu")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/canned_gesture_classifier.tflite")
+        .set("model", f"{model_base_path}/models/canned_gesture_classifier.tflite")
     )
 
     # Decodes model output tensors into metadata for downstream overlay.
     stage_03_postprocessing = (
         Element("qtimlpostprocess", "stage_03_postprocessing")
         .set("module", "mobilenet")
-        .set("labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/gesture_rec.json")
+        .set("labels", f"{model_base_path}/labels/gesture_rec.json")
     )
 
     # Stream filter marking the gesture-classification ML branch output as text metadata.

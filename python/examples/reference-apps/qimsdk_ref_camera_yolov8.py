@@ -4,7 +4,36 @@
 
 """Camera YOLO pipeline test."""
 
+import argparse
+import sys
 import os
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default="0",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 from qimsdk import Element, Pipeline, TextFilter, VideoFilter
 
@@ -24,7 +53,7 @@ def create_and_execute_pipeline() -> None:
     # Captures frames from the camera source.
     source = (
         Element("qtiqmmfsrc", "source")
-        .set("camera", 0)
+        .set("camera", int(input_config))
     )
 
     # Restricts the camera stream to NV12/1080p/30fps.
@@ -50,7 +79,7 @@ def create_and_execute_pipeline() -> None:
         .set("delegate", "external")
         .set("external-delegate-path", "libQnnTFLiteDelegate.so")
         .set("external-delegate-options", "QNNExternalDelegate,backend_type=htp;")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/yolov8_det_quantized.tflite")
+        .set("model", f"{model_base_path}/models/yolov8_det_quantized.tflite")
     )
 
     # Queues data between pipeline stages.
@@ -61,7 +90,7 @@ def create_and_execute_pipeline() -> None:
         Element("qtimlpostprocess", "postprocessing")
         .set("results", 5)
         .set("module", "yolov8")
-        .set("labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/yolov8.json")
+        .set("labels", f"{model_base_path}/labels/yolov8.json")
         .set("settings", '{"confidence": 70.0}')
     )
 

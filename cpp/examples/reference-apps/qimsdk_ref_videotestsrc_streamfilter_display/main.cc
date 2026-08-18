@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
+#include <cstring>
 #include <iostream>
 
 #include <qti/qimsdk.h>
@@ -46,7 +47,25 @@ void create_and_execute_pipeline() {
           .execute();
 }
 
-int main() {
+int main(int argc, char **argv) {
+  auto print_usage = [&](std::ostream &out) {
+    out << "Usage: " << argv[0] << " [OPTIONS]\n"
+        << "\n"
+        << "Options:\n"
+        << "  -h, --help            Show this help message and exit\n";
+  };
+
+  if (argc == 2 && (std::strcmp(argv[1], "-h") == 0 || std::strcmp(argv[1], "--help") == 0)) {
+    print_usage(std::cout);
+    return 0;
+  }
+
+  if (argc != 1) {
+    std::cerr << "Error: unexpected argument '" << argv[1] << "'\n\n";
+    print_usage(std::cerr);
+    return 1;
+  }
+
   // Route GStreamer logs through the QIMSDK logger and enable debug output.
   qti::SetImsdkGstLogMode(qti::ImsdkGstLogMode::ImsdkLog);
   qti::SetImsdkLogLevel(qti::ImsdkLogLevel::Debug);

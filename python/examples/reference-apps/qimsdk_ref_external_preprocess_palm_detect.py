@@ -4,7 +4,36 @@
 
 """Custom palm-detection preprocess example (native palmd postprocess)."""
 
+import argparse
+import sys
 import os
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default="0",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 from typing import List
 
@@ -194,6 +223,7 @@ def create_and_execute_pipeline() -> None:
 
     # Captures frames from the camera source.
     source = CamSrc("source")
+    source.set("camera", int(input_config))
 
     # Restricts the camera stream to NV12/1080p/30fps before it reaches the tee.
     vf = VideoFilter().format("NV12").resolution(1920, 1080).framerate(30)
@@ -225,7 +255,7 @@ def create_and_execute_pipeline() -> None:
     inferencing = (
         Element("qtimltflite", "inferencing")
         .set("delegate", "gpu")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/palm_detection_full.tflite")
+        .set("model", f"{model_base_path}/models/palm_detection_full.tflite")
     )
 
     # Queues tensor outputs before postprocessing.
@@ -235,8 +265,8 @@ def create_and_execute_pipeline() -> None:
     postprocessing = (
         Element("qtimlpostprocess", "postprocessing")
         .set("module", "palmd")
-        .set("labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/palmd_labels.json")
-        .set("settings", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/palmd_settings.json")
+        .set("labels", f"{model_base_path}/labels/palmd_labels.json")
+        .set("settings", f"{model_base_path}/labels/palmd_settings.json")
     )
 
     # Restricts the postprocessing output to a text metadata stream.

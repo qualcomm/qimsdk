@@ -5,6 +5,35 @@
 
 from qimsdk import Element, Pipeline, VideoFilter
 import os
+import argparse
+import sys
+
+
+class HelpOnErrorArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        self.print_help(sys.stderr)
+        sys.stderr.write(f"\n{self.prog}: error: {message}\n")
+        sys.exit(2)
+
+
+# Base path for sample assets (media/, models/, labels/ live under it).
+#
+# Defaults to the standard sample location and can be overridden by passing a
+# different base path as the first command-line argument.
+parser = HelpOnErrorArgumentParser(
+    description="QIMSDK reference app",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument("--model-base-path",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
+                    help="Base path for models and labels")
+parser.add_argument("--input-config",
+                    default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4",
+                    help="Input source configuration (camera number, device, or file path)")
+args = parser.parse_args()
+
+model_base_path = args.model_base_path
+input_config = args.input_config
 
 
 #  Example pipeline:
@@ -21,7 +50,7 @@ def create_and_execute_pipeline() -> None:
     # Reads the input media file as raw bytes.
     src = (
         Element("filesrc", "src")
-        .set("location", f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4")
+        .set("location", input_config)
     )
 
     # Extracts elementary streams from the MP4 container.
@@ -61,7 +90,7 @@ def create_and_execute_pipeline() -> None:
         .set("delegate", "external")
         .set("external-delegate-path", "libQnnTFLiteDelegate.so")
         .set("external-delegate-options", "QNNExternalDelegate,backend_type=htp;")
-        .set("model", f"{os.environ['HOME']}/Downloads/qimsdk_samples/models/yolov8_det_quantized.tflite")
+        .set("model", f"{model_base_path}/models/yolov8_det_quantized.tflite")
     )
 
     # Queues data between pipeline stages.
@@ -71,7 +100,7 @@ def create_and_execute_pipeline() -> None:
     postprocessing = (
         Element("qtimlpostprocess", "postprocessing")
         .set("module", "yolov8")
-        .set("labels", f"{os.environ['HOME']}/Downloads/qimsdk_samples/labels/yolov8.json")
+        .set("labels", f"{model_base_path}/labels/yolov8.json")
     )
 
     # Restricts the ML branch output to RGBA/640x360 before compositing.
