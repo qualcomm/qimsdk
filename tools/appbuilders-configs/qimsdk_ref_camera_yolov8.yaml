@@ -1,0 +1,64 @@
+pipeline:
+  elements:
+    - type: qtiqmmfsrc
+      name: source
+      camera: 0
+
+    - type: filter
+      name: videostream
+      video:
+        format: NV12
+        width: 1920
+        height: 1080
+        framerate: 30
+
+    - type: tee
+      name: split
+
+    - type: queue
+      name: q1
+
+    - type: qtimlvconverter
+      name: preprocessing
+
+    - type: queue
+      name: q3
+
+    - type: qtimltflite
+      name: inferencing
+      delegate: external
+      external-delegate-path: libQnnTFLiteDelegate.so
+      external-delegate-options: "QNNExternalDelegate,backend_type=htp;"
+      model: $HOME/Downloads/qimsdk_samples/models/yolov8_det_quantized.tflite
+
+    - type: queue
+      name: q4
+
+    - type: qtimlpostprocess
+      name: postprocessing
+      results: 5
+      module: yolov8
+      labels: $HOME/Downloads/qimsdk_samples/labels/yolov8.json
+      settings: '{"confidence": 70.0}'
+
+    - type: filter
+      name: mlf
+      text: {}
+
+    - type: qtimetamux
+      name: mlmuxer
+
+    - type: queue
+      name: q5
+
+    - type: qtivoverlay
+      name: overlay
+
+    - type: waylandsink
+      name: display
+      sync: false
+      fullscreen: true
+
+  links:
+    - [split, mlmuxer]
+    - [source, videostream, split, q1, preprocessing, q3, inferencing, q4, postprocessing, mlf, mlmuxer, q5, overlay, display]

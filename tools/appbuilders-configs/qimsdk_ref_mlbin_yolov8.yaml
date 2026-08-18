@@ -1,0 +1,37 @@
+pipeline:
+  elements:
+    - type: filesrc
+      name: src
+      location: $HOME/Downloads/qimsdk_samples/media/ai_demo_sample.mp4
+
+    - type: qtdemux
+      name: demux
+
+    - type: h264parse
+      name: parse
+
+    - type: v4l2h264dec
+      name: decoder
+      output-io-mode: 4
+      capture-io-mode: 4
+
+    - type: filter
+      name: videofilter
+      video:
+        format: NV12
+
+    - type: qtimlvideotflitebin
+      name: mlbin
+      inference-delegate: "external"
+      inference-external-delegate-path: "libQnnTFLiteDelegate.so"
+      inference-external-delegate-options: "QNNExternalDelegate,backend_type=htp;"
+      inference-model: "$HOME/Downloads/qimsdk_samples/models/yolov8_det_quantized.tflite"
+      postprocess-module: "yolov8"
+      postprocess-labels: "$HOME/Downloads/qimsdk_samples/labels/yolov8.json"
+
+    - type: qtivoverlay
+      name: overlay
+
+    - type: waylandsink
+      name: display
+      fullscreen: true

@@ -12,3 +12,5 @@ endif()
 if(ENABLE_APP_BUILDER_PYTHON)
   add_subdirectory(python)
 endif()
+
+add_subdirectory(tools)
