@@ -458,8 +458,8 @@ struct Pipeline::Impl {
       link_sequential_or_throw();
       linked_ = true;
     }
-    auto pending_snapshot = pending_links_snapshot();
-    GeneratePipelineGraph(pipeline_, filename, &pending_snapshot);
+    gst_debug_bin_to_dot_file(
+        GST_BIN(pipeline_), GST_DEBUG_GRAPH_SHOW_ALL, filename.c_str());
   }
 
   void print() {

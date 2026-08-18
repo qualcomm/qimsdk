@@ -48,10 +48,6 @@ void LogUnlinkedPadsCaps(GstElement* pipeline);
 void PrintPipelineTopology(
     GstElement* pipeline,
     const std::vector<PendingLinkInfo>* pending_links = nullptr);
-void GeneratePipelineGraph(
-    GstElement* pipeline,
-    const std::string& filename,
-    const std::vector<PendingLinkInfo>* pending_links = nullptr);
 
 class ImsdkLogger {
  public:

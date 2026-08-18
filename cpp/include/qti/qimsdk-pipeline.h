@@ -79,7 +79,7 @@ class Pipeline {
   // Execute convenience lifecycle for configured pipeline.
   void execute();
 
-  // Generate a draw.io graph of the current pipeline topology.
+  // Write a GraphViz .dot file of the current pipeline topology.
   void generate_graph(const std::string& filename);
 
   // Get an element wrapper by unique name.

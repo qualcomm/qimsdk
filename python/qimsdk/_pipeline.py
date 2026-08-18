@@ -1171,7 +1171,7 @@ class Pipeline:
                         break
 
     def generate_graph(self, filename: str) -> None:
-        """Writes a draw.io XML graph for the pipeline topology.
+        """Writes a GraphViz .dot graph of the pipeline topology.
 
         Args:
             filename: Output file path. Type: str.
@@ -1183,108 +1183,12 @@ class Pipeline:
         if not self._linked:
             self._auto_link()
 
-        nodes: list[tuple[str, int]] = []
-        element_id_by_name: dict[str, int] = {}
-        edges: list[tuple[int, int, str]] = []
-        added_edges: set[tuple[int, int]] = set()
-        next_node_id = 100
-
-        for name in self._elements.keys():
-            nodes.append((name, next_node_id))
-            element_id_by_name[name] = next_node_id
-            next_node_id += 1
-
-        def add_graph_edge(from_id: int, to_id: int, label: str) -> None:
-            """Performs the add graph edge operation used by the SDK.
-
-            Args:
-                from_id: From id value. Type: int.
-                to_id: To id value. Type: int.
-                label: Label value. Type: str.
-
-            Returns:
-                None.
-            """
-            key = (from_id, to_id)
-            if key not in added_edges:
-                added_edges.add(key)
-                edges.append((from_id, to_id, label))
-
-        for name, elem in self._elements.items():
-            node_id = element_id_by_name[name]
-            has_outgoing_source_pad = False
-            iterator = elem.iterate_pads()
-            while True:
-                result, pad = iterator.next()
-                if result == self._Gst.IteratorResult.OK:
-                    pad_direction = self._pad_direction(pad)
-                    pad_name = self._pad_name(pad)
-                    peer = pad.get_peer()
-                    if peer is not None:
-                        peer_elem = peer.get_parent_element()
-                        peer_elem_name = self._element_name(peer_elem)
-                        peer_pad_name = self._pad_name(peer)
-                        if peer_elem_name in element_id_by_name:
-                            if pad_direction == self._Gst.PadDirection.SRC:
-                                has_outgoing_source_pad = True
-                                add_graph_edge(
-                                    node_id,
-                                    element_id_by_name[peer_elem_name],
-                                    f"{name}:{pad_name} ? {peer_elem_name}:{peer_pad_name}",
-                                )
-                            else:
-                                add_graph_edge(
-                                    element_id_by_name[peer_elem_name],
-                                    node_id,
-                                    f"{peer_elem_name}:{peer_pad_name} ? {name}:{pad_name}",
-                                )
-                    continue
-                if result == self._Gst.IteratorResult.RESYNC:
-                    iterator = elem.iterate_pads()
-                    continue
-                break
-
-            if not has_outgoing_source_pad:
-                with self._dl_lock:
-                    for pending in self._pending_links:
-                        if pending.completed or pending.upstream is not elem:
-                            continue
-                        downstream_name = self._element_name(pending.downstream)
-                        if downstream_name not in element_id_by_name:
-                            break
-                        add_graph_edge(
-                            node_id,
-                            element_id_by_name[downstream_name],
-                            f"{name}:{pending.src_pad_template or 'src'} ? "
-                            f"{downstream_name}:{pending.sink_pad_template or 'sink'}",
-                        )
-                        break
+        dot_data = self._Gst.debug_bin_to_dot_data(
+            self._pipeline, self._Gst.DebugGraphDetails.ALL
+        )
 
         with open(filename, "w", encoding="utf-8") as out:
-            out.write('<mxfile host="draw.io"><diagram name="Pipeline Graph">')
-            out.write("<mxGraphModel><root>")
-            out.write('<mxCell id="0"/><mxCell id="1" parent="0"/>')
-
-            start_x = 50
-            start_y = 50
-            vertical_spacing = 80
-
-            for index, (node_name, node_id) in enumerate(nodes):
-                out.write(
-                    f'<mxCell id="{node_id}" value="{node_name}" vertex="1" parent="1" '
-                    'style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;">'
-                    f'<mxGeometry x="{start_x}" y="{start_y + index * vertical_spacing}" '
-                    'width="150" height="40" as="geometry"/></mxCell>\n'
-                )
-
-            for index, (from_id, to_id, label) in enumerate(edges, start=10000):
-                out.write(
-                    f'<mxCell id="{index}" edge="1" parent="1" source="{from_id}" '
-                    f'target="{to_id}" value="{label}" style="endArrow=block;">'
-                    '<mxGeometry relative="1" as="geometry"/></mxCell>\n'
-                )
-
-            out.write("</root></mxGraphModel></diagram></mxfile>")
+            out.write(dot_data)
 
         self._imsdk_debug(f"[PIPELINE][GRAPH] generated {filename}")
 
