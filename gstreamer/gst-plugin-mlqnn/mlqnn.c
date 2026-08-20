@@ -669,7 +669,7 @@ gst_ml_qnn_class_init (GstMLQnnClass * klass)
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   g_object_class_install_property (gobject_class, PROP_QNN_MODEL,
       g_param_spec_string ("model", "Model", "Model/CachedBin file path. "
-          "Expecting a .so model file or a .bin cache bin file.",
+          "Expecting a .so model file, a .bin cache bin file or a .dlc file.",
           PROP_QNN_MODEL_DEFAULT,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   g_object_class_install_property (gobject_class, PROP_QNN_SYSTEM,

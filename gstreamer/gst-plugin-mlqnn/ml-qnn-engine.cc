@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: BSD-3-Clause-Clear
  */
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <cmath>
 #include <map>
 #include <numeric>
@@ -17,6 +20,7 @@
 #include <QnnInterface.h>
 #include <System/QnnSystemInterface.h>
 #include <System/QnnSystemContext.h>
+#include <System/QnnSystemDlc.h>
 
 #include "ml-qnn-engine.h"
 
@@ -50,6 +54,8 @@
     (((graphInfo)->version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1) || \
         ((graphInfo)->version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_2)|| \
         ((graphInfo)->version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_3))
+#define QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_REQUESTED \
+    QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_3
 
 #elif defined(QNN_SYSTEM_CONTEXT_GRAPH_INFO_V2_INIT)
 
@@ -58,6 +64,8 @@
 #define QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_SUPPORTED(graphInfo) \
     (((graphInfo)->version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1) || \
         ((graphInfo)->version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_2))
+#define QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_REQUESTED \
+    QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_2
 
 #elif defined(QNN_SYSTEM_CONTEXT_GRAPH_INFO_V1_INIT)
 
@@ -65,6 +73,8 @@
     ((graphInfo)->graphInfoV1)
 #define QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_SUPPORTED(graphInfo) \
     ((graphInfo)->version == QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1)
+#define QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_REQUESTED \
+    QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_1
 
 #else
 
@@ -146,6 +156,13 @@ typedef Qnn_ErrorHandle_t (*ComposeGraphsFn)(Qnn_BackendHandle_t,
 
 typedef Qnn_ErrorHandle_t (*FreeGraphFn) (GraphInfo_t ***, uint32_t);
 
+typedef enum {
+  GST_ML_QNN_MODEL_TYPE_UNKNOWN = 0,
+  GST_ML_QNN_MODEL_TYPE_LIBRARY,
+  GST_ML_QNN_MODEL_TYPE_CONTEXT_BINARY,
+  GST_ML_QNN_MODEL_TYPE_DLC,
+} GstMLQnnModelType;
+
 struct _GstMLQnnEngine
 {
   GstMLInfo                      *ininfo;
@@ -163,6 +180,8 @@ struct _GstMLQnnEngine
 
   // QNN versioned interface.
   QNN_INTERFACE_VER_TYPE         interface;
+  // QNN interface provider, owned by the backend library.
+  const QnnInterface_t           *provider;
   // QNN versioned system interface.
   QNN_SYSTEM_INTERFACE_VER_TYPE  sysinterface;
   // QNN log handle.
@@ -176,11 +195,16 @@ struct _GstMLQnnEngine
   // QNN graph systemcontext handle.
   QnnSystemContext_Handle_t      sysctx_handle;
   Qnn_BackendHandle_t            backend;
+  // QNN DLC handle.
+  QnnSystemDlc_Handle_t          dlc_handle;
+  // DLC graph info, owned by the client.
+  QnnSystemContext_GraphInfo_t   *dlc_graphs;
 
   // QNN model graphs.
   GraphInfo_t                    **graph_infos;
-  uint32_t                       n_graphs;
-  gboolean                       iscached;
+  guint32                        n_graphs;
+  // QNN model container type.
+  GstMLQnnModelType              modeltype;
 
   // QNNF library APIs
   FreeGraphFn                    FreeGraph;
@@ -224,6 +248,41 @@ load_symbol (gpointer* method, gpointer handle, const gchar* name)
     return FALSE;
   }
   return TRUE;
+}
+
+static GstMLQnnModelType
+gst_ml_qnn_model_type_from_file (const gchar * filename)
+{
+  if (NULL == filename) {
+    GST_ERROR ("No model file name!");
+    return GST_ML_QNN_MODEL_TYPE_UNKNOWN;
+  }
+
+  std::filesystem::path modelpath (filename);
+  std::string extension = modelpath.extension().string();
+
+  std::transform (extension.begin(), extension.end(), extension.begin(),
+      [](unsigned char c) { return std::tolower (c); });
+
+  if (extension == ".bin")
+    return GST_ML_QNN_MODEL_TYPE_CONTEXT_BINARY;
+
+  if (extension == ".dlc")
+    return GST_ML_QNN_MODEL_TYPE_DLC;
+
+  if (extension == ".so")
+    return GST_ML_QNN_MODEL_TYPE_LIBRARY;
+
+  GST_ERROR ("Unrecognized model file extension '%s'!", extension.c_str());
+
+  return GST_ML_QNN_MODEL_TYPE_UNKNOWN;
+}
+
+static gboolean
+gst_ml_qnn_model_needs_system_library (GstMLQnnModelType modeltype)
+{
+  return (modeltype == GST_ML_QNN_MODEL_TYPE_CONTEXT_BINARY) ||
+      (modeltype == GST_ML_QNN_MODEL_TYPE_DLC);
 }
 
 static GstMLType
@@ -409,34 +468,27 @@ gst_ml_qnn_log_callback (const char* format, QnnLog_Level_t loglvl,
 }
 
 static gboolean
-gst_ml_qnn_graph_info_from_binary_info (
-    const QnnSystemContext_BinaryInfo_t* binary_info,
-    GraphInfo_t**& graph_infos, uint32_t& n_graphs)
+gst_ml_qnn_graph_info_from_graphs (QnnSystemContext_GraphInfo_t * graphs,
+    guint32 n_graphs, GraphInfo_t**& graph_infos)
 {
-  if (nullptr == binary_info) {
-    GST_ERROR ("binary_info is nullptr.");
+  if ((nullptr == graphs) || (0 == n_graphs)) {
+    GST_ERROR ("No graph information available!");
     return FALSE;
   }
 
-  if (!QNN_SYSTEM_CONTEXT_BINARY_INFO_VERSION_SUPPORTED (binary_info)) {
-    GST_ERROR ("Not supprted QNN system context binary info version !");
-    return FALSE;
-  }
-
-  n_graphs = QNN_GET_SYSTEM_CONTEXT_BINARY_INFO (binary_info).numGraphs;
-  QnnSystemContext_GraphInfo_t *graphs =
-      QNN_GET_SYSTEM_CONTEXT_BINARY_INFO (binary_info).graphs;
-
-  graph_infos = g_new0 (GraphInfo_t*, n_graphs);
+  GraphInfo_t** infos = g_new0 (GraphInfo_t*, n_graphs);
   GraphInfo_t* graph_info_arr = g_new0 (GraphInfo_t, n_graphs);
 
-  for (size_t idx = 0; idx < n_graphs; idx++) {
-    GST_INFO ("Extracting graph_infos for graph Idx: %lu", idx);
-
-    GST_INFO ("Info is V%d Idx: %lu", graphs[idx].version, idx);
+  for (guint32 idx = 0; idx < n_graphs; idx++) {
+    GST_INFO ("Extracting graph info V%d for graph Idx: %u",
+        graphs[idx].version, idx);
 
     if (!QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_SUPPORTED (&graphs[idx])) {
       GST_ERROR ("Not supprted QNN system context graph info version !");
+
+      g_clear_pointer (&graph_info_arr, g_free);
+      g_clear_pointer (&infos, g_free);
+
       return FALSE;
     }
 
@@ -451,8 +503,38 @@ gst_ml_qnn_graph_info_from_binary_info (
     graph_info_arr[idx].outputTensors =
         QNN_GET_SYSTEM_CONTEXT_GRAPH_INFO (&graphs[idx]).graphOutputs;
 
-    graph_infos[idx] = graph_info_arr + idx;
+    infos[idx] = graph_info_arr + idx;
   }
+
+  graph_infos = infos;
+
+  return TRUE;
+}
+
+static gboolean
+gst_ml_qnn_graph_info_from_binary_info (
+    const QnnSystemContext_BinaryInfo_t* binary_info,
+    GraphInfo_t**& graph_infos, guint32& n_graphs)
+{
+  if (nullptr == binary_info) {
+    GST_ERROR ("binary_info is nullptr.");
+    return FALSE;
+  }
+
+  if (!QNN_SYSTEM_CONTEXT_BINARY_INFO_VERSION_SUPPORTED (binary_info)) {
+    GST_ERROR ("Not supprted QNN system context binary info version !");
+    return FALSE;
+  }
+
+  guint32 numgraphs = QNN_GET_SYSTEM_CONTEXT_BINARY_INFO (binary_info).numGraphs;
+  QnnSystemContext_GraphInfo_t *graphs =
+      QNN_GET_SYSTEM_CONTEXT_BINARY_INFO (binary_info).graphs;
+
+  if (!gst_ml_qnn_graph_info_from_graphs (graphs, numgraphs, graph_infos))
+    return FALSE;
+
+  n_graphs = numgraphs;
+
   return TRUE;
 }
 
@@ -559,6 +641,8 @@ gst_ml_qnn_engine_setup_backend (GstMLQnnEngine *engine)
   }
 
   engine->interface = providers[0]->QNN_INTERFACE_VER_NAME;
+  // The DLC compose graphs API expects the complete provider interface.
+  engine->provider = providers[0];
 
   GST_DEBUG ("Interface Provider core api version : %d.%d.%d",
       providers[0]->apiVersion.coreApiVersion.major,
@@ -630,7 +714,7 @@ gst_ml_qnn_engine_setup_backend (GstMLQnnEngine *engine)
     return FALSE;
   }
 
-  if (engine->iscached) {
+  if (gst_ml_qnn_model_needs_system_library (engine->modeltype)) {
     if ((filename = GET_OPT_SYSLIB (engine->settings)) == NULL) {
       GST_ERROR ("No system library file name!");
       return FALSE;
@@ -800,6 +884,108 @@ gst_ml_qnn_engine_setup_cached_graphs (GstMLQnnEngine *engine)
 }
 
 static gboolean
+gst_ml_qnn_engine_setup_dlc_graphs (GstMLQnnEngine *engine)
+{
+  const gchar *filename = NULL;
+  guint32 n_composed = 0;
+
+  if ((filename = GET_OPT_MODEL (engine->settings)) == NULL) {
+    GST_ERROR ("No DLC file name!");
+    return FALSE;
+  }
+
+  if (nullptr == engine->sysinterface.systemDlcCreateFromFile ||
+      nullptr == engine->sysinterface.systemDlcComposeGraphs ||
+      nullptr == engine->sysinterface.systemDlcFree) {
+    GST_ERROR ("QNN System DLC function pointers are not populated. The QNN "
+        "system library does not support DLC models!");
+    return FALSE;
+  }
+
+  if (nullptr == engine->interface.contextCreate ||
+      nullptr == engine->interface.graphRetrieve ||
+      nullptr == engine->interface.graphFinalize) {
+    GST_ERROR ("QNN backend function pointers are not populated.");
+    return FALSE;
+  }
+
+  if (!g_file_test (filename, G_FILE_TEST_IS_REGULAR)) {
+    GST_ERROR ("File %s does not exist", filename);
+    return FALSE;
+  }
+
+  auto status = engine->sysinterface.systemDlcCreateFromFile (engine->logger,
+      filename, &(engine->dlc_handle));
+
+  if (QNN_SUCCESS != status) {
+    GST_ERROR ("Failed to open DLC '%s'! Error %ld", filename,
+        QNN_GET_ERROR_CODE (status));
+    return FALSE;
+  }
+
+  // Set up any context configs that are necessary.
+  const QnnContext_Config_t **ctx_configs = nullptr;
+
+  status = engine->interface.contextCreate (engine->backend, engine->device,
+      ctx_configs, &(engine->context));
+
+  if (QNN_SUCCESS != status) {
+    GST_ERROR ("Could not create context!");
+    return FALSE;
+  }
+
+  status = engine->sysinterface.systemDlcComposeGraphs (engine->dlc_handle,
+      nullptr, 0, engine->backend, engine->context, *(engine->provider),
+      QNN_SYSTEM_CONTEXT_GRAPH_INFO_VERSION_REQUESTED, &(engine->dlc_graphs),
+      &n_composed);
+
+  if (QNN_SUCCESS != status) {
+    GST_ERROR ("Failed to compose graphs from the DLC! Error %ld",
+        QNN_GET_ERROR_CODE (status));
+    return FALSE;
+  }
+
+  if (!gst_ml_qnn_graph_info_from_graphs (engine->dlc_graphs, n_composed,
+          engine->graph_infos)) {
+    GST_ERROR ("Failed to populate Graph Info.");
+    return FALSE;
+  }
+
+  engine->n_graphs = n_composed;
+
+  // The DLC graph info carries no graph handles, retrieve them by name. Unlike
+  // the ones from a context binary the composed graphs are not finalized.
+  for (guint32 idx = 0; idx < engine->n_graphs; idx++) {
+    status = engine->interface.graphRetrieve (engine->context,
+        (*(engine->graph_infos))[idx].graphName,
+        &((*(engine->graph_infos))[idx].graph));
+
+    if (QNN_SUCCESS != status) {
+      GST_ERROR ("Unable to retrieve graph handle for graph Idx: %u! Error %ld",
+          idx, QNN_GET_ERROR_CODE (status));
+      return FALSE;
+    }
+
+    status = engine->interface.graphFinalize (
+        (*(engine->graph_infos))[idx].graph, engine->profiler, nullptr);
+
+    if (QNN_GRAPH_ERROR_GRAPH_FINALIZED == QNN_GET_ERROR_CODE (status)) {
+      GST_DEBUG ("Graph %u is already finalized", idx);
+      continue;
+    }
+
+    if (QNN_SUCCESS != status) {
+      GST_ERROR ("Finalize for graph %u failed! Error %ld", idx,
+          QNN_GET_ERROR_CODE (status));
+      return FALSE;
+    }
+  }
+
+  GST_INFO ("Setup graph using DLC exit.");
+  return TRUE;
+}
+
+static gboolean
 gst_ml_qnn_engine_setup_uncached_graphs (GstMLQnnEngine *engine)
 {
   gboolean success = TRUE;
@@ -883,7 +1069,7 @@ gst_ml_qnn_engine_new (GstStructure *settings)
   const GraphInfo_t *graph_info = NULL;
   Qnn_Tensor_t *input_tensor = NULL, *output_tensor = NULL;
   GList * output_list = NULL;
-  gboolean success = TRUE;
+  gboolean success = FALSE;
   guint idx = 0;
 
   GST_DEBUG ("Creating engine");
@@ -897,9 +1083,13 @@ gst_ml_qnn_engine_new (GstStructure *settings)
   engine->settings = gst_structure_copy (settings);
   gst_structure_free (settings);
 
-  std::filesystem::path modelpath (GET_OPT_MODEL (engine->settings));
+  engine->modeltype =
+      gst_ml_qnn_model_type_from_file (GET_OPT_MODEL (engine->settings));
 
-  engine->iscached = (modelpath.extension() == ".bin") ? TRUE : FALSE;
+  if (engine->modeltype == GST_ML_QNN_MODEL_TYPE_UNKNOWN) {
+    GST_ERROR ("Unsupported model type!");
+    goto cleanup;
+  }
 
   // Initialize backend.
   if (!gst_ml_qnn_engine_setup_backend (engine)) {
@@ -908,10 +1098,19 @@ gst_ml_qnn_engine_new (GstStructure *settings)
   }
 
   // Initialize model graphs.
-  if (engine->iscached) {
-    success = gst_ml_qnn_engine_setup_cached_graphs (engine);
-  } else {
-    success = gst_ml_qnn_engine_setup_uncached_graphs (engine);
+  switch (engine->modeltype) {
+    case GST_ML_QNN_MODEL_TYPE_CONTEXT_BINARY:
+      success = gst_ml_qnn_engine_setup_cached_graphs (engine);
+      break;
+    case GST_ML_QNN_MODEL_TYPE_DLC:
+      success = gst_ml_qnn_engine_setup_dlc_graphs (engine);
+      break;
+    case GST_ML_QNN_MODEL_TYPE_LIBRARY:
+      success = gst_ml_qnn_engine_setup_uncached_graphs (engine);
+      break;
+    default:
+      GST_ERROR ("Unhandled model type %u!", engine->modeltype);
+      break;
   }
 
   if (!success) {
@@ -1053,33 +1252,29 @@ gst_ml_qnn_engine_free (GstMLQnnEngine * engine)
   }
 
   if (engine->graph_infos) {
-    const GraphInfo_t *graph_info = engine->graph_infos[0];
-    Qnn_Tensor_t *tensor;
-
-    for (guint idx = 0; idx < graph_info->numInputTensors; idx++) {
-      tensor = &(graph_info->inputTensors[idx]);
-      QNN_TENSOR_CLIENTBUF (tensor).data = NULL;
-      QNN_TENSOR_CLIENTBUF (tensor).dataSize = 0;
-    }
-
-    for (guint idx = 0; idx < graph_info->numOutputTensors; ++idx) {
-      tensor = &(graph_info->outputTensors[idx]);
-      QNN_TENSOR_CLIENTBUF (tensor).data = NULL;
-      QNN_TENSOR_CLIENTBUF (tensor).dataSize = 0;
-    }
-
-    if (engine->iscached) {
-      if (engine->sysinterface.systemContextFree && engine->sysctx_handle) {
-        engine->sysinterface.systemContextFree (engine->sysctx_handle);
-        engine->sysctx_handle = nullptr;
-      }
-      g_free (*(engine->graph_infos));
-      g_free (engine->graph_infos);
-    } else {
+    // A model library owns its graph info and frees it through its own API.
+    if (engine->FreeGraph != NULL) {
       engine->FreeGraph (&(engine->graph_infos), engine->n_graphs);
+      engine->graph_infos = NULL;
+    } else {
+      g_free (*(engine->graph_infos));
+      g_clear_pointer (&(engine->graph_infos), g_free);
     }
-    engine->graph_infos = NULL;
+
     engine->n_graphs = 0;
+  }
+
+  if (engine->sysinterface.systemContextFree && engine->sysctx_handle) {
+    engine->sysinterface.systemContextFree (engine->sysctx_handle);
+    engine->sysctx_handle = nullptr;
+  }
+
+  // The DLC graph info array is owned by the client, release it with free().
+  g_clear_pointer (&(engine->dlc_graphs), free);
+
+  if (engine->sysinterface.systemDlcFree && engine->dlc_handle) {
+    engine->sysinterface.systemDlcFree (engine->dlc_handle);
+    engine->dlc_handle = nullptr;
   }
 
   if (engine->interface.deviceFreePlatformInfo && engine->device_platform)
