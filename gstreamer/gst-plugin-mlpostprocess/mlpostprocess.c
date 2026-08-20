@@ -907,8 +907,7 @@ gst_ml_post_process_text (GstMLPostProcess * postprocess,
 
     g_value_init (&array, GST_TYPE_ARRAY);
 
-    if (GST_ML_FRAME_N_TENSORS (mlframe) != 0)
-      success = postprocess->process (postprocess, idx, mlframe, mlparam, &array);
+    success = postprocess->process (postprocess, idx, mlframe, mlparam, &array);
 
     gst_ml_predictions_list_append (&list, postprocess->type, &array, mlparam);
 
@@ -1085,8 +1084,7 @@ gst_ml_post_process_prepare_output_buffer (GstBaseTransform * base,
     }
 
     // Input is marked as GAP, nothing to process. Create a GAP output buffer.
-    if ((gst_buffer_get_size (inbuffer) == 0) &&
-        GST_BUFFER_FLAG_IS_SET (inbuffer, GST_BUFFER_FLAG_GAP)) {
+    if (GST_BUFFER_FLAG_IS_SET (inbuffer, GST_BUFFER_FLAG_GAP)) {
       *outbuffer = gst_buffer_new ();
       GST_BUFFER_FLAG_SET (*outbuffer, GST_BUFFER_FLAG_GAP);
     }
@@ -1098,6 +1096,9 @@ gst_ml_post_process_prepare_output_buffer (GstBaseTransform * base,
     }
   } else {
     *outbuffer = gst_buffer_new ();
+
+    if (GST_BUFFER_FLAG_IS_SET (inbuffer, GST_BUFFER_FLAG_GAP))
+      GST_BUFFER_FLAG_SET (*outbuffer, GST_BUFFER_FLAG_GAP);
   }
 
   // Copy the flags and timestamps from the input buffer.
