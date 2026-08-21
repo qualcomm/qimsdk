@@ -24,12 +24,12 @@ Follow the steps below to obtain the cross-compilation toolchain required to bui
 
 1. In the file list, use the **"Type"** filter to select `.sh` files, then download the following toolchain installer:
    ```
-   qcom-distro-x86_64-qcom-multimedia-proprietary-image-armv8a-qcom-armv8a-toolchain-2.0.sh
+   qcom-distro-x86_64-qcom-multimedia-proprietary-image-armv8a-qcom-armv8a-toolchain-<version>.sh
    ```
 
 1. Extract and install the toolchain.
     ```
-    bash qcom-distro-x86_64-qcom-multimedia-proprietary-image-armv8a-qcom-armv8a-toolchain-2.0.sh -d <path_to_install_toolchain> -y
+    bash qcom-distro-x86_64-qcom-multimedia-proprietary-image-armv8a-qcom-armv8a-toolchain-*.sh -d <path_to_install_toolchain> -y
     ```
 1. Source the cross-compilation toolchain environment.
     ```
