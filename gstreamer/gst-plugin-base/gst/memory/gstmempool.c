@@ -122,8 +122,9 @@ open_dma_device (GstMemBufferPool * mempool, gboolean secure)
       return FALSE;
     }
 #endif // HAVE_LINUX_MEM_BUF_H && MEM_BUF_IOC_LEND
+  }
 
-  if (priv->dev_fd < 0) {
+  if (priv->devfd < 0) {
     GST_INFO_OBJECT (mempool, "Open /dev/dma_heap/qcom,system");
     priv->devfd = open ("/dev/dma_heap/qcom,system", O_RDONLY | O_CLOEXEC);
   }
