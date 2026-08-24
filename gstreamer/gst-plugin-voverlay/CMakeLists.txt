@@ -58,6 +58,7 @@ target_link_libraries(${GST_QTI_OVERLAY} PRIVATE
   ${GST_QCOM_VIDEO_LIBRARIES}
   ${GST_QCOM_CV_LIBRARIES}
   ${GST_QCOM_ALLOC_LIBRARIES}
+  m
 )
 
 install(

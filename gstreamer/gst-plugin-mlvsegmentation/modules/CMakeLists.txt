@@ -70,6 +70,7 @@ target_link_libraries(${GST_QTI_ML_MODULE} PRIVATE
   ${GST_VIDEO_LIBRARIES}
   ${GST_QCOM_ML_LIBRARIES}
   ${GST_QCOM_UTILS_LIBRARIES}
+  m
 )
 
 install(

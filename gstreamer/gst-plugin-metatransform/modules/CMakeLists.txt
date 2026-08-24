@@ -72,6 +72,7 @@ target_link_libraries(${GST_QTI_META_MODULE} PRIVATE
   ${GST_VIDEO_LIBRARIES}
   gstqtiutilsbase
   gstqtivideobase
+  m
 )
 
 install(
@@ -100,6 +101,7 @@ target_link_libraries(${GST_QTI_META_MODULE} PRIVATE
   ${GST_QCOM_UTILS_LIBRARIES}
   ${GST_QCOM_VIDEO_LIBRARIES}
   qtiafralgo
+  m
 )
 
 install(

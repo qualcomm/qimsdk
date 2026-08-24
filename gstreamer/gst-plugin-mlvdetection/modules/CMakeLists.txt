@@ -68,6 +68,7 @@ target_link_libraries(${GST_QTI_ML_MODULE} PRIVATE
   ${GST_LIBRARIES}
   ${GST_QCOM_ML_LIBRARIES}
   ${GST_QCOM_UTILS_LIBRARIES}
+  m
 )
 
 install(
@@ -149,6 +150,7 @@ target_link_libraries(${GST_QTI_ML_MODULE} PRIVATE
   ${GST_LIBRARIES}
   ${GST_QCOM_ML_LIBRARIES}
   ${GST_QCOM_UTILS_LIBRARIES}
+  m
 )
 
 install(
