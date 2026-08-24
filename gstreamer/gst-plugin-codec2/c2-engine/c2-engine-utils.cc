@@ -154,6 +154,8 @@ static const std::unordered_map<uint32_t, C2Param::Index> kParamIndexMap = {
       qc2::C2VideoMirrorTuning::input::PARAM_TYPE },
   { GST_C2_PARAM_VBV_DELAY,
       qc2::C2VBVDelayTuning::input::PARAM_TYPE },
+  { GST_C2_PARAM_QUALITY,
+      C2StreamQualityTuning::output::PARAM_TYPE },
 #if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 1)
   { GST_C2_PARAM_HDR_MODE,
       C2StreamHdrFormatInfo::output::PARAM_TYPE },
@@ -235,6 +237,7 @@ static const std::unordered_map<uint32_t, const char*> kParamNameMap = {
   { GST_C2_PARAM_FLIP, "FLIP" },
   { GST_C2_PARAM_VBV_DELAY, "VBV_DELAY" },
   { GST_C2_PARAM_VUI_TIMING_INFO, "VUI_TIMING_INFO" },
+  { GST_C2_PARAM_QUALITY, "QUALITY" },
   { GST_C2_PARAM_HDR_MODE, "HDR_MODE" },
   { GST_C2_PARAM_BITRATE_BOOST_MARGIN, "BITRATE_BOOST_MARGIN" },
   { GST_C2_PARAM_NAL_LENGTH_BITSTREAM, "NAL_LENGTH_BITSTREAM" },
@@ -1205,6 +1208,13 @@ bool GstC2Utils::UnpackPayload(uint32_t type, void* payload,
       c2param = C2Param::Copy(delay);
       break;
     }
+    case GST_C2_PARAM_QUALITY: {
+      C2StreamQualityTuning::output quality;
+
+      quality.value = *(reinterpret_cast<guint32*>(payload));
+      c2param = C2Param::Copy(quality);
+      break;
+    }
 #if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 1)
     case GST_C2_PARAM_HDR_MODE: {
       C2StreamHdrFormatInfo::output hdrmode;
@@ -1753,6 +1763,13 @@ bool GstC2Utils::PackPayload(uint32_t type, std::unique_ptr<C2Param>& c2param,
           reinterpret_cast<qc2::C2VBVDelayTuning::input*>(c2param.get());
 
       *(reinterpret_cast<gint32*>(payload)) = delay->value;
+      break;
+    }
+    case GST_C2_PARAM_QUALITY: {
+      auto quality =
+          reinterpret_cast<C2StreamQualityTuning::output*>(c2param.get());
+
+      *(reinterpret_cast<guint32*>(payload)) = quality->value;
       break;
     }
 #if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 1)

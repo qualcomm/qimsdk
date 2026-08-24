@@ -93,6 +93,7 @@ enum {
   GST_C2_PARAM_FLIP,                 // GstC2VideoFlip
   GST_C2_PARAM_VBV_DELAY,            // gint32
   GST_C2_PARAM_VUI_TIMING_INFO,      // gboolean
+  GST_C2_PARAM_QUALITY,              // guint32
   GST_C2_PARAM_HDR_MODE,             // GstC2HdrMode
   GST_C2_PARAM_OPERATING_FRAMERATE,  // gdouble
   GST_C2_PARAM_CHROMA_QP_OFFSET,     // gint32
