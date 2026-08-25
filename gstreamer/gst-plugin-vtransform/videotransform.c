@@ -68,7 +68,7 @@ G_DEFINE_TYPE (GstVideoTransform, gst_video_transform, GST_TYPE_BASE_TRANSFORM);
 #define DEFAULT_PROP_DESTINATION_Y      0
 #define DEFAULT_PROP_DESTINATION_WIDTH  0
 #define DEFAULT_PROP_DESTINATION_HEIGHT 0
-#define DEFAULT_PROP_BACKGROUND         0xFF808080
+#define DEFAULT_PROP_BACKGROUND         0x000000FF
 
 #define DEFAULT_PROP_MIN_BUFFERS      2
 #define DEFAULT_PROP_MAX_BUFFERS      24
@@ -1954,7 +1954,9 @@ gst_video_transform_class_init (GstVideoTransformClass * klass)
           GST_PARAM_MUTABLE_PLAYING));
   g_object_class_install_property (gobject, PROP_BACKGROUND,
       g_param_spec_uint ("background", "Background",
-          "Background color", 0, 0xFFFFFFFF, DEFAULT_PROP_BACKGROUND,
+          "Background color in RGBA format (0xRRGGBBAA). The alpha channel "
+          "is only applied when the negotiated output format has an alpha "
+          "channel.", 0, 0xFFFFFFFF, DEFAULT_PROP_BACKGROUND,
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING));
 
