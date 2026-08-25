@@ -31,6 +31,9 @@ class MLVideoONNXBin;
 
 class Element {
  public:
+  using SignalHandlerId = unsigned long;
+  using SignalCallback = void (*)();
+
   // Create an element instance from a GStreamer factory and optional name.
   explicit Element(const std::string& factory, const std::string& name = {});
   // Release element references and owned implementation state.
@@ -86,6 +89,13 @@ class Element {
   Port output(unsigned int id);
   // Access a source pad by name/type and index.
   Port output(const std::string& name_or_type, unsigned int id);
+
+  // Connect a generic GObject signal callback to this element.
+  SignalHandlerId connect_signal(const std::string& signal_name,
+                                 SignalCallback callback,
+                                 void* user_data = nullptr);
+  // Disconnect a previously connected signal callback.
+  Element& disconnect_signal(SignalHandlerId handler_id);
 
  protected:
   void* get_raw_gst_element() const;

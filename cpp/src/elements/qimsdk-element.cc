@@ -242,6 +242,44 @@ Element& Element::unlink(const std::string& src_pad) {
   return *this;
 }
 
+Element::SignalHandlerId Element::connect_signal(const std::string& signal_name,
+                                                 SignalCallback callback,
+                                                 void* user_data) {
+  if (signal_name.empty()) {
+    throw std::invalid_argument("Element::connect_signal: empty signal name");
+  }
+  if (!callback) {
+    throw std::invalid_argument("Element::connect_signal: null callback");
+  }
+
+  auto* obj = G_OBJECT(impl_->elem_);
+  if (g_signal_lookup(signal_name.c_str(), G_OBJECT_TYPE(obj)) == 0) {
+    const char* obj_name = G_OBJECT_TYPE_NAME(obj);
+    throw std::invalid_argument("Element::connect_signal: unknown signal '" +
+                                signal_name + "' for object type '" +
+                                (obj_name ? std::string(obj_name) : "unknown") + "'");
+  }
+
+  const gulong handler_id = g_signal_connect_data(
+      obj, signal_name.c_str(), reinterpret_cast<GCallback>(callback), user_data,
+      nullptr, static_cast<GConnectFlags>(0));
+  if (handler_id == 0) {
+    throw std::runtime_error("Element::connect_signal: failed to connect '" +
+                             signal_name + "'");
+  }
+  return static_cast<SignalHandlerId>(handler_id);
+}
+
+Element& Element::disconnect_signal(SignalHandlerId handler_id) {
+  if (handler_id != 0 &&
+      g_signal_handler_is_connected(G_OBJECT(impl_->elem_),
+                                    static_cast<gulong>(handler_id))) {
+    g_signal_handler_disconnect(G_OBJECT(impl_->elem_),
+                                static_cast<gulong>(handler_id));
+  }
+  return *this;
+}
+
 void* Element::get_raw_gst_element() const { return static_cast<void*>(impl_->elem_); }
 
 Element::Element(void* existing_gst_elem, bool add_ref)
