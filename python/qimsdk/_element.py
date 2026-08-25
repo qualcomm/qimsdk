@@ -176,6 +176,35 @@ class Element:
             return Port(self._elem, False, name_or_id, 0 if id is None else id)
         return Port(self._elem, False, None, int(name_or_id))
 
+    def connect_signal(self, signal_name: str, callback: Any, *user_args: Any) -> int:
+        """Connects a generic GObject signal on this element.
+
+        Args:
+            signal_name: Signal name to connect. Type: str.
+            callback: Callable that handles the signal. Type: Any.
+            user_args: Optional user data forwarded by GObject. Type: Any.
+
+        Returns:
+            int: GObject signal handler id.
+        """
+        if not signal_name:
+            raise ValueError("Element.connect_signal requires a non-empty signal name")
+        if callback is None:
+            raise ValueError("Element.connect_signal requires a callback")
+        return int(self._elem.connect(signal_name, callback, *user_args))
+
+    def disconnect_signal(self, handler_id: int) -> Element:
+        """Disconnects a previously connected GObject signal handler.
+
+        Args:
+            handler_id: Signal handler id returned by connect_signal. Type: int.
+
+        Returns:
+            Element: Result of the operation.
+        """
+        if handler_id:
+            self._elem.disconnect(int(handler_id))
+        return self
 
 class Port:
     """Represents a specific input or output pad on an Element and allows pad-level property configuration.
