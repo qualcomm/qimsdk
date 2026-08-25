@@ -33,9 +33,9 @@ foreach(script ${EXAMPLE_SCRIPTS})
     )
 endforeach()
 
-# ---- Install sample scripts into /usr/bin ----
+# ---- Install demo scripts into /usr/bin ----
 file(GLOB EXAMPLE_SCRIPTS
-    ${CMAKE_CURRENT_SOURCE_DIR}/examples/sample-apps/*.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/demo-apps/*.py
 )
 
 foreach(script ${EXAMPLE_SCRIPTS})
