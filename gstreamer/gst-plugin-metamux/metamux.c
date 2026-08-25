@@ -14,7 +14,6 @@
 
 #include <gst/allocators/allocators.h>
 #include <gst/video/video.h>
-#include <gst/audio/audio.h>
 #include <gst/utils/common-utils.h>
 #include <gst/utils/batch-utils.h>
 #include <gst/utils/gsttextmeta.h>
@@ -56,8 +55,7 @@ G_DEFINE_TYPE (GstMetaMux, gst_metamux, GST_TYPE_ELEMENT);
 
 #define GST_METAMUX_MEDIA_CAPS \
     "image/jpeg(ANY); "        \
-    "video/x-raw(ANY); "       \
-    "audio/x-raw(ANY)"
+    "video/x-raw(ANY)"
 
 #define GST_METAMUX_DATA_CAPS     \
     "text/x-raw, format = utf8; " \
@@ -147,8 +145,8 @@ gst_metamux_mode_get_type (void)
     { GST_METAMUX_MODE_SYNC,
         "Timestamp matching between media buffers & metadata entries is enabled. "
         "When a media buffer arrives it will wait a maximum of '1 / framerate' "
-        "(for video caps) or '1 / rate' (for audio caps) time to receive meta "
-        "entries on all pads with timestamps matching that of the buffer.",
+        "time to receive meta entries on all pads with timestamps "
+        "matching that of the buffer.",
         "sync"
     },
     {0, NULL, NULL},
@@ -1500,7 +1498,7 @@ gst_metamux_main_sink_pad_setcaps (GstMetaMux * muxer, GstPad * pad,
 
   gst_caps_unref (intersect);
 
-  // Extract audio/video information from caps.
+  // Extract video information from caps.
   if (gst_caps_is_media_type (caps, "video/x-raw") ||
       gst_caps_is_media_type (caps, "image/jpeg")) {
     if (muxer->vinfo != NULL)
@@ -1509,17 +1507,6 @@ gst_metamux_main_sink_pad_setcaps (GstMetaMux * muxer, GstPad * pad,
     muxer->vinfo = gst_video_info_new ();
 
     if (!gst_video_info_from_caps (muxer->vinfo, caps)) {
-      GST_ERROR_OBJECT (pad, "Invalid caps %" GST_PTR_FORMAT, caps);
-      gst_caps_unref (caps);
-      return FALSE;
-    }
-  } else if (gst_caps_is_media_type (caps, "audio/x-raw")) {
-    if (muxer->ainfo != NULL)
-      gst_audio_info_free (muxer->ainfo);
-
-    muxer->ainfo = gst_audio_info_new ();
-
-    if (!gst_audio_info_from_caps (muxer->ainfo, caps)) {
       GST_ERROR_OBJECT (pad, "Invalid caps %" GST_PTR_FORMAT, caps);
       gst_caps_unref (caps);
       return FALSE;
@@ -1997,9 +1984,6 @@ gst_metamux_finalize (GObject * object)
 {
   GstMetaMux *muxer = GST_METAMUX (object);
 
-  if (muxer->ainfo != NULL)
-    gst_audio_info_free (muxer->ainfo);
-
   if (muxer->vinfo != NULL)
     gst_video_info_free (muxer->vinfo);
 
@@ -2048,8 +2032,8 @@ gst_metamux_class_init (GstMetaMuxClass *klass)
           GST_PARAM_MUTABLE_READY));
 
   gst_element_class_set_static_metadata (element,
-      "Meta muxer", "Video/Audio/Text/Muxer",
-      "Muxes data stream as GstMeta with raw audio or video stream", "QTI"
+      "Meta muxer", "Video/Text/Muxer",
+      "Muxes data stream as GstMeta with raw video stream", "QTI"
   );
 
   element->request_new_pad = GST_DEBUG_FUNCPTR (gst_metamux_request_pad);
@@ -2071,7 +2055,6 @@ gst_metamux_init (GstMetaMux * muxer)
   muxer->metapads = NULL;
 
   muxer->vinfo = NULL;
-  muxer->ainfo = NULL;
 
   muxer->active = FALSE;
   muxer->worktask = NULL;

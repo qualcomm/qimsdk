@@ -12,7 +12,6 @@
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
-#include <gst/audio/audio.h>
 
 #include "metamuxpads.h"
 
@@ -59,9 +58,8 @@ struct _GstMetaMux
   /// Convenient local reference to source pad.
   GstMetaMuxSrcPad  *srcpad;
 
-  /// Info regarding the negotiated audio/video caps.
+  /// Info regarding the negotiated video caps.
   GstVideoInfo      *vinfo;
-  GstAudioInfo      *ainfo;
 
   /// Worker task.
   GstTask           *worktask;
