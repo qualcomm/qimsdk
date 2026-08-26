@@ -1,13 +1,5 @@
 # QIMSDK test apps and helpers.
 
-if(NOT DEFINED QIMSDK_BINDIR)
-  if(DEFINED GST_PLUGINS_QTI_OSS_INSTALL_BINDIR)
-    set(QIMSDK_BINDIR ${GST_PLUGINS_QTI_OSS_INSTALL_BINDIR})
-  else()
-    set(QIMSDK_BINDIR bin)
-  endif()
-endif()
-
 # Shared test utilities library.
 add_library(qti-qimsdk-test-utils STATIC
   qimsdk-test-utils.cc
