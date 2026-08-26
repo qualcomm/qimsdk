@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(qimsdk_python)
 
+
+set(QIMSDK_BINDIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}")
+
 # ---- Python site-packages path ----
 # In Yocto, this is usually passed via -DPYTHON_SITEPACKAGES_DIR
 # Fallback for non-Yocto builds
@@ -26,7 +29,7 @@ foreach(script ${EXAMPLE_SCRIPTS})
 
     install(
         PROGRAMS ${script}
-        DESTINATION bin
+        DESTINATION ${QIMSDK_BINDIR}
     )
 endforeach()
 
@@ -40,6 +43,6 @@ foreach(script ${EXAMPLE_SCRIPTS})
 
     install(
         PROGRAMS ${script}
-        DESTINATION bin
+        DESTINATION ${QIMSDK_BINDIR}
     )
 endforeach()
