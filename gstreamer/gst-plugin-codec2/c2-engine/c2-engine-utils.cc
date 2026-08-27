@@ -173,11 +173,14 @@ static const std::unordered_map<uint32_t, C2Param::Index> kParamIndexMap = {
       C2GlobalLowLatencyModeTuning::PARAM_TYPE },
   { GST_C2_PARAM_DECODE_SLICE_MODE,
       qc2::C2VideoDecodeSliceMode::PARAM_TYPE },
+#endif // ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR >= 2))
+
+#if ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR == 2))
   { GST_C2_PARAM_VIDEO_FENCE,
       qc2::C2VideoFence::output::PARAM_TYPE },
   { GST_C2_PARAM_VIDEO_FENCE_TYPE_INFO,
       qc2::C2VideoFenceTypeInfo::output::PARAM_TYPE },
-#endif // ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR >= 2))
+#endif // ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR == 2))
 };
 
 // Convenient map for printing the engine parameter name in string form.
@@ -506,12 +509,16 @@ static const std::unordered_map<uint32_t, uint32_t> kFenceTypeMap = {
   { GST_C2_FENCE_TYPE_RX, FENCE_TYPE_RX },
 };
 
+#endif // (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 2)
+
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR == 2)
 // Map for the GST_C2_PARAM_VIDEO_FENCE_TYPE_INFO parameter.
 static const std::unordered_map<uint32_t, uint32_t> kVideoFenceTypeInfoMap = {
   { GST_C2_VIDEO_FENCE_TYPE_INFO_SW,      FENCE_TYPE_SW },
   { GST_C2_VIDEO_FENCE_TYPE_INFO_SYNX_V2, FENCE_TYPE_SYNX_V2 },
 };
-#endif // (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 2)
+
+#endif // (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR == 2)
 
 // Map for the GstC2Cac.
 static const std::unordered_map<uint32_t, int32_t> kCacMap = {
@@ -1270,6 +1277,9 @@ bool GstC2Utils::UnpackPayload(uint32_t type, void* payload,
       c2param = C2Param::Copy(mode);
       break;
     }
+#endif // ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR >= 2))
+
+#if ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR == 2))
     case GST_C2_PARAM_VIDEO_FENCE: {
       qc2::C2VideoFence::output fence;
       GstC2VideoFence *fence_payload =
@@ -1281,6 +1291,7 @@ bool GstC2Utils::UnpackPayload(uint32_t type, void* payload,
       c2param = C2Param::Copy(fence);
       break;
     }
+
     case GST_C2_PARAM_VIDEO_FENCE_TYPE_INFO: {
       qc2::C2VideoFenceTypeInfo::output fence_type;
       uint32_t output_fence_type =
@@ -1290,7 +1301,8 @@ bool GstC2Utils::UnpackPayload(uint32_t type, void* payload,
       c2param = C2Param::Copy(fence_type);
       break;
     }
-#endif // ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR >= 2))
+#endif // ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR == 2))
+
     default:
       GST_ERROR ("Unsupported parameter: %u!", type);
       return FALSE;
@@ -1842,6 +1854,9 @@ bool GstC2Utils::PackPayload(uint32_t type, std::unique_ptr<C2Param>& c2param,
       *(reinterpret_cast<guint32*>(payload)) = mode->value;
       break;
     }
+#endif // ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR >= 2))
+
+#if ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR == 2))
     case GST_C2_PARAM_VIDEO_FENCE: {
       auto fence =
           reinterpret_cast<qc2::C2VideoFence::output*>(c2param.get());
@@ -1882,7 +1897,8 @@ bool GstC2Utils::PackPayload(uint32_t type, std::unique_ptr<C2Param>& c2param,
       }
       break;
     }
-#endif // ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR >= 2))
+#endif // ((CODEC2_CONFIG_VERSION_MAJOR == 2) && (CODEC2_CONFIG_VERSION_MINOR == 2))
+
     default:
       GST_ERROR ("Unsupported parameter: %u!", type);
       return FALSE;
