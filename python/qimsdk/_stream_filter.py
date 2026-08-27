@@ -376,8 +376,6 @@ class VideoFilter(StreamFilter):
         """Returns the cached GstCaps object represented by this filter.
         """
         if self._dirty or self._cached_caps is None:
-            if self._cached_caps:
-                self._cached_caps.unref()
             self._cached_caps = self._build_caps()
             self._dirty = False
         return self._cached_caps
@@ -527,8 +525,6 @@ class ImageFilter(StreamFilter):
         """Returns the cached GstCaps object represented by this filter.
         """
         if self._dirty or self._cached_caps is None:
-            if self._cached_caps:
-                self._cached_caps.unref()
             self._cached_caps = self._build_caps()
             self._dirty = False
         return self._cached_caps
@@ -730,9 +726,6 @@ class H264Filter(StreamFilter):
             object | None: Result of the operation.
         """
         if self._dirty or self._cached_caps is None:
-            if self._cached_caps:
-                self._cached_caps.unref()
-
             self._cached_caps = self._build_caps()
             self._dirty = False
 
