@@ -389,7 +389,6 @@ gst_c2_vdec_set_format (GstVideoDecoder * decoder, GstVideoCodecState * state)
   GstVideoCodecState *outstate = NULL;
   GstCaps *caps = NULL;
   GstStructure *structure = NULL;
-  GstC2PoolType pool_type = GST_C2_POOL_TYPE_UNSPECIFIED;
   gchar *name = NULL;
   const gchar *string = NULL;
   gint width = 0, height = 0;
@@ -509,10 +508,8 @@ gst_c2_vdec_set_format (GstVideoDecoder * decoder, GstVideoCodecState * state)
     return FALSE;
   }
 
-  if (c2vdec->secure) {
+  if (c2vdec->secure)
     name = g_strconcat(name, ".secure", NULL);
-    pool_type = GST_C2_POOL_TYPE_DEFAULT_GRAPHIC;
-  }
 
   if ((c2vdec->name != NULL) && !g_str_equal (c2vdec->name, name)) {
     g_clear_pointer (&(c2vdec->name), g_free);
@@ -524,7 +521,7 @@ gst_c2_vdec_set_format (GstVideoDecoder * decoder, GstVideoCodecState * state)
 
   if (c2vdec->engine == NULL) {
     c2vdec->engine = gst_c2_engine_new (c2vdec->name, GST_C2_MODE_VIDEO_DECODE,
-        &callbacks, pool_type, c2vdec);
+        &callbacks, c2vdec);
     g_return_val_if_fail (c2vdec->engine != NULL, FALSE);
   }
 
