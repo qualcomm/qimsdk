@@ -17,7 +17,17 @@ pkg_check_modules(GST REQUIRED gstreamer-1.0>=${GST_VERSION_REQUIRED})
 pkg_check_modules(GST_ALLOC REQUIRED gstreamer-allocators-1.0>=${GST_VERSION_REQUIRED})
 pkg_check_modules(GST_VIDEO REQUIRED gstreamer-video-1.0>=${GST_VERSION_REQUIRED})
 pkg_check_modules(GST_PBUTILS REQUIRED gstreamer-pbutils-1.0>=${GST_VERSION_REQUIRED})
-pkg_check_modules(QCOM_VIDEO_CTRL REQUIRED qimsdk-smartvenc)
+# The Smart Video Encoder Control Algorithm package was renamed from
+# qcom-video-ctrl (libVideoCtrl.so, iot-core-algs/videoctrl.h) to
+# qimsdk-smartvenc (libqimsdk-smartvenc.so, qimsdk-smartvenc/videoctrl.h).
+# Probe for the new name first and fall back to the old one, so the plugin
+# builds against either package generation.
+pkg_check_modules(QIMSDK_SMARTVENC qimsdk-smartvenc)
+if (QIMSDK_SMARTVENC_FOUND)
+  set(QCOM_VIDEO_CTRL_VERSION ${QIMSDK_SMARTVENC_VERSION})
+else()
+  pkg_check_modules(QCOM_VIDEO_CTRL REQUIRED qcom-video-ctrl)
+endif()
 pkg_check_modules(GST_QCOM_VIDEO REQUIRED gstreamer-qcom-oss-video-1.0>=1.0.0)
 
 # Generate configuration header file with plugin describing definitions
@@ -54,9 +64,10 @@ target_link_libraries(${GST_SMART_VENC_BIN} PRIVATE
 
 string(REGEX MATCH "^[0-9]+" QCOM_VIDEO_CTRL_VERSION_MAJOR ${QCOM_VIDEO_CTRL_VERSION})
 
-# Pass the VideoCtrl library version as a macro
+# Pass the VideoCtrl library version and package generation as macros
 target_compile_definitions(${GST_SMART_VENC_BIN} PRIVATE
   VIDEO_CTRL_VERSION_MAJOR="${QCOM_VIDEO_CTRL_VERSION_MAJOR}"
+  $<$<BOOL:${QIMSDK_SMARTVENC_FOUND}>:HAVE_QIMSDK_SMARTVENC>
 )
 
 install(

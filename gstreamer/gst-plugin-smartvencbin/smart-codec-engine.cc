@@ -9,7 +9,13 @@
 #include <dlfcn.h>
 #include <mutex>
 
+#ifdef HAVE_QIMSDK_SMARTVENC
 #include <qimsdk-smartvenc/videoctrl.h>
+#define VIDEO_CTRL_LIBNAME "libqimsdk-smartvenc.so"
+#else
+#include <iot-core-algs/videoctrl.h>
+#define VIDEO_CTRL_LIBNAME "libVideoCtrl.so"
+#endif
 
 struct _SmartCodecEngine {
   std::mutex           engine_lock;
@@ -45,7 +51,7 @@ gst_smartcodec_engine_new ()
   SmartCodecEngine *engine = NULL;
   ::videoctrl::NewIEngine NewVideoCtrlEngine;
 
-  std::string libname = "libqimsdk-smartvenc.so." + std::string(VIDEO_CTRL_VERSION_MAJOR);
+  std::string libname = VIDEO_CTRL_LIBNAME "." + std::string(VIDEO_CTRL_VERSION_MAJOR);
 
   engine = g_new0 (SmartCodecEngine, 1);
   g_return_val_if_fail (engine != NULL, NULL);
