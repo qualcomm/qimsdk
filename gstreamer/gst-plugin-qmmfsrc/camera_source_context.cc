@@ -2467,9 +2467,18 @@ gst_qmmf_context_create_image_stream (GstQmmfContext * context, GstPad * pad)
         imgparam.format = ::qmmf::recorder::ImageFormat::kNV12UBWC;
         break;
       case GST_VIDEO_FORMAT_P010_10LE:
+#ifdef HAS_QMMF_IMAGE_FORMAT_P010HEIF
         imgparam.format = (ipad->subformat == GST_IMAGE_SUBFORMAT_HEIF) ?
             ::qmmf::recorder::ImageFormat::kP010HEIF :
             ::qmmf::recorder::ImageFormat::kP010;
+#else
+        if (ipad->subformat == GST_IMAGE_SUBFORMAT_HEIF) {
+          GST_ERROR ("P010 HEIF is not supported by the camera service!");
+          GST_QMMFSRC_IMAGE_PAD_UNLOCK (ipad);
+          return FALSE;
+        }
+        imgparam.format = ::qmmf::recorder::ImageFormat::kP010;
+#endif // HAS_QMMF_IMAGE_FORMAT_P010HEIF
         break;
       case GST_VIDEO_FORMAT_NV12_Q10LE32C:
         imgparam.format = ::qmmf::recorder::ImageFormat::kTP10UBWC;
