@@ -21,7 +21,7 @@ parser = HelpOnErrorArgumentParser(
     description="QIMSDK reference app",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
-parser.add_argument("--input-config",
+parser.add_argument("-i", "--input-config",
                     default="0",
                     help="Input source configuration (camera number, device, or file path)")
 args = parser.parse_args()

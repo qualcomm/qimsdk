@@ -73,7 +73,7 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--input-config", default="/dev/video2",
+        "-i", "--input-config", default="/dev/video2",
         help="V4L2 device node to capture from",
     )
     args = parser.parse_args()

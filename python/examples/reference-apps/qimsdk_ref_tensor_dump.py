@@ -21,10 +21,10 @@ parser = HelpOnErrorArgumentParser(
     description="QIMSDK reference app",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
-parser.add_argument("--input-config",
+parser.add_argument("-i", "--input-config",
                     default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4",
                     help="Input source configuration (camera number, device, or file path)")
-parser.add_argument("--output-config",
+parser.add_argument("-o", "--output-config",
                     default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/tensor_520_520.rgb",
                     help="Output file location")
 args = parser.parse_args()

@@ -24,10 +24,10 @@ parser = HelpOnErrorArgumentParser(
     description="QIMSDK reference app",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
-parser.add_argument("--model-base-path",
+parser.add_argument("-m", "--model-base-path",
                     default=f"{os.environ['HOME']}/Downloads/qimsdk_samples",
                     help="Base path for models and labels")
-parser.add_argument("--input-config",
+parser.add_argument("-i", "--input-config",
                     default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ppe_sample.mp4",
                     help="Input file path or pattern")
 args = parser.parse_args()

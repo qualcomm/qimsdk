@@ -37,10 +37,10 @@ parser = HelpOnErrorArgumentParser(
     description="QIMSDK reference app",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
-parser.add_argument("--input-config",
+parser.add_argument("-i", "--input-config",
                     default="/dev/video0",
                     help="Input source configuration (camera number, device, or file path)")
-parser.add_argument("--model-base-path",
+parser.add_argument("-m", "--model-base-path",
                     default=HOME_PATH + "/Downloads/qimsdk_samples",
                     help="Base model/label path")
 args = parser.parse_args()

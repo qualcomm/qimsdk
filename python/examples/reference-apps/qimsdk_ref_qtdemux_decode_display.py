@@ -21,7 +21,7 @@ parser = HelpOnErrorArgumentParser(
     description="QIMSDK reference app",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
-parser.add_argument("--input-config",
+parser.add_argument("-i", "--input-config",
                     default=f"{os.environ['HOME']}/Downloads/qimsdk_samples/media/ai_demo_sample.mp4",
                     help="Input file path or pattern")
 args = parser.parse_args()
