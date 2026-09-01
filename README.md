@@ -43,29 +43,47 @@ Follow the steps below to obtain the cross-compilation toolchain required to bui
 Clone the source code from Github:
 
 ```
-git clone https://github.com/qualcomm/gst-plugins-imsdk.git
-cd gst-plugins-imsdk
+git clone https://github.com/qualcomm/qimsdk.git
+cd qimsdk
 ```
 
 ### Build the source code
-Run CMake to generate the Makefile and build
 
-```
-cmake -B build -S . \
--DCMAKE_INSTALL_PREFIX=/usr \
--DENABLE_GST_IMSDK_PLUGINS=1 \
--DENABLE_GST_PLUGIN_MLTFLITE=1 \
--DENABLE_GST_PYTHON_EXAMPLES=1 \
--DENABLE_GST_SAMPLE_APPS=1 \
--DENABLE_GST_SAMPLE_APPS_CAMERA=1 \
--DENABLE_GST_PLUGIN_TOOLS=1 \
--DENABLE_GST_CAMERA_PLUGINS=1 \
-&& cmake --build build
-```
+1. Compile base libraries.
+
+    ```
+    cmake -B build-base -S . \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DENABLE_GST_PLUGIN_BASE=1 \
+    && cmake --build build-base
+    ```
+
+1. Install base libraries to SDK sysroot path.
+
+    ```
+    DESTDIR="${SDKTARGETSYSROOT}" cmake --install build-base --prefix /usr
+    ```
+
+1. Compile plugins and sample apps with updated base libraries.
+
+    ```
+    cmake -B build -S . \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DENABLE_GST_IMSDK_PLUGINS=1 \
+    -DENABLE_GST_PLUGIN_MLTFLITE=1 \
+    -DENABLE_GST_PYTHON_EXAMPLES=1 \
+    -DENABLE_GST_SAMPLE_APPS=1 \
+    -DENABLE_GST_SAMPLE_APPS_CAMERA=1 \
+    -DENABLE_GST_PLUGIN_TOOLS=1 \
+    -DENABLE_GST_CAMERA_PLUGINS=1 \
+    -DENABLE_APP_BUILDER_CPP=1 \
+    -DENABLE_APP_BUILDER_PYTHON=1 \
+    && cmake --build build
+    ```
 
 ## Resources
 
-- [Qualcomm IM SDK Documentation](https://docs.qualcomm.com/doc/80-80022-50/topic/qimsdk_landing_page.html?product=895724676033554725&facet=Intelligent_Multimedia_SDK.SDK.2.0&version=2.0-rc3)
+- [Qualcomm IM SDK Documentation](https://imsdkdocs.qualcomm.com)
 
 ## Development
 
