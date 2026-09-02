@@ -127,7 +127,7 @@
 /**
  * Maximum count of various sources possible to configure
  */
-#define QUEUE_COUNT 8
+#define QUEUE_COUNT 34
 #define TEE_COUNT 7
 #define DETECTION_COUNT 2
 #define CLASSIFICATION_COUNT 4
@@ -318,7 +318,8 @@ find_usb_camera_node (GstAppOptions * appctx)
 
   if (idx >= MAX_VID_DEV_CNT || mFd < 0 || ret < 0) {
     g_printerr ("Failed to open video device");
-    close (mFd);
+    if (mFd >= 0)
+      close (mFd);
     return FALSE;
   }
 
@@ -758,6 +759,7 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
         "framerate", GST_TYPE_FRACTION, framerate, 1, NULL);
     g_object_set (G_OBJECT (qmmfsrc_caps), "caps", filtercaps, NULL);
     gst_caps_unref (filtercaps);
+    filtercaps = NULL;
   } else if (options.source_type == GST_STREAM_TYPE_FILE) {
     // 2.2 Set the capabilities of file stream
     g_object_set (G_OBJECT (filesrc), "location", options.file_path, NULL);
@@ -767,6 +769,7 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
         "format", G_TYPE_STRING, "NV12", NULL);
     g_object_set (G_OBJECT (v4l2h264dec_caps), "caps", filtercaps, NULL);
     gst_caps_unref (filtercaps);
+    filtercaps = NULL;
   } else if (options.source_type == GST_STREAM_TYPE_RTSP) {
     // 2.3 Set the capabilities of file stream
     g_object_set (G_OBJECT (rtspsrc), "location", options.rtsp_ip_port, NULL);
@@ -776,6 +779,7 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
         "format", G_TYPE_STRING, "NV12", NULL);
     g_object_set (G_OBJECT (v4l2h264dec_caps), "caps", filtercaps, NULL);
     gst_caps_unref (filtercaps);
+    filtercaps = NULL;
   } else if (options.source_type == GST_STREAM_TYPE_USB_CAMERA) {
     g_object_set (G_OBJECT (v4l2src), "io-mode", "dmabuf", NULL);
     g_object_set (G_OBJECT (v4l2src), "device", options.dev_video, NULL);
@@ -789,6 +793,7 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
           "framerate", GST_TYPE_FRACTION, options.framerate, 1, NULL);
       g_object_set (G_OBJECT (v4l2src_caps), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
+      filtercaps = NULL;
     }
     else if (options.video_format == GST_MJPEG_VIDEO_FORMAT) {
       filtercaps = gst_caps_new_simple ("image/jpeg",
@@ -797,10 +802,12 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
           "framerate", GST_TYPE_FRACTION, options.framerate, 1, NULL);
       g_object_set (G_OBJECT (v4l2src_caps), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
+      filtercaps = NULL;
       filtercaps = gst_caps_new_simple ("video/x-raw",
       "format", G_TYPE_STRING, "NV12", NULL);
       g_object_set (G_OBJECT (qtivtransform_capsfilter), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
+      filtercaps = NULL;
     } else if (options.video_format == GST_YUV2_VIDEO_FORMAT) {
       filtercaps = gst_caps_new_simple ("video/x-raw",
           "format", G_TYPE_STRING, "YUY2",
@@ -809,10 +816,12 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
           "framerate", GST_TYPE_FRACTION, options.framerate, 1, NULL);
       g_object_set (G_OBJECT (v4l2src_caps), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
+      filtercaps = NULL;
       filtercaps = gst_caps_new_simple ("video/x-raw",
           "format", G_TYPE_STRING, "NV12", NULL);
       g_object_set (G_OBJECT (qtivtransform_capsfilter), "caps", filtercaps, NULL);
       gst_caps_unref (filtercaps);
+      filtercaps = NULL;
     }
   } else {
     g_printerr ("Invalid source type\n");
@@ -918,7 +927,9 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
   if (options.classification_use_dsp) {
     g_print ("Using DSP delegate with TFLITE for Classification\n");
     delegate_options =
-        gst_structure_from_string ("QNNExternalDelegate,backend_type=htp",
+        gst_structure_from_string ("QNNExternalDelegate,backend_type=htp,"
+          "htp_performance_mode=(string)2,"
+          "htp_precision=(string)1;",
         NULL);
     gint valid_elements = 0;
     for (gint i = 1; i < TFLITE_ELEMENT_COUNT; i++) {
@@ -953,7 +964,9 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
       goto error_clean_elements;
     }
     delegate_options =
-        gst_structure_from_string ("QNNExternalDelegate,backend_type=htp",
+        gst_structure_from_string ("QNNExternalDelegate,backend_type=htp,"
+          "htp_performance_mode=(string)2,"
+          "htp_precision=(string)1;",
         NULL);
     g_object_set (G_OBJECT (qtimlelement[GST_DETECTION_TYPE_YOLO]), "delegate",
         GST_ML_TFLITE_DELEGATE_EXTERNAL, NULL);
@@ -1173,7 +1186,7 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
       }
     } else if (options.video_format == GST_MJPEG_VIDEO_FORMAT) {
       ret = gst_element_link_many (v4l2src, v4l2src_caps, jpegdec, videoconvert,
-          qtivtransform_capsfilter, qtivtransform, tee[0], NULL);
+          qtivtransform, qtivtransform_capsfilter, tee[0], NULL);
       if (!ret) {
         g_printerr ("Pipeline elements cannot be linked for"
             " usbsource->jpegdec->tee\n");
@@ -1198,8 +1211,9 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
   }
 
   ret =
-      gst_element_link_many (queue[1], qtimlvconverter[0], qtimlelement[0],
-      tee[1], qtimlvdetection[0], NULL);
+      gst_element_link_many (queue[1], qtimlvconverter[0], queue[2],
+      qtimlelement[0], queue[3],
+      tee[1], queue[4], qtimlvdetection[0], NULL);
   if (!ret) {
     g_printerr ("\n pipeline elements src -> qtimlvconverter -> qtimlelement "
         " -> qtimlvdetection cannot be linked. Exiting.\n");
@@ -1207,37 +1221,43 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
   }
 
   filtercaps = gst_caps_from_string ("text/x-raw");
+  if (!filtercaps) {
+    g_printerr ("Failed to create text/x-raw caps\n");
+    goto error_clean_pipeline;
+  }
   ret = gst_element_link_filtered (qtimlvdetection[0], qtimetamux, filtercaps);
+  gst_caps_unref (filtercaps);
+  filtercaps = NULL;
+
   if (!ret) {
     g_printerr ("\n pipeline elements qtimlvdetection -> qtimetamux "
         "cannot be linked. Exiting.\n");
     goto error_clean_pipeline;
   }
-  gst_caps_unref (filtercaps);
 
-  ret = gst_element_link_many (qtimetamux, tee[2], NULL);
+  ret = gst_element_link_many (qtimetamux, queue[5], tee[2], NULL);
   if (!ret) {
     g_printerr ("\n pipeline element qtimetamux -> tee "
         "cannot be linked. Exiting.\n");
     goto error_clean_pipeline;
   }
 
-  ret = gst_element_link_many (tee[2], queue[2], qtivcomposer, NULL);
+  ret = gst_element_link_many (tee[2], queue[6], qtivcomposer, NULL);
   if (!ret) {
     g_printerr ("\n pipeline elements tee -> qtivcomposer "
         "cannot be linked. Exiting.\n");
     goto error_clean_pipeline;
   }
 
-  ret = gst_element_link_many (tee[1], qtimlvdetection[1], video_caps_filter,
-      qtivcomposer, NULL);
+  ret = gst_element_link_many (tee[1], queue[7], qtimlvdetection[1], video_caps_filter,
+      queue[8], qtivcomposer, NULL);
   if (!ret) {
     g_printerr ("\n pipeline elements tee -> qtimlvdetection ->"
         " video_caps_filter cannot be linked. Exiting.\n");
     goto error_clean_pipeline;
   }
 
-  ret = gst_element_link_many (tee[2], qtivsplit, NULL);
+  ret = gst_element_link_many (tee[2], queue[9], qtivsplit, NULL);
   if (!ret) {
     g_printerr ("\n pipeline elements tee -> qtivsplit "
         "cannot be linked. Exiting.\n");
@@ -1245,7 +1265,7 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
   }
 
   for (gint i = 0; i < CLASSIFICATION_COUNT; i++) {
-    ret = gst_element_link_many (qtivsplit, tee[i + 3], NULL);
+    ret = gst_element_link_many (qtivsplit, queue[i + 10], tee[i + 3], NULL);
     if (!ret) {
       g_printerr ("\n pipeline elements qtivsplit -> tee "
           "cannot be linked. Exiting.\n");
@@ -1255,7 +1275,7 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
 
   // 3.2 Create links for all 4 splits
   for (gint i = 0; i < CLASSIFICATION_COUNT; i++) {
-    ret = gst_element_link_many (tee[i + 3], queue[i + 3], qtivcomposer, NULL);
+    ret = gst_element_link_many (tee[i + 3], queue[i + 14], qtivcomposer, NULL);
     if (!ret) {
       g_printerr ("\n pipeline elements tee -> qtivcomposer "
           "cannot be linked. Exiting.\n");
@@ -1264,9 +1284,9 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
   }
 
   for (gint i = 0; i < CLASSIFICATION_COUNT; i++) {
-    ret = gst_element_link_many (tee[i + 3],
-        qtimlvconverter[i + 1], qtimlelement[i + 1],
-        qtimlvclassification[i], classification_filter[i], qtivcomposer, NULL);
+    ret = gst_element_link_many (tee[i + 3], queue[i + 18],
+        qtimlvconverter[i + 1], queue[i + 22], qtimlelement[i + 1], queue[i + 26],
+        qtimlvclassification[i], classification_filter[i], queue[i + 30], qtivcomposer, NULL);
     if (!ret) {
       g_printerr ("\n pipeline elements qtimlvconverter -> qtimlelement "
           " -> qtimlvclassification and  qtivcomposer cannot be linked. "
@@ -1394,7 +1414,6 @@ error_clean_elements:
     }
   } else {
     g_printerr ("Invalid Input Source\n");
-    goto error_clean_elements;
   }
 
   cleanup_gst (&qtivsplit, &qtivcomposer, &fpsdisplaysink,
