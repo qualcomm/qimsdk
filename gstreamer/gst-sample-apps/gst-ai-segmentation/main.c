@@ -506,7 +506,9 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     } else if (options->use_dsp) {
       g_print ("Using DSP Delegate");
       delegate_options =
-          gst_structure_from_string ("QNNExternalDelegate,backend_type=htp;",
+          gst_structure_from_string ("QNNExternalDelegate,backend_type=htp,"
+          "htp_performance_mode=(string)2,"
+          "htp_precision=(string)1;",
           NULL);
       g_object_set (G_OBJECT (qtimlelement), "model", options->model_path,
           "delegate", GST_ML_TFLITE_DELEGATE_EXTERNAL, NULL);
