@@ -273,11 +273,13 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   GstElement *detection_filter[DETECTION_FILTER_COUNT] = { NULL };
   GstElement *rtspsrc = NULL, *rtph264depay = NULL, *qtivoverlay = NULL;
   GstElement *v4l2h264dec_caps = NULL;
+  GstElement *videorate = NULL, *videorate_caps = NULL;
   GstElement *h264parse = NULL, *v4l2h264dec = NULL, *waylandsink = NULL;
   GstCaps *pad_filter = NULL, *filtercaps = NULL;
   GstStructure *delegate_options = NULL;
-  gboolean ret = FALSE;
-  gchar element_name[128], settings[128];
+  gboolean ret = FALSE, is_v66 = FALSE;
+  gchar element_name[128], settings[128], delegate_backend[128];
+  char * delegate_str = NULL;
   gint primary_camera_preview_width = PRIMARY_CAMERA_PREVIEW_OUTPUT_WIDTH;
   gint primary_camera_preview_height = PRIMARY_CAMERA_PREVIEW_OUTPUT_HEIGHT;
   gint secondary_camera_preview_width = SECONDARY_CAMERA_PREVIEW_OUTPUT_WIDTH;
@@ -285,6 +287,8 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   gint camera_framerate = DEFAULT_CAMERA_FRAME_RATE;
   gint module_id;
   GValue value = G_VALUE_INIT;
+
+  is_v66 = is_v66_arch ();
 
   // 1. Create the elements or Plugins
   if (options->use_rtsp) {
@@ -346,6 +350,21 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     queue[i] = gst_element_factory_make ("queue", element_name);
     if (!queue[i]) {
       g_printerr ("Failed to create queue %d\n", i);
+      goto error_clean_elements;
+    }
+  }
+
+  if (is_v66) {
+    videorate = gst_element_factory_make ("videorate", "videorate");
+    if (!videorate) {
+      g_printerr ("Failed to create videorate\n");
+      goto error_clean_elements;
+    }
+
+    videorate_caps = gst_element_factory_make ("capsfilter", "videorate_caps");
+
+    if (!videorate_caps) {
+      g_printerr ("Failed to create videorate_caps\n");
       goto error_clean_elements;
     }
   }
@@ -543,10 +562,18 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
       g_object_set (G_OBJECT (qtimlelement[i]), "backend",
           "/usr/lib/libQnnHtp.so", NULL);
     } else {
-      g_print ("Using DSP Delegate\n");
-      delegate_options =
-          gst_structure_from_string ("QNNExternalDelegate,backend_type=htp;",
-          NULL);
+      if (is_v66) {
+        snprintf (delegate_backend, sizeof (delegate_backend), "dsp");
+      } else {
+        snprintf (delegate_backend, sizeof (delegate_backend), "htp");
+      }
+      g_print ("Using backend: %s\n", delegate_backend);
+      delegate_str = g_strdup_printf (
+        "QNNExternalDelegate,backend_type=%s,"
+        "htp_performance_mode=(string)2,"
+        "htp_precision=(string)1;",
+        delegate_backend);
+      delegate_options = gst_structure_from_string (delegate_str, NULL);
       g_object_set (G_OBJECT (qtimlelement[i]), "delegate",
           GST_ML_TFLITE_DELEGATE_EXTERNAL, NULL);
       g_object_set (G_OBJECT (qtimlelement[i]), "external-delegate-path",
@@ -554,6 +581,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
       g_object_set (G_OBJECT (qtimlelement[i]), "external-delegate-options",
           delegate_options, NULL);
       gst_structure_free (delegate_options);
+      g_free (delegate_str);
     }
   }
 
@@ -568,6 +596,15 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     g_object_set (G_OBJECT (detection_filter[i]), "caps", pad_filter, NULL);
   }
   gst_caps_unref (pad_filter);
+
+  if (is_v66) {
+    pad_filter = gst_caps_new_simple ("video/x-raw",
+      "framerate", GST_TYPE_FRACTION, 10, 1, NULL);
+
+    g_object_set (G_OBJECT (videorate_caps), "caps",
+      pad_filter, NULL);
+    gst_caps_unref (pad_filter);
+  }
 
   // 3. Setup the pipeline
   // 3.1 Adding elements to pipeline
@@ -604,13 +641,24 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     gst_bin_add_many (GST_BIN (appctx->pipeline), queue[i], NULL);
   }
 
+  if (is_v66) {
+    gst_bin_add_many (GST_BIN (appctx->pipeline), videorate,
+        videorate_caps, NULL);
+  }
+
   g_print ("Linking elements...\n");
 
   // 3.2 Create Pipeline for Face recognition
   if (options->use_rtsp) {
     // Linking RTSP source Stream
-    ret = gst_element_link_many (queue[0], rtph264depay, h264parse,
+    if (is_v66) {
+      ret = gst_element_link_many (queue[0], rtph264depay, h264parse,
+        v4l2h264dec, v4l2h264dec_caps, videorate, videorate_caps,
+        queue[1], tee[GST_FACE_DETECTION], NULL);
+    } else {
+      ret = gst_element_link_many (queue[0], rtph264depay, h264parse,
         v4l2h264dec, v4l2h264dec_caps, queue[1], tee[GST_FACE_DETECTION], NULL);
+    }
     if (!ret) {
       g_printerr ("Pipeline elements cannot be linked for"
           "rtspsource->tee_face_detection\n");
@@ -619,8 +667,13 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
 
   } else {
     // Linking Camera Stream
-    ret = gst_element_link_many (qtiqmmfsrc, qmmfsrc_caps, queue[0],
+    if (is_v66) {
+      ret = gst_element_link_many (qtiqmmfsrc, qmmfsrc_caps,
+        videorate, videorate_caps, queue[0], tee[GST_FACE_DETECTION], NULL);
+    } else {
+      ret = gst_element_link_many (qtiqmmfsrc, qmmfsrc_caps, queue[0],
         tee[GST_FACE_DETECTION], NULL);
+    }
     if (!ret) {
       g_printerr ("Pipeline elements cannot be linked for preview Stream, from"
           "qtiqmmfsrc->tee_face_detection\n");
@@ -719,13 +772,18 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   return TRUE;
 
 error_clean_pipeline:
+  if (videorate && !GST_OBJECT_PARENT(videorate))
+    gst_object_unref(videorate);
+  if (videorate_caps && !GST_OBJECT_PARENT(videorate_caps))
+    gst_object_unref(videorate_caps);
   gst_object_unref (appctx->pipeline);
   return FALSE;
 
 error_clean_elements:
   cleanup_gst (&qtiqmmfsrc, &qmmfsrc_caps, &qtimlvdetection, &qtimlvpose,
       &qtimlvclassification, &rtspsrc, &rtph264depay, &h264parse,
-      &v4l2h264dec, &v4l2h264dec_caps, &qtivoverlay, &waylandsink, NULL);
+      &v4l2h264dec, &v4l2h264dec_caps, &videorate, &videorate_caps,
+      &qtivoverlay, &waylandsink, NULL);
 
   for (gint i = 0; i < TEE_COUNT; i++) {
     if (tee[i]) {
