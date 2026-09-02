@@ -33,6 +33,8 @@ struct _GstHeifEngine {
   uint32_t      twidth;
   // HEIF tile height.
   uint32_t      theight;
+  // Bit depth parsed from HEVC SPS luma channel (defaults to 8).
+  guint8        bitdepth;
 
   // Mutex
   GMutex        lock;
@@ -53,10 +55,12 @@ struct _GstHeifEngine {
       heif_context* ctx, heif_image_handle* handle);
   LIBHEIF_API heif_error (*add_encoded_image_tile) (
       heif_context* ctx, heif_image_handle* tiled_image, uint32_t tile_x,
-      uint32_t tile_y, uint8_t* data, uint32_t length);
+      uint32_t tile_y, uint8_t* data, uint32_t length,
+      uint8_t bit_depth);
   LIBHEIF_API heif_error (*encoded_thumbnail) (
       heif_context* ctx, const heif_image_handle* handle, uint32_t format,
-      uint32_t width, uint32_t height, uint8_t* data, uint32_t length);
+      uint32_t width, uint32_t height, uint8_t* data, uint32_t length,
+      uint8_t bit_depth);
   LIBHEIF_API heif_error (*write) (
       heif_context* ctx, heif_writer* writer, void* userdata);
 };
@@ -177,6 +181,42 @@ gst_heif_engine_free (GstHeifEngine * engine)
 }
 
 static gboolean
+gst_heif_get_bitdepth_from_sps (const guint8 * data, gsize size,
+    guint8 * bitdepth)
+{
+  GstH265Parser *parser;
+  GstH265NalUnit nalu;
+  GstH265SPS sps;
+  GstH265ParserResult pres;
+
+  *bitdepth = 8;
+
+  parser = gst_h265_parser_new ();
+  g_return_val_if_fail (parser != NULL, FALSE);
+  memset (&nalu, 0, sizeof (nalu));
+
+  do {
+    pres = gst_h265_parser_identify_nalu (parser, data,
+        nalu.offset + nalu.size, size, &nalu);
+    if (pres == GST_H265_PARSER_NO_NAL_END)
+      pres = GST_H265_PARSER_OK;
+
+    if (nalu.type == GST_H265_NAL_SPS) {
+      pres = gst_h265_parser_parse_sps (parser, &nalu, &sps, TRUE);
+      if (pres == GST_H265_PARSER_OK) {
+        *bitdepth = sps.bit_depth_luma_minus8 + 8;
+      } else {
+        GST_WARNING ("H265 parser SPS failed when reading bitdepth, defaulting to 8");
+      }
+      break;
+    }
+  } while (pres == GST_H265_PARSER_OK);
+
+  gst_h265_parser_free (parser);
+  return TRUE;
+}
+
+static gboolean
 gst_heif_get_tile_info (GstHeifEngine * engine, GstBuffer * buffer)
 {
   GstH265Parser *parser;
@@ -219,6 +259,7 @@ gst_heif_get_tile_info (GstHeifEngine * engine, GstBuffer * buffer)
 
       engine->twidth = sps.pic_width_in_luma_samples;
       engine->theight = sps.pic_height_in_luma_samples;
+      engine->bitdepth = sps.bit_depth_luma_minus8 + 8;
       break;
     }
   } while (pres == GST_H265_PARSER_OK);
@@ -400,7 +441,8 @@ gst_heif_engine_execute (GstHeifEngine * engine, GstBuffer * inbuf,
       }
 
       error = engine->add_encoded_image_tile (
-          engine->ctx, gridimage, tx, ty, map.data + offset, length);
+          engine->ctx, gridimage, tx, ty, map.data + offset, length,
+          engine->bitdepth);
 
       if (offset + length == map.size) {
         nextmem = TRUE;
@@ -430,10 +472,14 @@ gst_heif_engine_execute (GstHeifEngine * engine, GstBuffer * inbuf,
     GstVideoFrame *frame = (GstVideoFrame *) (g_list_nth_data (thframes, idx));
     gint width = GST_VIDEO_FRAME_WIDTH (frame);
     gint height = GST_VIDEO_FRAME_HEIGHT (frame);
+    guint8 th_bitdepth = 8;
+
+    gst_heif_get_bitdepth_from_sps ((const guint8 *) frame->map[0].data,
+        frame->map[0].size, &th_bitdepth);
 
     error = engine->encoded_thumbnail (engine->ctx, gridimage,
         heif_compression_HEVC, width, height, (guint8 *) (frame->map[0].data),
-        frame->map[0].size);
+        frame->map[0].size, th_bitdepth);
     if (error.code != heif_error_Ok) {
       GST_ERROR ("Failed to add thumbnails with error %d", error.code);
       ret = FALSE;

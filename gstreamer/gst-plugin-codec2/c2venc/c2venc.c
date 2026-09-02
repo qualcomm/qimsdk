@@ -626,30 +626,32 @@ gst_c2_venc_setup_parameters (GstC2VEncoder * c2venc,
 #endif // CODEC2_CONFIG_VERSION_MAJOR
   }
 
-  success = gst_c2_engine_get_parameter (c2venc->engine,
+ if (g_str_has_suffix (c2venc->name, "heic.encoder") == FALSE){
+    success = gst_c2_engine_get_parameter (c2venc->engine,
       GST_C2_PARAM_GOP_CONFIG, GST_PTR_CAST (&gop));
-  if (success) {
-    if (c2venc->idr_interval != DEFAULT_PROP_IDR_INTERVAL)
-      gop.n_pframes = (guint32)c2venc->idr_interval;
 
-    if (c2venc->bframes != DEFAULT_PROP_B_FRAMES)
-      gop.n_bframes = c2venc->bframes;
+    if (success) {
+      if (c2venc->idr_interval != DEFAULT_PROP_IDR_INTERVAL)
+        gop.n_pframes = (guint32)c2venc->idr_interval;
 
-    // Overwrite B-Frames if IDR is set to 0 (key frames only)
-    if (c2venc->idr_interval == 0)
-      gop.n_bframes = 0;
+      if (c2venc->bframes != DEFAULT_PROP_B_FRAMES)
+        gop.n_bframes = c2venc->bframes;
 
-    success = gst_c2_engine_set_parameter (c2venc->engine,
-        GST_C2_PARAM_GOP_CONFIG, GST_PTR_CAST (&gop));
-    if (!success) {
-      GST_ERROR_OBJECT (c2venc, "Failed to set GOP parameter!");
-      return FALSE;
+      // Overwrite B-Frames if IDR is set to 0 (key frames only)
+      if (c2venc->idr_interval == 0)
+        gop.n_bframes = 0;
+
+      success = gst_c2_engine_set_parameter (c2venc->engine,
+          GST_C2_PARAM_GOP_CONFIG, GST_PTR_CAST (&gop));
+      if (!success) {
+        GST_ERROR_OBJECT (c2venc, "Failed to set GOP parameter!");
+        return FALSE;
+      }
+    } else {
+      GST_WARNING_OBJECT (c2venc, "GOP is not supported!");
+      success = TRUE;
     }
-  } else {
-    GST_WARNING_OBJECT (c2venc, "GOP is not supported!");
-    success = TRUE;
   }
-
   if (c2venc->bframes != DEFAULT_PROP_B_FRAMES) {
     gboolean enable = TRUE;
 
@@ -861,20 +863,21 @@ gst_c2_venc_setup_parameters (GstC2VEncoder * c2venc,
     return FALSE;
   }
 
-  success = gst_c2_engine_get_parameter (c2venc->engine,
-      GST_C2_PARAM_QP_RANGES, GST_PTR_CAST (&qp_ranges));
-  if (success) {
-    success = gst_c2_engine_set_parameter (c2venc->engine,
-        GST_C2_PARAM_QP_RANGES, GST_PTR_CAST (&(c2venc->quant_ranges)));
-    if (!success) {
-      GST_ERROR_OBJECT (c2venc, "Failed to set QP ranges parameter!");
-      return FALSE;
+  if(g_str_has_suffix (c2venc->name, "heic.encoder") == FALSE){
+    success = gst_c2_engine_get_parameter (c2venc->engine,
+        GST_C2_PARAM_QP_RANGES, GST_PTR_CAST (&qp_ranges));
+    if (success) {
+      success = gst_c2_engine_set_parameter (c2venc->engine,
+          GST_C2_PARAM_QP_RANGES, GST_PTR_CAST (&(c2venc->quant_ranges)));
+      if (!success) {
+        GST_ERROR_OBJECT (c2venc, "Failed to set QP ranges parameter!");
+        return FALSE;
+      }
+    } else {
+      GST_WARNING_OBJECT (c2venc, "QP ranges not supported!");
+      success = TRUE;
     }
-  } else {
-    GST_WARNING_OBJECT (c2venc, "QP ranges not supported!");
-    success = TRUE;
   }
-
   if ((c2venc->quant_init.i_frames != DEFAULT_PROP_QUANT_I_FRAMES) ||
       (c2venc->quant_init.p_frames != DEFAULT_PROP_QUANT_P_FRAMES) ||
       (c2venc->quant_init.b_frames != DEFAULT_PROP_QUANT_B_FRAMES)) {
