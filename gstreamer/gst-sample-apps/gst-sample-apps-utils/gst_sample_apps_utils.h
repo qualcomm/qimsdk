@@ -425,20 +425,23 @@ typedef enum {
 };
 
 typedef enum {
-  kInvalid = 0,
-  kTALOS_QCS610 = 401,
-  kTALOS_QCS410 = 406,
-  kQCM6490_IOT = 497,
-  kQCS6490 = 498,
-  kQCS5430_LITE = 575,
-  kQCM5430_LITE = 576,
-  kLEMANS_QRB = 656,
-  kQCS9100_IOT = 667,
-  kQCS8300 = 674,
-  kQCS8275 = 675,
-  kQCS9075 = 676,
-  kTALOS_QCS615 = 680,
-  kMONACO_FLEX = 695,
+  kInvalid       = 0,
+  kTALOS_QCS610  = 401,
+  kTALOS_QCS410  = 406,
+  kQCM6490_IOT   = 497,
+  kQCS6490       = 498,
+  kQCS5430_LITE  = 575,
+  kQCM5430_LITE  = 576,
+  kLEMANS_QRB    = 656,
+  kQCS9100_IOT   = 667,
+  kQCS8300       = 674,
+  kQCS8275       = 675,
+  kQCS9075       = 676,
+  kTALOS_QCS615  = 680,
+  kMONACO_FLEX   = 695,
+  CQ2390M        = 756,
+  CQ2390S        = 758,
+  IQ2390S        = 759,
 } SocId;
 
 /*

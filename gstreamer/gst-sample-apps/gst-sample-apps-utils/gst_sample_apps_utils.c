@@ -468,6 +468,17 @@ SocId GetSocId() {
 gboolean
 is_v66_arch ()
 {
-  SocId id = GetSocId();
-  return (id == kTALOS_QCS615 || id == kTALOS_QCS610 || id == kTALOS_QCS410);
+  SocId id = GetSocId ();
+
+  switch (id) {
+    case kTALOS_QCS615:
+    case kTALOS_QCS610:
+    case kTALOS_QCS410:
+    case CQ2390M:
+    case CQ2390S:
+    case IQ2390S:
+        return TRUE;
+    default:
+        return FALSE;
+  }
 }
