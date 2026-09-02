@@ -1825,14 +1825,22 @@ bool GstC2Utils::ImportHandleInfo(GstBuffer* buffer,
 #endif // GBM_FORMAT_NV12_FLEX_8_BATCH
     case C2PixelFormat::kNV12UBWC:
       handle->mInts.format = GBM_FORMAT_NV12;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_UBWC, height);
       break;
 #ifdef GBM_FORMAT_NV12_UBWC_FLEX_2_BATCH
     case C2PixelFormat::kNV12UBWC_FLEX_2_BATCH:
       handle->mInts.format = GBM_FORMAT_NV12_UBWC_FLEX_2_BATCH;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_UBWC, height);
       break;
@@ -1840,7 +1848,11 @@ bool GstC2Utils::ImportHandleInfo(GstBuffer* buffer,
 #ifdef GBM_FORMAT_NV12_UBWC_FLEX_4_BATCH
     case C2PixelFormat::kNV12UBWC_FLEX_4_BATCH:
       handle->mInts.format = GBM_FORMAT_NV12_UBWC_FLEX_4_BATCH;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_UBWC, height);
       break;
@@ -1848,7 +1860,11 @@ bool GstC2Utils::ImportHandleInfo(GstBuffer* buffer,
 #ifdef GBM_FORMAT_NV12_UBWC_FLEX_8_BATCH
     case C2PixelFormat::kNV12UBWC_FLEX_8_BATCH:
       handle->mInts.format = GBM_FORMAT_NV12_UBWC_FLEX_8_BATCH;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_UBWC, height);
       break;
@@ -1856,7 +1872,11 @@ bool GstC2Utils::ImportHandleInfo(GstBuffer* buffer,
 #ifdef GBM_FORMAT_NV12_UBWC_FLEX
     case C2PixelFormat::kNV12UBWC_FLEX:
       handle->mInts.format = GBM_FORMAT_NV12_UBWC_FLEX;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_UBWC, height);
       break;
@@ -1908,14 +1928,22 @@ bool GstC2Utils::ImportHandleInfo(GstBuffer* buffer,
 #endif // GBM_FORMAT_YCbCr_420_P010_FLEX_8_BATCH
     case C2PixelFormat::kTP10UBWC:
       handle->mInts.format = GBM_FORMAT_YCbCr_420_TP10_UBWC;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_BPP10_UBWC, height);
       break;
 #ifdef GBM_FORMAT_YCbCr_420_TP10_UBWC_FLEX
     case C2PixelFormat::kTP10UBWC_FLEX:
       handle->mInts.format = GBM_FORMAT_YCbCr_420_TP10_UBWC_FLEX;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_BPP10_UBWC, height);
       break;
@@ -1923,7 +1951,11 @@ bool GstC2Utils::ImportHandleInfo(GstBuffer* buffer,
 #ifdef GBM_FORMAT_YCbCr_420_TP10_UBWC_FLEX_2_BATCH
     case C2PixelFormat::kTP10UBWC_FLEX_2_BATCH:
       handle->mInts.format = GBM_FORMAT_YCbCr_420_TP10_UBWC_FLEX_2_BATCH;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_BPP10_UBWC, height);
       break;
@@ -1931,7 +1963,11 @@ bool GstC2Utils::ImportHandleInfo(GstBuffer* buffer,
 #ifdef GBM_FORMAT_YCbCr_420_TP10_UBWC_FLEX_4_BATCH
     case C2PixelFormat::kTP10UBWC_FLEX_4_BATCH:
       handle->mInts.format = GBM_FORMAT_YCbCr_420_TP10_UBWC_FLEX_4_BATCH;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_BPP10_UBWC, height);
       break;
@@ -1939,7 +1975,11 @@ bool GstC2Utils::ImportHandleInfo(GstBuffer* buffer,
 #ifdef GBM_FORMAT_YCbCr_420_TP10_UBWC_FLEX_8_BATCH
     case C2PixelFormat::kTP10UBWC_FLEX_8_BATCH:
       handle->mInts.format = GBM_FORMAT_YCbCr_420_TP10_UBWC_FLEX_8_BATCH;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      handle->mInts.usage_hi |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#else
       handle->mInts.usage_lo |= GBM_BO_USAGE_UBWC_ALIGNED_QTI;
+#endif
       handle->mInts.slice_height =
           MMM_COLOR_FMT_Y_SCANLINES(MMM_COLOR_FMT_NV12_BPP10_UBWC, height);
       break;
@@ -1998,7 +2038,11 @@ bool GstC2Utils::ExtractHandleInfo(GstBuffer* buffer,
       offsets[1] = (stride * scanline);
 
       if (gbm_format == GBM_FORMAT_YCbCr_420_SP_VENUS_UBWC ||
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+          (handle->mInts.usage_hi & GBM_BO_USAGE_UBWC_ALIGNED_QTI) != 0) {
+#else
           (handle->mInts.usage_lo & GBM_BO_USAGE_UBWC_ALIGNED_QTI) != 0) {
+#endif
         format = GST_VIDEO_FORMAT_NV12_Q08C;
         auto metastride =
             MMM_COLOR_FMT_Y_META_STRIDE(MMM_COLOR_FMT_NV12_UBWC, width);
