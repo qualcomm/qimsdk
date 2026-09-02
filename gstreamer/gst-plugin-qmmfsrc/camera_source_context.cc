@@ -3749,7 +3749,25 @@ gst_qmmf_context_set_camera_param (GstQmmfContext * context, guint param_id,
               GST_INFO ("physical camera switch tag update success");
             }
           } else {
-            GST_ERROR ("physical camera switch tag not found ");
+            //old tag can't found, check new tag name
+            GST_TRACE ("com.qti.chi.multicameraswitchControl tag not found");
+
+            tag_id = get_vendor_tag_by_name (
+                "com.qualcomm.qti.multiCameraSwitchControl", "activeCameraIndex");
+            if (tag_id != 0) {
+              gint32 val = (gint32)output;
+              gint32 ret;
+
+              ret = meta.update (tag_id, &val, 1);
+              if (ret != 0) {
+                GST_ERROR ("physical camera switch tag update error");
+              } else {
+                GST_INFO ("physical camera switch tag update success");
+              }
+            } else {
+              GST_ERROR ("both multicameraswitchControl tags not found, "
+                  "physical camera switch not supported");
+            }
           }
         }
       } else {
