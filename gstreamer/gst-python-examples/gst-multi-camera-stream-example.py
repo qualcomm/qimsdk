@@ -28,9 +28,22 @@ python3 gst-multi-camera-stream-example.py --width=1920 --height=1080 -- output_
 Help:
 python3 gst-multi-camera-stream-example.py --help
 """
+HOME = os.getenv("HOME", os.path.expanduser("~"))
+DEFAULT_OUTPUT_FILE_PRIMARY_CAMERA = os.path.join(
+    HOME,
+    "Downloads",
+    "qimsdk_samples",
+    "media",
+    "cam_0.mp4"
+)
+DEFAULT_OUTPUT_FILE_SECONDARY_CAMERA = os.path.join(
+    HOME,
+    "Downloads",
+    "qimsdk_samples",
+    "media",
+    "cam_1.mp4"
+)
 
-DEFAULT_OUTPUT_FILE_PRIMARY_CAMERA = "/etc/media/cam_0.mp4"
-DEFAULT_OUTPUT_FILE_SECONDARY_CAMERA = "/etc/media/cam_1.mp4"
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 DEFAULT_PRIMARY_CAMERA_ID = 0

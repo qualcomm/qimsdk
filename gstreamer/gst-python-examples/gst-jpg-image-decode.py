@@ -20,8 +20,15 @@ DESCRIPTION = """
 This app sets up GStreamer pipeline to read the jpg images and display.
 Usage:
 For Preview on Display:
-python3 /usr/bin/gst-jpg-image-decode.py -i /etc/media/imagefiles_%d.jpg"""
-DEFAULT_INPUT_FILE = "/etc/media/imagefiles_%d.jpg"
+python3 /usr/bin/gst-jpg-image-decode.py -i /$HOME/media/imagefiles_%d.jpg"""
+HOME = os.getenv("HOME", os.path.expanduser("~"))
+DEFAULT_INPUT_FILE = os.path.join(
+    HOME,
+    "Downloads",
+    "qimsdk_samples",
+    "media",
+    "imagefiles_%d.jpg"
+)
 
 waiting_for_eos = False
 eos_received = False

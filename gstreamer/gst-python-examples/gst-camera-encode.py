@@ -19,7 +19,14 @@ This app sets up GStreamer pipeline for video recording.
 Initializes and links elements for capturing live stream from camera
 and saving the encoded video as OUTPUT.
 """
-DEFAULT_OUTPUT_FILE = "/etc/media/recording.mp4"
+HOME = os.getenv("HOME", os.path.expanduser("~"))
+DEFAULT_OUTPUT_FILE = os.path.join(
+    HOME,
+    "Downloads",
+    "qimsdk_samples",
+    "media",
+    "recording.mp4"
+)
 
 waiting_for_eos = False
 eos_received = False

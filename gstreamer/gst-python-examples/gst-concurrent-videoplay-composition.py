@@ -15,7 +15,14 @@ gi.require_version('Gst', '1.0')
 gi.require_version("GLib", "2.0")
 from gi.repository import Gst, GLib
 
-DEFAULT_INPUT_VIDEO_PATH = "/etc/media/video_avc.mp4"
+HOME = os.getenv("HOME", os.path.expanduser("~"))
+DEFAULT_INPUT_VIDEO_PATH = os.path.join(
+    HOME,
+    "Downloads",
+    "qimsdk_samples",
+    "media",
+    "video_avc.mp4"
+)
 
 # Constants
 DESCRIPTION = """
