@@ -23,6 +23,7 @@ set(CMAKE_PREFIX_PATH "${PKG_CONFIG_LOCAL_PATH}")
 
 # Get the pkgconfigs exported by the automake tools.
 pkg_check_modules(GST REQUIRED gstreamer-1.0>=${GST_VERSION_REQUIRED})
+pkg_check_modules(GST_VIDEO REQUIRED gstreamer-video-1.0>=${GST_VERSION_REQUIRED})
 
 # Resolve required QTI GStreamer base libraries from pkg-config.
 pkg_check_modules(GST_QTI_MLBASE REQUIRED gstreamer-qcom-oss-ml-1.0>=1.0.0)
@@ -86,6 +87,7 @@ set_target_properties(${QTI_QIMSDK} PROPERTIES
 
 target_include_directories(${QTI_QIMSDK} PRIVATE
   ${GST_INCLUDE_DIRS}
+  ${GST_VIDEO_INCLUDE_DIRS}
   ${GST_QTI_MLBASE_INCLUDE_DIRS}
   ${GST_QTI_VIDEOBASE_INCLUDE_DIRS}
   ${YAML_CPP_INCLUDE_DIRS}
@@ -99,6 +101,7 @@ target_include_directories(${QTI_QIMSDK} PUBLIC
 
 target_link_libraries(${QTI_QIMSDK} PRIVATE
   ${GST_LIBRARIES}
+  ${GST_VIDEO_LIBRARIES}
   ${GST_QTI_MLBASE_LIBRARIES}
   ${GST_QTI_VIDEOBASE_LIBRARIES}
   ${YAML_CPP_LIBRARIES}
