@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -413,7 +414,7 @@ bool decode_pose_estimation(const MLFrame& frame,
   estimations.clear();
 
   if (frame.tensors.size() != 5 && frame.tensors.size() != 3) {
-    std::runtime_error("ML frame with unsupported post-processing procedure");
+    throw std::runtime_error("ML frame with unsupported post-processing procedure");
   }
 
   float source_width = 0.0f, source_height = 0.0f;
