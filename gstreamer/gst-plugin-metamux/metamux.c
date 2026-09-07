@@ -690,6 +690,7 @@ gst_metamux_process_classification_metadata (GstMetaMux * muxer,
   // Allocate memory for the labels.
   labels = g_array_sized_new (FALSE, TRUE, sizeof (GstClassLabel), size);
   g_array_set_size (labels, size);
+  g_array_set_clear_func (labels, (GDestroyNotify) gst_class_label_reset);
 
   for (idx = 0; idx < size; idx++) {
     GstClassLabel *label = &(g_array_index (labels, GstClassLabel, idx));
