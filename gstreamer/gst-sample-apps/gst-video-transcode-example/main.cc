@@ -15,9 +15,9 @@
  *
  * Usage:
  * For Transcoding AVC to HEVC:
- * gst-video-transcode-example -i /etc/media/video_avc.mp4 -c 1 -o /etc/media/hevc_transcode_out.mp4
+ * gst-video-transcode-example -i /etc/media/video_avc.mp4 -c 1 -o $HOME/Downloads/qimsdk_samples/media/hevc_transcode_out.mp4
  * For Transcoding HEVC to AVC:
- * gst-video-transcode-example -i /etc/media/video_hevc.mp4 -c 2 -o /etc/media/avc_transcode_out.mp4
+ * gst-video-transcode-example -i /etc/media/video_hevc.mp4 -c 2 -o $HOME/Downloads/qimsdk_samples/media/avc_transcode_out.mp4
  *
  * Help:
  * gst-video-transcode-example --help
@@ -39,6 +39,7 @@
  */
 
 #include <glib-unix.h>
+#include <glib/gstdio.h>
 #include <stdio.h>
 
 #include <gst/gst.h>
@@ -46,7 +47,12 @@
 #include <gst_sample_apps_utils.h>
 
 #define DEFAULT_INPUT_FILENAME "/etc/media/video_avc.mp4"
-#define DEFAULT_OUTPUT_FILENAME "/etc/media/hevc_transcode_out.mp4"
+#define DEFAULT_HEVC_OUTPUT_FILENAME \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "hevc_transcode_out.mp4", NULL))
+#define DEFAULT_AVC_OUTPUT_FILENAME \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "avc_transcode_out.mp4", NULL))
 
 #define GST_APP_SUMMARY "This application is designed to showcase video "\
   "transcoding capabilities. It can accept user input files encoded in" \
@@ -54,11 +60,13 @@
   "or AVC format.\n" \
   "\nCommand:\n" \
   "For AVC to HEVC transcode\n" \
-  "  gst-video-transcode-example -i /etc/media/video_avc.mp4 -c 1 -o /etc/media/hevc_transcode_out.mp4 \n" \
+  "  gst-video-transcode-example -i /etc/media/video_avc.mp4 -c 1 -o $HOME/Downloads/qimsdk_samples/media/hevc_transcode_out.mp4 \n" \
   "For HEVC to AVC transcode\n" \
-  "  gst-video-transcode-example -i /etc/media/video_hevc.mp4 -c 2 -o /etc/media/avc_transcode_out.mp4 \n" \
+  "  gst-video-transcode-example -i /etc/media/video_hevc.mp4 -c 2 -o $HOME/Downloads/qimsdk_samples/media/avc_transcode_out.mp4 \n" \
   "\nOutput:\n" \
-  "  Upon execution, application will generates output mp4 file at given path"
+  "  Upon execution, application will generate an output mp4 file.\n" \
+  "  If no output path is specified, the output is stored under " \
+  "$HOME/Downloads/qimsdk_samples/media/"
 
 // Structure to hold the application context
 struct GstTranscodeAppContext : GstAppContext {
@@ -89,8 +97,23 @@ gst_app_context_new ()
   ctx->plugins = NULL;
   ctx->mloop = NULL;
   ctx->input_file = g_strdup (DEFAULT_INPUT_FILENAME);
-  ctx->output_file = const_cast<gchar *> (DEFAULT_OUTPUT_FILENAME);
+  ctx->output_file = NULL;
   ctx->input_format = GST_VCODEC_AVC;
+
+  if (!create_default_media_dir ()) {
+    g_printerr ("\nUnable to create default media directory. Exiting.\n");
+    g_free (ctx->input_file);
+    g_free (ctx);
+    return NULL;
+  }
+
+  ctx->output_file = DEFAULT_HEVC_OUTPUT_FILENAME;
+  if (ctx->output_file == NULL) {
+    g_printerr ("\nUnable to build default output file path. Exiting.\n");
+    g_free (ctx->input_file);
+    g_free (ctx);
+    return NULL;
+  }
 
   return ctx;
 }
@@ -137,9 +160,8 @@ gst_app_context_free (GstTranscodeAppContext * appctx)
   if (appctx->input_file != NULL)
     g_free (appctx->input_file);
 
-  if (appctx->output_file != NULL &&
-    appctx->output_file != (gchar *)(&DEFAULT_OUTPUT_FILENAME))
-    g_free ((gpointer)appctx->output_file);
+  if (appctx->output_file != NULL)
+    g_free (appctx->output_file);
 
   if (appctx != NULL)
     g_free ((gpointer)appctx);
@@ -293,6 +315,7 @@ main (gint argc, gchar *argv[])
   GstElement *pipeline = NULL;
   GstTranscodeAppContext *appctx = NULL;
   guint intrpt_watch_id = 0;
+  gchar *output_file_arg = NULL;
 
   // create the app context
   appctx = gst_app_context_new ();
@@ -309,10 +332,10 @@ main (gint argc, gchar *argv[])
     { "input_codec", 'c', 0, G_OPTION_ARG_INT, &appctx->input_format,
       "Input codec type - AVC/HEVC",
        "-c 1(AVC)/2(HEVC)" },
-    { "output_file", 'o', 0, G_OPTION_ARG_FILENAME, &appctx->output_file,
+    { "output_file", 'o', 0, G_OPTION_ARG_FILENAME, &output_file_arg,
       "Output Filename - o/p filename & path where user want to \
       store AVC/HEVC stream",
-      "-o /etc/media/<h264_file/h265_file>.mp4 " },
+      "-o $HOME/Downloads/qimsdk_samples/media/<h264_file/h265_file>.mp4 " },
     { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
   };
 
@@ -331,10 +354,12 @@ main (gint argc, gchar *argv[])
       g_printerr ("\n Failed to parse command line options: %s!\n",
           GST_STR_NULL (error->message));
       g_clear_error (&error);
+      g_free (output_file_arg);
       gst_app_context_free (appctx);
       return -1;
     } else if (!success && (NULL == error)) {
       g_printerr ("\n Failed Initializing: Unknown error!\n");
+      g_free (output_file_arg);
       gst_app_context_free (appctx);
       return -1;
     }
@@ -351,6 +376,22 @@ main (gint argc, gchar *argv[])
     g_print ("\n usage: gst-video-transcode-example --help \n");
     gst_app_context_free (appctx);
     return -1;
+  }
+
+  // Apply the user-specified output path, if provided. Otherwise retain the
+  // codec-specific default path under the user's media directory.
+  if (output_file_arg != NULL) {
+    g_free (appctx->output_file);
+    appctx->output_file = output_file_arg;
+    output_file_arg = NULL;
+  } else if (appctx->input_format == GST_VCODEC_HEVC) {
+    g_free (appctx->output_file);
+    appctx->output_file = DEFAULT_AVC_OUTPUT_FILENAME;
+    if (appctx->output_file == NULL) {
+      g_printerr ("\nUnable to build default output file path. Exiting.\n");
+      gst_app_context_free (appctx);
+      return -1;
+    }
   }
 
   // Initialize GST library.

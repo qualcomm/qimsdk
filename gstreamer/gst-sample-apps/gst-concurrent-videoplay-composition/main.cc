@@ -13,7 +13,7 @@
  * The output is shown on the display.
  *
  * Usage:
- * gst-concurrent-videoplay-composition -c 2 -i /etc/media/video_avc.mp4 -i /etc/media/video_avc.mp4
+ * gst-concurrent-videoplay-composition -c 2 -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4 -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4
  *
  * Help:
  * gst-concurrent-videoplay-composition --help
@@ -30,6 +30,7 @@
 #include <glib-unix.h>
 #include <stdio.h>
 #include <sys/resource.h>
+#include <errno.h>
 
 #include <gst/gst.h>
 
@@ -42,7 +43,12 @@
 #define EIGHT_STREAM_CNT 8
 #define SIXTEEN_STREAM_CNT 16
 
-#define INPUT_FILE_PATH "/etc/media/video_avc.mp4"
+#define DEFAULT_MEDIA_DIR \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", NULL))
+#define DEFAULT_INPUT_FILE_PATH \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "video_avc.mp4", NULL))
 
 #define GST_APP_SUMMARY "This application performs concurrent " \
   "video playback for AVC codec and composition on display (video wall).\n" \
@@ -66,6 +72,29 @@ struct GstVideoAppContext : GstAppContext {
   gint stream_cnt;
 };
 
+/**
+ * Create and initialize application context:
+ *
+ * @param NULL
+ */
+static gboolean
+create_qimsdk_media_dir ()
+{
+  gchar *media_dir = DEFAULT_MEDIA_DIR;
+  gboolean success = TRUE;
+
+  if (media_dir == NULL) {
+    g_printerr ("Failed to build default media directory path\n");
+    return FALSE;
+  }
+  if (g_mkdir_with_parents (media_dir, 0755) != 0) {
+    g_printerr ("Failed to create default media directory '%s': %s\n",
+        media_dir, g_strerror (errno));
+    success = FALSE;
+  }
+  g_free (media_dir);
+  return success;
+}
 /**
  * Create and initialize application context:
  *
@@ -166,9 +195,25 @@ create_pipe (GstVideoAppContext *appctx)
 
   // set input file count to default if no input passed
   if (file_count == 0) {
-    for (gint i = 0; i < appctx->stream_cnt; i++) {
-      appctx->input_files[i] = g_strdup (INPUT_FILE_PATH);
+    gchar *default_input_file = NULL;
+
+    if (!create_qimsdk_media_dir ()) {
+      return FALSE;
     }
+    default_input_file = DEFAULT_INPUT_FILE_PATH;
+    if (default_input_file == NULL) {
+      g_printerr ("Failed to build default input file path\n");
+      return FALSE;
+    }
+    for (gint i = 0; i < appctx->stream_cnt; i++) {
+      appctx->input_files[i] = g_strdup (default_input_file);
+      if (appctx->input_files[i] == NULL) {
+        g_printerr ("Failed to allocate default input file path\n");
+        g_free (default_input_file);
+        return FALSE;
+      }
+    }
+    g_free (default_input_file);
     file_count = appctx->stream_cnt;
   }
   g_print ("Setting the file location\n");
@@ -221,7 +266,7 @@ main (gint argc, gchar *argv[])
       "No of stream for decode and composition", "2, 4, 8 or 16" },
     { "input_file", 'i', 0, G_OPTION_ARG_FILENAME_ARRAY, &appctx->input_files,
       "Input AVC Filenames - Path of AVC files to be played with filenames",
-      "e.g. -i /etc/media/video_avc.mp4 -i /etc/media/video_avc.mp4" },
+      "e.g. -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4 -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4" },
     { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
   };
 

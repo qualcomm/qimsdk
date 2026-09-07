@@ -26,6 +26,7 @@
 */
 
 #include <stdio.h>
+#include <errno.h>
 #include <glib-unix.h>
 #include <gst/gst.h>
 #include <pthread.h>
@@ -78,6 +79,7 @@ struct GstActivateDeactivateAppContext : GstAppContext {
   gboolean use_display;
   gchar *usecase;
   gchar *output;
+  gchar *media_dir;
   void (*usecase_fn) (GstActivateDeactivateAppContext * appctx);
 };
 
@@ -104,6 +106,7 @@ gst_app_context_new ()
   ctx->usecase_fn = NULL;
   ctx->usecase = NULL;
   ctx->output = NULL;
+  ctx->media_dir = NULL;
   ctx->use_display = FALSE;
   ctx->stream_cnt = 0;
 
@@ -134,6 +137,9 @@ gst_app_context_free (GstActivateDeactivateAppContext * appctx)
 
   if (appctx->output != NULL)
     g_free (appctx->output);
+
+  if (appctx->media_dir != NULL)
+    g_free (appctx->media_dir);
 
   if (appctx->usecase_fn != NULL)
     appctx->usecase_fn = NULL;
@@ -286,8 +292,16 @@ create_encoder_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * 
   g_object_set (G_OBJECT (stream->mp4mux), "faststart", TRUE,
       NULL);
 
-  snprintf (temp_str, sizeof (temp_str), "/etc/media/video_%d.mp4", output_cnt++);
-  g_object_set (G_OBJECT (stream->filesink), "location", temp_str, NULL);
+  gchar *output_name = g_strdup_printf ("video_%u.mp4", output_cnt++);
+  gchar *output_path = output_name != NULL ?
+      g_build_filename (appctx->media_dir, output_name, NULL) : NULL;
+  g_free (output_name);
+  if (output_path == NULL) {
+    g_printerr ("ERROR: Failed to allocate output path.\n");
+    goto cleanup;
+  }
+  g_object_set (G_OBJECT (stream->filesink), "location", output_path, NULL);
+  g_free (output_path);
 
   gst_bin_add_many (GST_BIN (appctx->pipeline),
       stream->capsfilter, stream->encoder, stream->h264parse,
@@ -1211,6 +1225,27 @@ main (gint argc, gchar * argv[])
     g_print ("Output to display\n");
   }
 
+  if (!appctx->use_display) {
+    const gchar *home_dir = g_get_home_dir ();
+    if (home_dir == NULL || home_dir[0] == '\0') {
+      g_printerr ("ERROR: HOME directory is not available.\n");
+      gst_app_context_free (appctx);
+      return ret;
+    }
+    appctx->media_dir = g_build_filename (home_dir, "Downloads",
+        "qimsdk_samples", "media", NULL);
+    if (appctx->media_dir == NULL) {
+      g_printerr ("ERROR: Failed to build media directory path.\n");
+      gst_app_context_free (appctx);
+      return ret;
+    }
+    if (g_mkdir_with_parents (appctx->media_dir, 0755) != 0) {
+      g_printerr ("ERROR: Failed to create media directory '%s': %s\n",
+          appctx->media_dir, g_strerror (errno));
+      gst_app_context_free (appctx);
+      return ret;
+    }
+  }
   // Initialize GST library.
   gst_init (&argc, &argv);
 

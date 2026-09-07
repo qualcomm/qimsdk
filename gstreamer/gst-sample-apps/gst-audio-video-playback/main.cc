@@ -28,6 +28,7 @@
 */
 
 #include <glib-unix.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -40,13 +41,13 @@
   "This includes support for various audio and video formats. \n" \
   "\nCommand:\n" \
   "If codec type is AVC and FLAC:\n" \
-  "  gst-audio-video-playback -v 1 -a 1 -i /etc/media/avc_flac.mp4 \n" \
+  "  gst-audio-video-playback -v 1 -a 1 -i $HOME/Downloads/qimsdk_samples/media/avc_flac.mp4 \n" \
   "If codec type is HEVC and FLAC:\n" \
-  "  gst-audio-video-playback -v 2 -a 1 -i /etc/media/hevc_flac.mp4 \n" \
+  "  gst-audio-video-playback -v 2 -a 1 -i $HOME/Downloads/qimsdk_samples/media/hevc_flac.mp4 \n" \
   "If codec type is AVC and MP3:\n" \
-  "  gst-audio-video-playback -v 1 -a 2 -i /etc/media/avc_mp3.mp4 \n" \
+  "  gst-audio-video-playback -v 1 -a 2 -i $HOME/Downloads/qimsdk_samples/media/avc_mp3.mp4 \n" \
   "If codec type is HEVC and MP3:\n" \
-  "  gst-audio-video-playback -v 2 -a 2 -i /etc/media/hevc_mp3.mp4 \n" \
+  "  gst-audio-video-playback -v 2 -a 2 -i $HOME/Downloads/qimsdk_samples/media/hevc_mp3.mp4 \n" \
   "\nOutput:\n" \
   "  Upon executing the application, user will observe AVC/HEVC video " \
   "content displayed on the screen, \n" \
@@ -147,11 +148,11 @@ gst_app_context_free (GstVideoAppContext *appctx)
   }
 
   if (appctx->input_file != NULL)
-    g_free ((gpointer)appctx->input_file);
+    g_free (appctx->input_file);
 
   // Finally, free the application context itself
   if (appctx != NULL)
-    g_free ((gpointer)appctx);
+    g_free (appctx);
 }
 
 /**
@@ -329,7 +330,7 @@ main (gint argc, gchar *argv[])
     { "input_file", 'i', 0,
       G_OPTION_ARG_FILENAME, &appctx->input_file,
       "Input Filename - i/p mp4 file path and name",
-      "e.g. -i /etc/media/<file_name>.mp4"
+      "e.g. -i $HOME/Downloads/qimsdk_samples/media/<file_name>.mp4"
     },
     { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
   };
@@ -362,15 +363,60 @@ main (gint argc, gchar *argv[])
     return -1;
   }
 
-  // Check the input parameters from the user
+  // Check the codec parameters from the user.
   if (appctx->vc_format < GST_VCODEC_AVC || appctx->vc_format > GST_VCODEC_HEVC ||
-      appctx->ac_format < GST_ACODEC_FLAC || appctx->ac_format > GST_ACODEC_MP3 ||
-      appctx->input_file == NULL) {
-    g_printerr ("\n one of input parameters is not given -v %d -a %d -i %s\n",
-        appctx->vc_format, appctx->ac_format, appctx->input_file);
+      appctx->ac_format < GST_ACODEC_FLAC || appctx->ac_format > GST_ACODEC_MP3) {
+    g_printerr ("\n one of input parameters is not given -v %d -a %d\n",
+        appctx->vc_format, appctx->ac_format);
     g_print ("\n usage: gst-audio-video-playback --help \n");
     gst_app_context_free (appctx);
     return -1;
+  }
+
+  // Use the standard sample media directory when no input file was supplied.
+  if (appctx->input_file == NULL) {
+    const gchar *home_dir = g_get_home_dir ();
+    const gchar *default_name = NULL;
+    gchar *media_dir = NULL;
+    gchar *default_input = NULL;
+
+    if (appctx->vc_format == GST_VCODEC_AVC &&
+        appctx->ac_format == GST_ACODEC_FLAC)
+      default_name = "avc_flac.mp4";
+    else if (appctx->vc_format == GST_VCODEC_HEVC &&
+             appctx->ac_format == GST_ACODEC_FLAC)
+      default_name = "hevc_flac.mp4";
+    else if (appctx->vc_format == GST_VCODEC_AVC &&
+             appctx->ac_format == GST_ACODEC_MP3)
+      default_name = "avc_mp3.mp4";
+    else
+      default_name = "hevc_mp3.mp4";
+
+    media_dir = g_build_filename (home_dir, "Downloads", "qimsdk_samples",
+        "media", NULL);
+    if (media_dir == NULL) {
+      g_printerr ("Failed to allocate default media directory path.\n");
+      gst_app_context_free (appctx);
+      return -1;
+    }
+
+    if (g_mkdir_with_parents (media_dir, 0755) != 0) {
+      g_printerr ("Failed to create default media directory '%s': %s\n",
+          media_dir, g_strerror (errno));
+      g_free (media_dir);
+      gst_app_context_free (appctx);
+      return -1;
+    }
+
+    default_input = g_build_filename (media_dir, default_name, NULL);
+    g_free (media_dir);
+    if (default_input == NULL) {
+      g_printerr ("Failed to allocate default input file path.\n");
+      gst_app_context_free (appctx);
+      return -1;
+    }
+
+    appctx->input_file = default_input;
   }
 
   g_set_prgname ("gst-Audio-Video-Playback");

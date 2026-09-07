@@ -582,6 +582,9 @@ GetSocId();
 gboolean
 is_v66_arch ();
 
+gboolean
+create_default_media_dir (void);
+
 G_END_DECLS
 
 #endif //GST_SAMPLE_APPS_UTILS_H

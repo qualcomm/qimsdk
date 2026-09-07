@@ -48,6 +48,7 @@
 #include <netinet/in.h>
 #include <net/if.h>
 #include <signal.h>
+#include <glib.h>
 #include "gst_sample_apps_utils.h"
 
 /* --- Configuration ------------------------------------------- */
@@ -60,19 +61,19 @@
 #define IP_STR_SIZE    64
 #define PORT_STR_SIZE  16
 #define LOOPBACK_IP "127.0.0.1"
-/* ─── Global state for signal handler ──────────────────────── */
+/* --- Global state for signal handler ------------------------ */
 static char g_ip[64]   = "";
 static char g_port[16] = "";
 static volatile sig_atomic_t g_pipeline_active = 0;
 static pid_t g_gstd_pid = -1;
 
-/* ─── Cleanup on signal ─────────────────────────────────────── */
+/* --- Cleanup on signal --------------------------------------- */
 static void handle_exit_signal(int signum)
 {
     (void)signum;
 
     if (g_pipeline_active) {
-        printf("\n[INFO] Signal received — tearing down pipeline...\n");
+        printf("\n[INFO] Signal received - tearing down pipeline...\n");
 
         char cmd[256];
 
@@ -135,7 +136,7 @@ static void detect_local_ip(char *ip, size_t len)
         break;
     }
 
-    /* Pass 2: Fallback � any non-loopback IPv4 (eth*, usb*, etc.) */
+    /* Pass 2: Fallback ? any non-loopback IPv4 (eth*, usb*, etc.) */
     if (!found) {
         for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
             if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET)
@@ -239,7 +240,9 @@ static void run_gstd(const char *ip, const char *port, const char *cmd)
 /* --- Pipeline string builder --------------------------------- */
 static void build_pipeline(char *out, size_t sz,
                             int output_type,
-                            int width, int height)
+                            int width, int height,
+                            const char *mp4_path,
+                            const char *yuv_path)
 {
     int camx = is_camx_present();
 
@@ -280,8 +283,8 @@ static void build_pipeline(char *out, size_t sz,
             " ! h264parse"
             " ! mp4mux"
             " ! queue"
-            " ! filesink location=/opt/output.mp4\"",
-            src, caps);
+            " ! filesink location=%s\"",
+            src, caps, mp4_path);
         break;
 
     case 2: /* YUV Dump */
@@ -289,8 +292,8 @@ static void build_pipeline(char *out, size_t sz,
             "pipeline_create " PIPELINE_NAME
             " \"%s"
             " ! %s"
-            " ! filesink location=/opt/output.yuv\"",
-            src, caps);
+            " ! filesink location=%s\"",
+            src, caps, yuv_path);
         break;
 
     default:
@@ -309,13 +312,13 @@ static void print_banner(const char *ip, const char *port,
                           ? out_names[output_type] : "Unknown";
 
     printf("\n+------------------------------------------+\n");
-    printf(  "�  GstD Camera Single Stream Example       �\n");
-    printf(  "�------------------------------------------�\n");
-    printf(  "�  GstD IP   : %-28s�\n", ip);
-    printf(  "�  GstD Port : %-28s�\n", port);
-    printf(  "�  Pipeline  : %-28s�\n", PIPELINE_NAME);
-    printf(  "�  Output    : %d (%-24s)�\n", output_type, out_str);
-    printf(  "�  Resolution: %dx%-20d�\n", width, height);
+    printf(  "?  GstD Camera Single Stream Example       ?\n");
+    printf(  "?------------------------------------------?\n");
+    printf(  "?  GstD IP   : %-28s?\n", ip);
+    printf(  "?  GstD Port : %-28s?\n", port);
+    printf(  "?  Pipeline  : %-28s?\n", PIPELINE_NAME);
+    printf(  "?  Output    : %d (%-24s)?\n", output_type, out_str);
+    printf(  "?  Resolution: %dx%-20d?\n", width, height);
     printf(  "+------------------------------------------+\n\n");
 }
 
@@ -323,16 +326,16 @@ static void print_banner(const char *ip, const char *port,
 static void print_menu(void)
 {
     printf("\n+--------------------------------------+\n");
-    printf(  "�     GstD Camera Pipeline Menu        �\n");
-    printf(  "�--------------------------------------�\n");
-    printf(  "�  1. Create & Play Pipeline           �\n");
-    printf(  "�  2. Pause Pipeline                   �\n");
-    printf(  "�  3. Resume Pipeline (Play)           �\n");
-    printf(  "�  4. Send EOS to Pipeline             �\n");
-    printf(  "�  5. Stop Pipeline                    �\n");
-    printf(  "�  6. Delete Pipeline                  �\n");
-    printf(  "�  7. Full Teardown (EOS+Stop+Delete)  �\n");
-    printf(  "�  0. Exit                             �\n");
+    printf(  "?     GstD Camera Pipeline Menu        ?\n");
+    printf(  "?--------------------------------------?\n");
+    printf(  "?  1. Create & Play Pipeline           ?\n");
+    printf(  "?  2. Pause Pipeline                   ?\n");
+    printf(  "?  3. Resume Pipeline (Play)           ?\n");
+    printf(  "?  4. Send EOS to Pipeline             ?\n");
+    printf(  "?  5. Stop Pipeline                    ?\n");
+    printf(  "?  6. Delete Pipeline                  ?\n");
+    printf(  "?  7. Full Teardown (EOS+Stop+Delete)  ?\n");
+    printf(  "?  0. Exit                             ?\n");
     printf(  "+--------------------------------------+\n");
     printf("Enter choice: ");
     fflush(stdout);
@@ -392,6 +395,38 @@ int main(int argc, char *argv[])
     }
 
     printf("[INFO] Using IP: %s  Port: %s\n", ip, port);
+    gchar *media_dir = NULL;
+    gchar *mp4_path = NULL;
+    gchar *yuv_path = NULL;
+    const gchar *home = NULL;
+
+    if (!create_default_media_dir()) {
+        g_printerr("[ERROR] Unable to create default media directory.\n");
+        return 1;
+    }
+
+    home = g_getenv("HOME");
+    if (home == NULL || home[0] == '\0') {
+        g_printerr("[ERROR] HOME is not set; cannot determine media directory.\n");
+        return 1;
+    }
+
+    media_dir = g_build_filename(home, "Downloads", "qimsdk_samples", "media", NULL);
+    if (media_dir == NULL) {
+        g_printerr("[ERROR] Unable to build default media directory path.\n");
+        return 1;
+    }
+
+    mp4_path = g_build_filename(media_dir, "output.mp4", NULL);
+    yuv_path = g_build_filename(media_dir, "output.yuv", NULL);
+    if (mp4_path == NULL || yuv_path == NULL) {
+        g_printerr("[ERROR] Unable to build default output file paths.\n");
+        g_free(mp4_path);
+        g_free(yuv_path);
+        g_free(media_dir);
+        return 1;
+    }
+
 
     /* --- Launch gstd AFTER ip+port are finalized --- */
     launch_gstd(ip, atoi(port));
@@ -421,7 +456,7 @@ int main(int argc, char *argv[])
 
         case 1: /* Create & Play */
             printf("\n[INFO] Creating pipeline: %s\n", PIPELINE_NAME);
-            build_pipeline(cmd, sizeof(cmd), output_type, width, height);
+            build_pipeline(cmd, sizeof(cmd), output_type, width, height, mp4_path, yuv_path);
             if (cmd[0]) {
                 run_gstd(ip, port, cmd);
                 printf("\n[INFO] Playing pipeline: %s\n", PIPELINE_NAME);
@@ -485,6 +520,9 @@ int main(int argc, char *argv[])
         case 0: /* Exit */
             printf("\n[INFO] Exiting. Goodbye!\n");
             running = 0;
+            g_free(mp4_path);
+            g_free(yuv_path);
+            g_free(media_dir);
             handle_exit_signal(0);
             break;
 
@@ -494,5 +532,8 @@ int main(int argc, char *argv[])
         }
     }
 
+    g_free(mp4_path);
+    g_free(yuv_path);
+    g_free(media_dir);
     return 0;
 }

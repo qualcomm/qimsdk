@@ -13,15 +13,15 @@
  * multifilesrc ! jpegdec ! videoconvert ! qtivtransform ! waylandsink
  *
  * Supported input modes:
- * 1. Sequence input  : /etc/media/imagefiles_%d.jpg
+ * 1. Sequence input  : $HOME/Downloads/qimsdk_samples/media/imagefiles_%d.jpg
  *    - Plays from frame 0 up to the last available frame, then exits on EOS.
  *
- * 2. Single image    : /etc/media/imagefiles_1.jpg
+ * 2. Single image    : $HOME/Downloads/qimsdk_samples/media/imagefiles_1.jpg
  *    - Keeps redisplaying the same image until interrupted.
  *
  * Usage:
- * gst-jpg-decode-example -i /etc/media/imagefiles_%d.jpg
- * gst-jpg-decode-example -i /etc/media/imagefiles_1.jpg
+ * gst-jpg-decode-example -i $HOME/Downloads/qimsdk_samples/media/imagefiles_%d.jpg
+ * gst-jpg-decode-example -i $HOME/Downloads/qimsdk_samples/media/imagefiles_1.jpg
  */
 
 #include <glib-unix.h>
@@ -32,17 +32,21 @@
 
 #define DEFAULT_WIDTH 1280
 #define DEFAULT_HEIGHT 720
-#define DEFAULT_INPUT_PATH "/etc/media/imagefiles_%d.jpg"
 
 #define GST_APP_SUMMARY                                                        \
   "This application showcases JPEG decoding on waylandsink.\n"                 \
   "\nExamples:\n"                                                              \
-  "  Sequence input : gst-jpg-decode-example -i /etc/media/imagefiles_%d.jpg\n"    \
-  "  Single image   : gst-jpg-decode-example -i /etc/media/imagefiles_1.jpg\n"
+  "  Sequence input : gst-jpg-decode-example -i $HOME/Downloads/qimsdk_samples/media/imagefiles_%d.jpg\n" \
+  "  Single image   : gst-jpg-decode-example -i $HOME/Downloads/qimsdk_samples/media/imagefiles_1.jpg\n"
+
+#define DEFAULT_OP_INPUT_FILENAME \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "imagefiles_%d.jpg", NULL))
 
 /* Structure to hold the application context */
 struct GstComposeAppContext : GstAppContext {
   gchar *input_file;
+  gchar *input_file_override;
   gint width;
   gint height;
 };
@@ -53,7 +57,7 @@ struct GstComposeAppContext : GstAppContext {
 static GstComposeAppContext *
 gst_app_context_new () {
   GstComposeAppContext *ctx =
-      (GstComposeAppContext *) g_new0 (GstComposeAppContext, 1);
+      (GstComposeAppContext *) g_try_new0 (GstComposeAppContext, 1);
 
   if (ctx == NULL) {
     g_printerr ("[ERROR] Unable to create application context\n");
@@ -65,8 +69,20 @@ gst_app_context_new () {
   ctx->plugins = NULL;
   ctx->width = DEFAULT_WIDTH;
   ctx->height = DEFAULT_HEIGHT;
-  ctx->input_file = g_strdup (DEFAULT_INPUT_PATH);
+  if (!create_default_media_dir ()) {
+    g_printerr ("[ERROR] Failed to create default media directory\n");
+    g_free (ctx);
+    return NULL;
+  }
 
+  ctx->input_file = DEFAULT_OP_INPUT_FILENAME;
+  if (ctx->input_file == NULL) {
+    g_printerr ("[ERROR] Failed to build default input path\n");
+    g_free (ctx);
+    return NULL;
+  }
+
+  ctx->input_file_override = NULL;
   return ctx;
 }
 
@@ -115,7 +131,7 @@ gst_app_context_free (GstComposeAppContext *appctx) {
 
 /**
  * Check whether the input path is a sequence pattern.
- * Example: /etc/media/frame_%d.jpg
+ * Example: $HOME/Downloads/qimsdk_samples/media/frame_%d.jpg
  */
 static gboolean
 is_pattern_input (const gchar *input_file) {
@@ -282,7 +298,7 @@ main (gint argc, gchar *argv[]) {
      "Width argument (parsed but not applied in baseline pipeline)", "width"},
     {"height", 'h', 0, G_OPTION_ARG_INT, &appctx->height,
      "Height argument (parsed but not applied in baseline pipeline)", "height"},
-    {"input_file", 'i', 0, G_OPTION_ARG_FILENAME, &appctx->input_file,
+    {"input_file", 'i', 0, G_OPTION_ARG_FILENAME, &appctx->input_file_override,
      "Path to input image or image sequence", "path"},
     {NULL, 0, 0, (GOptionArg) 0, NULL, NULL, NULL}
   };
@@ -297,6 +313,11 @@ main (gint argc, gchar *argv[]) {
     success = g_option_context_parse (ctx, &argc, &argv, &error);
     g_option_context_free (ctx);
 
+    if (success && appctx->input_file_override != NULL) {
+      g_free (appctx->input_file);
+      appctx->input_file = appctx->input_file_override;
+      appctx->input_file_override = NULL;
+    }
     if (!success && (error != NULL)) {
       g_printerr ("[ERROR] Failed to parse command line options: %s\n",
           GST_STR_NULL (error->message));

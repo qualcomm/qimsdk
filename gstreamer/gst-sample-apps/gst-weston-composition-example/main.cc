@@ -17,9 +17,9 @@
 *
 * Usage:
 * For qtivcomposer composing picture in picture:
-* gst-weston-composition-example -t 0 -i /etc/media/video_avc.mp4
+* gst-weston-composition-example -t 0 -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4
 * For qtivcomposer composing side by side:
-* gst-weston-composition-example -t 1 -i /etc/media/video_avc.mp4
+* gst-weston-composition-example -t 1 -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4
 *
 * ***********************************************************************
 *
@@ -31,13 +31,13 @@
 */
 
 #include <glib-unix.h>
+#include <errno.h>
 #include <stdio.h>
 
 #include <gst/gst.h>
 
 #include <gst_sample_apps_utils.h>
 
-#define INPUT_FILE_PATH "/etc/media/video_avc.mp4"
 
 #define GST_APP_SUMMARY                                                       \
   "This application showcases the composition of various sources,           " \
@@ -46,14 +46,50 @@
   "  The choice of composition is performed using qtivcomposer plugins  .\n" \
   "\nCommand:\n"                                                             \
   "\nFor qtivcomposer composing picture in picture:\n"                        \
-  "  gst-weston-composition-example -t 0 -i /etc/media/<h264_file>.mp4\n"           \
+  "  gst-weston-composition-example -t 0 -i $HOME/Downloads/qimsdk_samples/media/<h264_file>.mp4\n" \
   "\nFor qtivcomposer composing side by side:\n"                              \
-  "  gst-weston-composition-example -t 1 -i /etc/media/<h264_file>.mp4\n"           \
+  "  gst-weston-composition-example -t 1 -i $HOME/Downloads/qimsdk_samples/media/<h264_file>.mp4\n" \
   "\nOutput:\n"                                                               \
   "  Upon executing the application, the offline video and live camera "      \
   "composition can be observed on the display."
 
 // Structure to hold the application context
+static gchar *
+gst_app_default_input_file_new ()
+{
+  const gchar *home_dir = g_get_home_dir ();
+  gchar *media_dir = NULL;
+  gchar *input_file = NULL;
+
+  if (home_dir == NULL || *home_dir == '\0') {
+    g_printerr ("\n HOME directory is not available.\n");
+    return NULL;
+  }
+
+  media_dir = g_build_filename (home_dir, "Downloads", "qimsdk_samples",
+      "media", NULL);
+  if (media_dir == NULL) {
+    g_printerr ("\n Failed to allocate the default media directory path.\n");
+    return NULL;
+  }
+
+  if (g_mkdir_with_parents (media_dir, 0755) != 0) {
+    g_printerr ("\n Failed to create default media directory '%s': %s\n",
+        media_dir, g_strerror (errno));
+    g_free (media_dir);
+    return NULL;
+  }
+
+  input_file = g_build_filename (media_dir, "video_avc.mp4", NULL);
+  g_free (media_dir);
+  if (input_file == NULL) {
+    g_printerr ("\n Failed to allocate the default input file path.\n");
+    return NULL;
+  }
+
+  return input_file;
+}
+
 struct GstComposeAppContext : GstAppContext {
   gchar *input_file;
   GstAppCompositionType composition;
@@ -68,7 +104,7 @@ static GstComposeAppContext *
 gst_app_context_new ()
 {
   // Allocate memory for the new context
-  GstComposeAppContext *ctx = (GstComposeAppContext *) g_new0 (GstComposeAppContext, 1);
+  GstComposeAppContext *ctx = (GstComposeAppContext *) g_try_new0 (GstComposeAppContext, 1);
 
   // If memory allocation failed, print an error message and return NULL
   if (NULL == ctx) {
@@ -80,7 +116,11 @@ gst_app_context_new ()
   ctx->pipeline = NULL;
   ctx->mloop = NULL;
   ctx->plugins = NULL;
-  ctx->input_file = g_strdup (INPUT_FILE_PATH);
+  ctx->input_file = gst_app_default_input_file_new ();
+  if (ctx->input_file == NULL) {
+    g_free (ctx);
+    return NULL;
+  }
   ctx->composition = GST_PIP_COMPOSE;
   return ctx;
 }
@@ -121,8 +161,7 @@ gst_app_context_free (GstComposeAppContext * appctx)
     appctx->pipeline = NULL;
   }
 
-  if (appctx->input_file != NULL)
-    g_free (appctx->input_file);
+  g_clear_pointer (&appctx->input_file, g_free);
 
   // Finally, free the application context itself
   if (appctx != NULL)
@@ -384,7 +423,7 @@ main (gint argc, gchar *argv[])
     },
     { "input_file", 'i', 0, G_OPTION_ARG_FILENAME, &appctx->input_file,
       "input AVC mp4 Filename",
-      "  e.g. -i /etc/media/video_avc.mp4"
+      "  e.g. -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4"
     },
     { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
   };

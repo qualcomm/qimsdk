@@ -34,13 +34,12 @@
   "This audio decoding application allows users to decode audio files " \
   "such as MP3, WAV, or FLAC. \n" \
   "\nCommand \n" \
-  "  For mp3: gst-audio-decode-example -i /etc/media/audio.mp3  -f 1 \n" \
-  "  For wav: gst-audio-decode-example -i /etc/media/audio.wav  -f 2 \n" \
-  "  For flac: gst-audio-decode-example -i /etc/media/audio.flac  -f 3" \
+  "  For mp3: gst-audio-decode-example -i <audiofile>.mp3  -f 1 \n" \
+  "  For wav: gst-audio-decode-example -i <audiofile>.wav  -f 2 \n" \
+  "  For flac: gst-audio-decode-example -i <audiofile>.flac  -f 3" \
   "\nOutput:\n" \
   "\n  Upon executing the application user can perceive the audio over speaker"
 
-#define INPUT_WAV_FILE "/etc/media/audio.wav"
 
 // Structure to hold the application context
 struct GstAudioAppContext : GstAppContext {
@@ -69,7 +68,7 @@ gst_app_context_new ()
   ctx->pipeline = NULL;
   ctx->mloop = NULL;
   ctx->plugins = NULL;
-  ctx->input_file = const_cast<gchar *> (INPUT_WAV_FILE);
+  ctx->input_file = NULL;
   ctx->format = GST_ADECODE_WAV;
 
   return ctx;
@@ -230,6 +229,7 @@ main (gint argc, gchar *argv[])
   GstBus *bus = NULL;
   GstElement *pipeline = NULL;
   GstAudioAppContext *appctx = NULL;
+  gchar *input_file_override = NULL;
   gboolean ret = FALSE;
   guint intrpt_watch_id = 0;
 
@@ -246,6 +246,19 @@ main (gint argc, gchar *argv[])
     return -1;
   }
 
+  // Create the default media directory and input path.
+  if (!create_default_media_dir ()) {
+    g_printerr ("\n Failed to create the default media directory.\n");
+    gst_app_context_free (appctx);
+    return -1;
+  }
+  appctx->input_file = g_build_filename (g_get_home_dir (),
+      "Downloads", "qimsdk_samples", "media", "audio.wav", NULL);
+  if (appctx->input_file == NULL) {
+    g_printerr ("\n Failed to create the default input path.\n");
+    gst_app_context_free (appctx);
+    return -1;
+  }
   // Configure the input parameters
   GOptionEntry entries[] = {
       {"audio_format", 'f', 0, G_OPTION_ARG_INT, &appctx->format,
@@ -254,9 +267,9 @@ main (gint argc, gchar *argv[])
        "\n\t2-WAV"
        "\n\t3-FLAC"
       },
-      {"input_file", 'i', 0, G_OPTION_ARG_STRING, &appctx->input_file,
+      {"input_file", 'i', 0, G_OPTION_ARG_STRING, &input_file_override,
        "Input Filename" ,
-       "-i /etc/media/<audiofile>"
+       "-i <audiofile>"
       },
       { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
   };
@@ -276,17 +289,27 @@ main (gint argc, gchar *argv[])
       g_printerr ("\n Failed to parse command line options: %s!\n",
           GST_STR_NULL (error->message));
       g_clear_error (&error);
+      g_clear_pointer (&input_file_override, g_free);
       gst_app_context_free (appctx);
       return -1;
     } else if (!success && (NULL == error)) {
       g_printerr ("\n Initializing: Unknown error!\n");
+      g_clear_pointer (&input_file_override, g_free);
       gst_app_context_free (appctx);
       return -1;
     }
   } else {
     g_printerr ("\n Failed to create options context!\n");
+    g_clear_pointer (&input_file_override, g_free);
     gst_app_context_free (appctx);
     return -1;
+  }
+
+  // Apply the optional command-line input override after parsing succeeds.
+  if (input_file_override != NULL) {
+    g_free (appctx->input_file);
+    appctx->input_file = input_file_override;
+    input_file_override = NULL;
   }
 
   // Check the input parameters from the user

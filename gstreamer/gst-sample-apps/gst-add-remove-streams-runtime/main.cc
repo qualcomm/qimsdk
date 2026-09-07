@@ -24,6 +24,7 @@
 */
 
 #include <stdio.h>
+#include <errno.h>
 #include <glib-unix.h>
 #include <gst/gst.h>
 #include <pthread.h>
@@ -59,6 +60,7 @@ struct _GstAppContext
   gboolean use_display;
   // Exit thread flag
   gboolean exit;
+  gchar *media_dir;
 };
 
 static gboolean
@@ -187,6 +189,7 @@ create_encoder_stream (GstAppContext * appctx, GstStreamInf * stream,
   gchar *padname = NULL;
   static guint output_cnt = 0;
   gchar temp_str[100];
+  gchar *output_path = NULL;
   gboolean ret = FALSE;
 
   // Create the elements
@@ -232,8 +235,15 @@ create_encoder_stream (GstAppContext * appctx, GstStreamInf * stream,
   g_object_set (G_OBJECT (stream->mp4mux), "reserved-max-duration", 1000000000,
       NULL);
 
-  snprintf (temp_str, sizeof (temp_str), "/etc/media/video_%d.mp4", output_cnt++);
-  g_object_set (G_OBJECT (stream->filesink), "location", temp_str, NULL);
+  snprintf (temp_str, sizeof (temp_str), "video_%d.mp4", output_cnt++);
+  output_path = g_build_filename (appctx->media_dir, temp_str, NULL);
+  if (output_path == NULL) {
+    g_printerr ("ERROR: Failed to construct the output media path!\n");
+    goto cleanup;
+  }
+  g_object_set (G_OBJECT (stream->filesink), "location", output_path, NULL);
+  g_free (output_path);
+  output_path = NULL;
 
   gst_bin_add_many (GST_BIN (appctx->pipeline),
       stream->capsfilter, stream->encoder, stream->h264parse,
@@ -271,6 +281,7 @@ create_encoder_stream (GstAppContext * appctx, GstStreamInf * stream,
   return TRUE;
 
 cleanup:
+  g_clear_pointer (&output_path, g_free);
   // Remove the elements from the pipeline
   gst_bin_remove_many (GST_BIN (appctx->pipeline),
       stream->capsfilter, stream->encoder, stream->h264parse,
@@ -739,6 +750,28 @@ main (gint argc, gchar * argv[])
   // Initialize GST library.
   gst_init (&argc, &argv);
 
+  // Construct and create the default media directory.
+  const gchar *home_dir = g_getenv ("HOME");
+  if (home_dir == NULL || home_dir[0] == '\0') {
+    g_printerr ("ERROR: HOME is not set; cannot determine the media directory!\n");
+    g_free (output);
+    return -EFAULT;
+  }
+  appctx.media_dir = g_build_filename (home_dir, "Downloads",
+      "qimsdk_samples", "media", NULL);
+  if (appctx.media_dir == NULL) {
+    g_printerr ("ERROR: Failed to construct the default media directory!\n");
+    g_free (output);
+    return -ENOMEM;
+  }
+  if (g_mkdir_with_parents (appctx.media_dir, 0755) != 0) {
+    g_printerr ("ERROR: Failed to create media directory '%s': %s!\n",
+        appctx.media_dir, g_strerror (errno));
+    g_clear_pointer (&appctx.media_dir, g_free);
+    g_free (output);
+    return -EFAULT;
+  }
+
   pipeline = gst_pipeline_new ("gst-add-remove-streams-runtime");
   appctx.pipeline = pipeline;
 
@@ -753,6 +786,8 @@ main (gint argc, gchar * argv[])
     gst_bin_remove (GST_BIN (appctx.pipeline), qtiqmmfsrc);
     gst_object_unref (pipeline);
     g_printerr ("ERROR: Failed to create Main loop!\n");
+    g_clear_pointer (&appctx.media_dir, g_free);
+    g_clear_pointer (&output, g_free);
     return -1;
   }
   appctx.mloop = mloop;
@@ -763,6 +798,8 @@ main (gint argc, gchar * argv[])
     gst_object_unref (pipeline);
     g_printerr ("ERROR: Failed to retrieve pipeline bus!\n");
     g_main_loop_unref (mloop);
+    g_clear_pointer (&appctx.media_dir, g_free);
+    g_clear_pointer (&output, g_free);
     return -1;
   }
 

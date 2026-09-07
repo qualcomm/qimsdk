@@ -38,10 +38,17 @@
 
 #include <gst_sample_apps_utils.h>
 
-#define DEFAULT_OUTPUT_FILENAME_CAM1 "/etc/media/cam1_vid.mp4"
-#define DEFAULT_OUTPUT_FILENAME_CAM2 "/etc/media/cam2_vid.mp4"
 #define DEFAULT_WIDTH 1280
 #define DEFAULT_HEIGHT 720
+#define DEFAULT_MEDIA_DIR \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", NULL))
+#define DEFAULT_OP_MP4_FILENAME_CAM1 \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "cam1_vid.mp4", NULL))
+#define DEFAULT_OP_MP4_FILENAME_CAM2 \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "cam2_vid.mp4", NULL))
 
 #define GST_APP_SUMMARY "This application allows users to utilize a " \
   "multi-camera live preview on their display. It also provides the " \
@@ -60,6 +67,8 @@ struct GstMultiCamAppContext : GstAppContext {
   GstSinkType sinktype;
   gint width;
   gint height;
+  gchar *output_filename_cam1;
+  gchar *output_filename_cam2;
 };
 
 /**
@@ -113,6 +122,40 @@ build_pad_property (GValue * property, gint values[], gint num)
 }
 
 /**
+* Create the default media directory and output paths.
+*
+* @param appctx application context object
+* @return TRUE on success, FALSE otherwise
+*/
+static gboolean
+initialize_default_output_paths (GstMultiCamAppContext * appctx)
+{
+  if (appctx == NULL) {
+    g_printerr ("\n Invalid application context.\n");
+    return FALSE;
+  }
+
+  if (!create_default_media_dir ()) {
+    g_printerr ("\n Failed to create the default media directory.\n");
+    return FALSE;
+  }
+
+  appctx->output_filename_cam1 = DEFAULT_OP_MP4_FILENAME_CAM1;
+  if (appctx->output_filename_cam1 == NULL) {
+    g_printerr ("\n Failed to allocate default output path for camera 1.\n");
+    return FALSE;
+  }
+
+  appctx->output_filename_cam2 = DEFAULT_OP_MP4_FILENAME_CAM2;
+  if (appctx->output_filename_cam2 == NULL) {
+    g_printerr ("\n Failed to allocate default output path for camera 2.\n");
+    g_clear_pointer (&appctx->output_filename_cam1, g_free);
+    return FALSE;
+  }
+
+  return TRUE;
+}
+/**
 * Free Application context:
 *
 * @param appctx application context object
@@ -151,6 +194,8 @@ gst_app_context_free (GstMultiCamAppContext * appctx)
     appctx->pipeline = NULL;
   }
 
+  g_clear_pointer (&appctx->output_filename_cam1, g_free);
+  g_clear_pointer (&appctx->output_filename_cam2, g_free);
   if (appctx != NULL)
     g_free (appctx);
 }
@@ -376,13 +421,13 @@ create_camera_video_pipe (GstMultiCamAppContext * appctx)
 
   // Create filesink for first source and set the location and element properties
   filesink_cam1 = gst_element_factory_make ("filesink", "filesink_cam1");
-  g_object_set (G_OBJECT (filesink_cam1), "location", DEFAULT_OUTPUT_FILENAME_CAM1,
-      NULL);
+  g_object_set (G_OBJECT (filesink_cam1), "location",
+      appctx->output_filename_cam1, NULL);
 
   // Create filesink for second source and set the location and element properties
   filesink_cam2 = gst_element_factory_make ("filesink", "filesink_cam2");
-  g_object_set (G_OBJECT (filesink_cam2), "location", DEFAULT_OUTPUT_FILENAME_CAM2,
-      NULL);
+  g_object_set (G_OBJECT (filesink_cam2), "location",
+      appctx->output_filename_cam2, NULL);
 
   gst_bin_add_many (GST_BIN (appctx->pipeline), qtiqmmf_cam1, qtiqmmf_cam2,
       capsfilter_cam1, capsfilter_cam2, v4l2h264enc_cam1, h264parse_cam1,
@@ -447,6 +492,10 @@ main (gint argc, gchar *argv[])
     return -1;
   }
 
+  if (!initialize_default_output_paths (appctx)) {
+    gst_app_context_free (appctx);
+    return -1;
+  }
   // Configure input parameters
   GOptionEntry entries[] = {
     { "width", 'w', 0, G_OPTION_ARG_INT, &appctx->width,
@@ -591,8 +640,8 @@ main (gint argc, gchar *argv[])
   gst_element_set_state (appctx->pipeline, GST_STATE_NULL);
 
   if (appctx->sinktype == GST_VIDEO_ENCODE)
-    g_print ("\n Encoded files are in %s  %s \n", DEFAULT_OUTPUT_FILENAME_CAM1,
-        DEFAULT_OUTPUT_FILENAME_CAM2);
+    g_print ("\n Encoded files are in %s  %s \n",
+        appctx->output_filename_cam1, appctx->output_filename_cam2);
 
   // Free the application context
   g_print ("\n Free the Application context\n");

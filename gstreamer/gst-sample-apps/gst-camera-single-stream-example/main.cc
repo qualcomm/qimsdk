@@ -40,14 +40,19 @@
  */
 
 #include <glib-unix.h>
+#include <glib/gstdio.h>
 #include <stdio.h>
 
 #include <gst/gst.h>
 
 #include "gst_sample_apps_utils.h"
 
-#define DEFAULT_OP_YUV_FILENAME "/etc/media/yuv_dump%d.yuv"
-#define DEFAULT_OP_MP4_FILENAME "/etc/media/video.mp4"
+#define DEFAULT_OP_YUV_FILENAME \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "yuv_dump%d.yuv", NULL))
+#define DEFAULT_OP_MP4_FILENAME \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "video.mp4", NULL))
 #define DEFAULT_WIDTH 1280
 #define DEFAULT_HEIGHT 720
 #define DEFAULT_IP "127.0.0.1"
@@ -70,8 +75,8 @@
   "encoding-name=H264,payload=96\\\" )\"\n" \
   "\nOutput:\n" \
   "  Upon execution, application will generates output as user selected. \n" \
-  "  In case Video Encoding the output video stored at /etc/media/video.mp4 \n" \
-  "  In case YUV dump the output video stored at /etc/media/yuv_dump%d.yuv"
+  "  In case Video Encoding the output video stored at $HOME/Downloads/qimsdk_samples/media/video.mp4 \n" \
+  "  In case YUV dump the output video stored at $HOME/Downloads/qimsdk_samples/media/yuv_dump%d.yuv"
 
 /* Structure to hold the application context */
 struct GstCameraAppContext : GstAppContext {
@@ -225,7 +230,14 @@ create_pipe (GstCameraAppContext * appctx)
     }
 
   } else if (appctx->sinktype == GST_YUV_DUMP) {
-    appctx->output_file = const_cast<gchar *> (DEFAULT_OP_YUV_FILENAME);
+    if (!create_default_media_dir ()) {
+      return FALSE;
+    }
+    appctx->output_file = DEFAULT_OP_YUV_FILENAME;
+    if (appctx->output_file == NULL) {
+      g_printerr ("\nUnable to build YUV output file path. Exiting.\n");
+      return FALSE;
+    }
 
     filesink = gst_element_factory_make ("multifilesink", "filesink");
     if (!filesink) {
@@ -314,7 +326,14 @@ create_pipe (GstCameraAppContext * appctx)
         return FALSE;
       }
 
-      appctx->output_file = const_cast<gchar *> (DEFAULT_OP_MP4_FILENAME);
+      if (!create_default_media_dir ()) {
+        return FALSE;
+      }
+      appctx->output_file = DEFAULT_OP_MP4_FILENAME;
+      if (appctx->output_file == NULL) {
+        g_printerr ("\nUnable to build MP4 output file path. Exiting.\n");
+        return FALSE;
+      }
       g_object_set (G_OBJECT (filesink), "location", appctx->output_file, NULL);
 
       gst_bin_add_many (GST_BIN (appctx->pipeline),

@@ -32,6 +32,8 @@
 */
 
 #include <stdlib.h>
+#include <errno.h>
+#include <glib.h>
 
 #include <gst_sample_apps_utils.h>
 
@@ -43,7 +45,9 @@
 
 #define ARRAY_LENGTH 100
 
-#define DEFAULT_SNAP_OUTPUT_PATH "/etc/media"
+#define DEFAULT_SNAP_OUTPUT_PATH \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", NULL))
 #define SNAP_OUTPUT_FILE "snapshot%d.jpg"
 
 #define DEFAULT_MAX_SNAPSHOTS 5
@@ -58,7 +62,7 @@
   "\nOutput:\n" \
   "  Upon execution, the application will generate an output for preview " \
   "on the display. \n  Once the use case concludes, snapshot output files will" \
-  " be available at the '/etc/media/' directory unless custom output directory set."
+  " be available at the '$HOME/Downloads/qimsdk_samples/media/' directory unless custom output directory set."
 
 // Structure to hold the application context
 struct GstSnapshotAppContext : GstAppContext {
@@ -138,11 +142,7 @@ gst_app_context_free (GstSnapshotAppContext * appctx)
     appctx->pipeline = NULL;
   }
 
-  if (appctx->output_path != (gchar *)(
-      &DEFAULT_SNAP_OUTPUT_PATH) &&
-      appctx->output_path != NULL) {
-    g_free ((gpointer)appctx->output_path);
-  }
+  g_clear_pointer (&appctx->output_path, g_free);
 
   if (appctx != NULL)
     g_free (appctx);
@@ -292,7 +292,7 @@ main (gint argc, gchar * argv[])
     { "output_path", 'o', 0, G_OPTION_ARG_STRING,
       &appctx->output_path,
       "Path to save snapshot images to.",
-      "-Default path: /etc/media"
+      "-Default path: $HOME/Downloads/qimsdk_samples/media"
     },
     { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
   };
@@ -327,7 +327,19 @@ main (gint argc, gchar * argv[])
 
   // Set default snap output path if none set in arguments.
   if (NULL == appctx->output_path) {
-    appctx->output_path = (gchar *)DEFAULT_SNAP_OUTPUT_PATH;
+    appctx->output_path = DEFAULT_SNAP_OUTPUT_PATH;
+    if (NULL == appctx->output_path) {
+      g_printerr ("Failed to construct default snapshot output path.\n");
+      gst_app_context_free (appctx);
+      return ret;
+    }
+  }
+
+  if (g_mkdir_with_parents (appctx->output_path, 0755) != 0) {
+    g_printerr ("Failed to create snapshot output directory '%s': %s\n",
+        appctx->output_path, g_strerror (errno));
+    gst_app_context_free (appctx);
+    return ret;
   }
 
   // Initialize GST library.

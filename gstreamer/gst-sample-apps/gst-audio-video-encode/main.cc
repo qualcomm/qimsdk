@@ -13,9 +13,9 @@
  *
  * Usage:
  * For AVC:Audio Video Encode:
- * gst-audio-video-encode -w 1920 -h 1080 -c 1 -o /etc/media/audiovideo.mp4
+ * gst-audio-video-encode -w 1920 -h 1080 -c 1 -o $HOME/Downloads/qimsdk_samples/media/audiovideo.mp4
  * For HEVC:Audio Video Encode:
- * gst-audio-video-encode -w 1920 -h 1080 -c 2 -o /etc/media/audiovideo.mp4
+ * gst-audio-video-encode -w 1920 -h 1080 -c 2 -o $HOME/Downloads/qimsdk_samples/media/audiovideo.mp4
  *
  * Help:
  * gst-audio-video-encode --help
@@ -40,34 +40,36 @@
 
 #include <gst_sample_apps_utils.h>
 
-#define DEFAULT_OUTPUT_AVC_FILENAME "/etc/media/output-video-AVC.mp4"
-#define DEFAULT_OUTPUT_HEVC_FILENAME "/etc/media/output-video-HEVC.mp4"
 #define DEFAULT_OUTPUT_WIDTH 1280
 #define DEFAULT_OUTPUT_HEIGHT 720
+#define DEFAULT_OUTPUT_AVC_FILENAME \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "output-video-AVC.mp4", NULL))
+#define DEFAULT_OUTPUT_HEVC_FILENAME \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "output-video-HEVC.mp4", NULL))
 
 #define GST_PIPELINE_AUDIO_VIDEO_AVC \
   "qtiqmmfsrc name=qmmf ! capsfilter name=caps ! \
   queue ! v4l2h264enc capture-io-mode=4 output-io-mode=5 ! queue ! h264parse ! \
   muxer. pulsesrc do-timestamp=true provide-clock=false volume=10 ! \
   audio/x-raw,format=S16LE,channels=1,rate=48000 ! audioconvert ! queue ! \
-  lamemp3enc ! muxer. mp4mux name=muxer ! queue ! filesink name=mp4sink \
-  location=DEFAULT_OUTPUT_AVC_FILENAME"
+  lamemp3enc ! muxer. mp4mux name=muxer ! queue ! filesink name=mp4sink"
 
 #define GST_PIPELINE_AUDIO_VIDEO_HEVC \
   "qtiqmmfsrc name=qmmf ! capsfilter name=caps ! \
   queue ! v4l2h265enc capture-io-mode=4 output-io-mode=5 ! queue ! h265parse ! \
   muxer. pulsesrc do-timestamp=true provide-clock=false volume=10 ! \
   audio/x-raw,format=S16LE,channels=1,rate=48000 ! audioconvert ! queue ! \
-  lamemp3enc ! muxer. mp4mux name=muxer ! queue ! filesink name=mp4sink \
-  location=DEFAULT_OUTPUT_HEVC_FILENAME"
+  lamemp3enc ! muxer. mp4mux name=muxer ! queue ! filesink name=mp4sink"
 
 #define GST_APP_SUMMARY \
   "This Application will execute the usecase of AudioVideo Encode"     \
   "\nCommand:" \
   "\nFor AVC: Audio Video Encode:\n"                                   \
-  "gst-audio-video-encode -w 1920 -h 1080 -c 1 -o /etc/media/audiovideo.mp4" \
+  "gst-audio-video-encode -w 1920 -h 1080 -c 1 -o $HOME/Downloads/qimsdk_samples/media/audiovideo.mp4" \
   "\nFor HEVC: Audio Video Encode:\n"                                  \
-  "gst-audio-video-encode -w 1920 -h 1080 -c 2 -o /etc/media/audiovideo.mp4" \
+  "gst-audio-video-encode -w 1920 -h 1080 -c 2 -o $HOME/Downloads/qimsdk_samples/media/audiovideo.mp4" \
   "\nOutput\n:" \
   "Upon executing the application user finds encoded file in output location" \
 
@@ -77,6 +79,7 @@ struct GstAudioVideoAppContext : GstAppContext {
   gint width;
   gint height;
   GstVideoPlayerCodecType input_format;
+  gboolean output_file_overridden;
 };
 
 /**
@@ -101,8 +104,17 @@ gst_app_context_new ()
   ctx->width = DEFAULT_OUTPUT_WIDTH;
   ctx->height = DEFAULT_OUTPUT_HEIGHT;
   ctx->input_format = GST_VCODEC_AVC;
-  ctx->output_file = const_cast<gchar *> (DEFAULT_OUTPUT_AVC_FILENAME);
-
+  if (!create_default_media_dir ()) {
+    g_printerr ("Unable to create default media directory\n");
+    g_free (ctx);
+    return NULL;
+  }
+  ctx->output_file = DEFAULT_OUTPUT_AVC_FILENAME;
+  if (ctx->output_file == NULL) {
+    g_printerr ("Unable to allocate default output path\n");
+    g_free (ctx);
+    return NULL;
+  }
   return ctx;
 }
 
@@ -125,11 +137,9 @@ gst_app_context_free (GstAudioVideoAppContext * ctx)
     ctx->pipeline = NULL;
   }
 
-  if (ctx->output_file != NULL &&
-    ctx->output_file != (gchar *)(&DEFAULT_OUTPUT_AVC_FILENAME))
-    g_free ((gpointer)ctx->output_file);
+  g_clear_pointer (&ctx->output_file, g_free);
 
-  g_free ((gpointer)ctx);
+  g_free (ctx);
 }
 
 /**
@@ -182,9 +192,14 @@ create_pipe (GstAudioVideoAppContext * appctx)
         "interlace-mode", G_TYPE_STRING, "progressive",
         "colorimetry", G_TYPE_STRING, "bt601",
         NULL);
+    if (filtercaps == NULL) {
+      g_printerr ("Couldn't create filtercaps\n");
+      gst_object_unref (caps);
+      return FALSE;
+    }
     g_object_set (G_OBJECT (caps), "caps", filtercaps, NULL);
     gst_object_unref (caps);
-    gst_object_unref (filtercaps);
+    gst_caps_unref (filtercaps);
   } else {
     g_printerr ("Couldn't find filtercaps \n");
     return FALSE;
@@ -208,6 +223,7 @@ main (gint argc, gchar *argv[])
 {
   GOptionContext *ctx = NULL;
   GMainLoop *mloop = NULL;
+  gchar *output_override = NULL;
   GstBus *bus = NULL;
   GstAudioVideoAppContext *appctx = NULL;
   guint intrpt_watch_id = 0;
@@ -228,9 +244,9 @@ main (gint argc, gchar *argv[])
     { "input_videocodec", 'c', 0, G_OPTION_ARG_INT, &appctx->input_format,
       "input video codec",
       "-c 1(AVC)/2(HEVC)" },
-    { "output_file", 'o', 0, G_OPTION_ARG_STRING, &appctx->output_file,
+    { "output_file", 'o', 0, G_OPTION_ARG_STRING, &output_override,
       "output filename",
-      "e.g. -o /etc/media/output-video-AVC.mp4" },
+      "e.g. -o $HOME/Downloads/qimsdk_samples/media/output-video-AVC.mp4" },
     { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
     };
 
@@ -249,17 +265,35 @@ main (gint argc, gchar *argv[])
       g_printerr ("Failed to parse command line options: %s!\n",
           GST_STR_NULL (error->message));
       g_clear_error (&error);
+      g_free (output_override);
       gst_app_context_free (appctx);
       return -1;
     } else if (!success && (NULL == error)) {
       g_printerr ("Initializing: Unknown error!\n");
+      g_free (output_override);
       gst_app_context_free (appctx);
       return -1;
     }
   } else {
     g_printerr ("Failed to create options context!\n");
+    g_free (output_override);
     gst_app_context_free (appctx);
     return -1;
+  }
+
+  if (output_override != NULL) {
+    g_clear_pointer (&appctx->output_file, g_free);
+    appctx->output_file = output_override;
+    output_override = NULL;
+    appctx->output_file_overridden = TRUE;
+  } else if (appctx->input_format == GST_VCODEC_HEVC) {
+    g_clear_pointer (&appctx->output_file, g_free);
+    appctx->output_file = DEFAULT_OUTPUT_HEVC_FILENAME;
+    if (appctx->output_file == NULL) {
+      g_printerr ("Unable to allocate default output path\n");
+      gst_app_context_free (appctx);
+      return -1;
+    }
   }
 
   // Initialize GST library

@@ -16,11 +16,18 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
-
+#include <glib/gstdio.h>
 #include <glib-unix.h>
 #include <gst/gst.h>
 
 #include "gst_sample_apps_utils.h"
+
+#define DEFAULT_MEDIA_DIR \
+  (g_build_filename (g_get_home_dir (), \
+                     "Downloads", \
+                     "qimsdk_samples", \
+                     "media", \
+                     NULL))
 
 /*
  * Check if File Exists
@@ -481,4 +488,25 @@ is_v66_arch ()
     default:
         return FALSE;
   }
+}
+
+gboolean
+create_default_media_dir (void)
+{
+  gchar *media_dir = DEFAULT_MEDIA_DIR;
+  gboolean ret = FALSE;
+
+  if (media_dir == NULL) {
+    g_printerr ("\nUnable to build default media directory path.\n");
+    return FALSE;
+  }
+
+  if (g_mkdir_with_parents (media_dir, 0755) != 0) {
+    g_printerr ("\nUnable to create media directory: %s\n", media_dir);
+  } else {
+    ret = TRUE;
+  }
+
+  g_free (media_dir);
+  return ret;
 }

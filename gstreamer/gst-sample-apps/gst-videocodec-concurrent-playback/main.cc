@@ -16,8 +16,8 @@
 * gst-videocodec-concurrent-playback --help
 *
 * Usage:
-* gst-videocodec-concurrent-playback -i /etc/media/video_avc.mp4 -i /etc/media/video_hevc.mp4
-*                                    -o /etc/media/h265_dump.yuv
+* gst-videocodec-concurrent-playback -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4 -i $HOME/Downloads/qimsdk_samples/media/video_hevc.mp4
+*                                    -o $HOME/Downloads/qimsdk_samples/media/h265_dump.yuv
 *
 * *******************************************************************
 * Pipeline 1: filesrc->qtdemux->h264parse->v4l2h264dec->waylandsink
@@ -35,26 +35,23 @@
 
 #define ARRAY_LENGTH 20
 #define STREAM_CNT 2
-#define DEFAULT_AVC_FILESOURCE "/etc/media/video_avc.mp4"
-#define DEFAULT_HEVC_FILESOURCE "/etc/media/video_hevc.mp4"
-#define DEFAULT_YUV_FILESINK "/etc/media/h265_dump.yuv"
 
 
 #define GST_PIPELINE_2STREAM_VIDEO "filesrc name=source1 " \
-  "location=DEFAULT_AVC_FILESOURCE ! qtdemux ! queue ! h264parse ! " \
+  "! qtdemux ! queue ! h264parse ! " \
   "v4l2h264dec capture-io-mode=4 output-io-mode=4 ! " \
   "video/x-raw,format=NV12 ! queue ! waylandsink enable-last-sample=false fullscreen=true " \
-  "filesrc name=source2 location=DEFAULT_HEVC_FILESOURCE ! qtdemux ! " \
+  "filesrc name=source2 ! qtdemux ! " \
   "h265parse ! v4l2h265dec capture-io-mode=4 output-io-mode=4 ! video/x-raw,format=NV12 ! " \
-  "filesink name=sink_yuv enable-last-sample=false location=DEFAULT_YUV_FILESINK " \
+  "filesink name=sink_yuv enable-last-sample=false " \
 
 #define GST_APP_SUMMARY \
   "This application demonstrates the concurrent ability of Qualcomm video " \
   "engine decoding the different video codecs content concurrently. \n" \
   "The first file should be H264 and the second file should be HEVC with MP4 container.\n" \
   "\nCommand:\n" \
-  "  gst-videocodec-concurrent-playback -i /etc/media/video_avc.mp4 -i /etc/media/video_hevc.mp4 "\
-  "-o /etc/media/h265_dump.yuv \n" \
+  "  gst-videocodec-concurrent-playback -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4 -i $HOME/Downloads/qimsdk_samples/media/video_hevc.mp4 "\
+  "-o $HOME/Downloads/qimsdk_samples/media/h265_dump.yuv \n" \
   "\nOutput:\n" \
   "  H264 content goes to the display and HEVC content is dumped to YUV file.\n"
 
@@ -62,6 +59,8 @@
 struct GstVideoAppContext : GstAppContext {
   gchar **in_files;
   gchar *out_file;
+  gchar *default_in_files[STREAM_CNT];
+  gchar *default_out_file;
 };
 
 /**
@@ -70,7 +69,8 @@ struct GstVideoAppContext : GstAppContext {
  * @param NULL
  */
 static GstVideoAppContext *
-gst_app_context_new ()
+gst_app_context_new (gchar *default_avc_file, gchar *default_hevc_file,
+    gchar *default_yuv_file)
 {
   GstVideoAppContext *ctx = (GstVideoAppContext *)g_new0 (GstVideoAppContext, 1);
 
@@ -81,9 +81,11 @@ gst_app_context_new ()
 
   ctx->pipeline = NULL;
   ctx->mloop = NULL;
-  ctx->in_files = g_new0 (gchar*, STREAM_CNT);;
-  ctx->out_file = g_strdup (DEFAULT_YUV_FILESINK);
-
+  ctx->in_files = NULL;
+  ctx->out_file = NULL;
+  ctx->default_in_files[0] = default_avc_file;
+  ctx->default_in_files[1] = default_hevc_file;
+  ctx->default_out_file = default_yuv_file;
   return ctx;
 }
 
@@ -111,6 +113,9 @@ gst_app_context_free (GstVideoAppContext * ctx)
 
   if (ctx->out_file)
     g_free (ctx->out_file);
+  g_free (ctx->default_in_files[0]);
+  g_free (ctx->default_in_files[1]);
+  g_free (ctx->default_out_file);
   g_free (ctx);
 }
 
@@ -143,16 +148,6 @@ create_pipe (GstVideoAppContext *appctx, gint stream_cnt)
     return FALSE;
   }
 
-  // set input file count to default if no input passed
-  for (gint i = 0; i < stream_cnt; i++) {
-    if (appctx->in_files[i] == NULL) {
-      if (i == 0) {
-        appctx->in_files[i] = g_strdup (DEFAULT_AVC_FILESOURCE);
-      } else {
-        appctx->in_files[i] = g_strdup (DEFAULT_HEVC_FILESOURCE);
-      }
-    }
-  }
 
   // Get source element from pipeline Set input file location
   for (int i = 1; i <= stream_cnt; i++)
@@ -207,8 +202,29 @@ main (gint argc, gchar * argv[])
   gint stream_cnt = STREAM_CNT;
   gboolean ret = FALSE;
 
-  // Create the application context
-  appctx = gst_app_context_new ();
+  // Create the default media directory and construct default file paths.
+  if (!create_default_media_dir ()) {
+    g_printerr ("Failed to create default media directory.\n");
+    return -1;
+  }
+  const gchar *home_dir = g_get_home_dir ();
+  gchar *media_dir = g_build_filename (home_dir, "Downloads", "qimsdk_samples",
+      "media", NULL);
+  gchar *default_avc_file = g_build_filename (media_dir, "video_avc.mp4", NULL);
+  gchar *default_hevc_file = g_build_filename (media_dir, "video_hevc.mp4", NULL);
+  gchar *default_yuv_file = g_build_filename (media_dir, "h265_dump.yuv", NULL);
+  g_free (media_dir);
+  if (default_avc_file == NULL || default_hevc_file == NULL ||
+      default_yuv_file == NULL) {
+    g_printerr ("Failed to construct default media file paths.\n");
+    g_free (default_avc_file);
+    g_free (default_hevc_file);
+    g_free (default_yuv_file);
+    return -1;
+  }
+  // Create the application context.
+  appctx = gst_app_context_new (default_avc_file, default_hevc_file,
+      default_yuv_file);
   if (NULL == appctx){
     g_printerr ("Failed app context Initializing: Unknown error!\n");
     return -1;
@@ -219,12 +235,12 @@ main (gint argc, gchar * argv[])
     { "input_file", 'i', 0,
       G_OPTION_ARG_FILENAME_ARRAY, &appctx->in_files,
       " Two mp4 Input Filenames - First is AVC & second HEVC codec in order.",
-      "  e.g. -i /etc/media/video_avc.mp4 -i /etc/media/video_hevc.mp4"
+      "  e.g. -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4 -i $HOME/Downloads/qimsdk_samples/media/video_hevc.mp4"
     },
     { "output_file", 'o', 0,
       G_OPTION_ARG_FILENAME, &appctx->out_file,
       "Output Filename",
-      "  e.g. -o /etc/media/h265_dump.yuv"
+      "  e.g. -o $HOME/Downloads/qimsdk_samples/media/h265_dump.yuv"
     },
     { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
   };
@@ -259,7 +275,33 @@ main (gint argc, gchar * argv[])
     return -1;
   }
 
-  // Check the input parameters from the user
+  // Apply defaults only when command-line overrides were not supplied.
+  if (appctx->in_files == NULL)
+    appctx->in_files = g_new0 (gchar *, STREAM_CNT);
+  if (appctx->in_files == NULL) {
+    g_printerr ("Failed to allocate input file list.\n");
+    gst_app_context_free (appctx);
+    return -1;
+  }
+  for (gint i = 0; i < stream_cnt; i++) {
+    if (appctx->in_files[i] == NULL) {
+      appctx->in_files[i] = g_strdup (appctx->default_in_files[i]);
+      if (appctx->in_files[i] == NULL) {
+        g_printerr ("Failed to allocate default input file path.\n");
+        gst_app_context_free (appctx);
+        return -1;
+      }
+    }
+  }
+  if (appctx->out_file == NULL) {
+    appctx->out_file = g_strdup (appctx->default_out_file);
+    if (appctx->out_file == NULL) {
+      g_printerr ("Failed to allocate default output file path.\n");
+      gst_app_context_free (appctx);
+      return -1;
+    }
+  }
+  // Check the input parameters from the user.
   if (appctx->in_files == NULL || appctx->out_file == NULL) {
     g_printerr ("\n one of input parameters is not given");
     g_print ("\n usage: gst-videocodec-concurrent-playback --help \n");

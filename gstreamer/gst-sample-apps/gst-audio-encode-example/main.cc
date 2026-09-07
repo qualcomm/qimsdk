@@ -33,16 +33,15 @@
 
 #include <gst_sample_apps_utils.h>
 
-#define DEFAULT_OUTPUT_FILENAME "/etc/media/audio_record.flac"
 
 #define GST_APP_SUMMARY "This app enables the users to encode audio with " \
   "wav or flac format.\n" \
   "\nCommand:\n" \
-  "flac: gst-audio-encode-example -o /etc/media/<filename>.flac --audio_format=1 \n" \
-  "wav:  gst-audio-encode-example -o /etc/media/<filename>.wav  --audio_format=2 \n" \
+  "flac: gst-audio-encode-example -o $HOME/Downloads/qimsdk_samples/media/<filename>.flac --audio_format=1 \n" \
+  "wav:  gst-audio-encode-example -o $HOME/Downloads/qimsdk_samples/media/<filename>.wav  --audio_format=2 \n" \
   "\nOutput:\n" \
   "  Upon execution, application will generates recorded audio files " \
-  "at output path (/etc/media/)."
+  "at output path ($HOME/Downloads/qimsdk_samples/media/)."
 
 // Structure to hold the application context
 struct GstAudioAppContext : GstAppContext {
@@ -71,7 +70,7 @@ gst_app_context_new ()
   ctx->pipeline = NULL;
   ctx->mloop = NULL;
   ctx->plugins = NULL;
-  ctx->output_file = const_cast<gchar *> (DEFAULT_OUTPUT_FILENAME);
+  ctx->output_file = NULL;
   ctx->format = GST_AENCODE_FLAC;
 
   return ctx;
@@ -115,9 +114,7 @@ gst_app_context_free (GstAudioAppContext * appctx)
     appctx->pipeline = NULL;
   }
 
-  if (appctx->output_file != NULL &&
-    appctx->output_file != (gchar *)(&DEFAULT_OUTPUT_FILENAME))
-    g_free ((gpointer)appctx->output_file);
+  g_clear_pointer (&appctx->output_file, g_free);
 
   // Finally, free the application context itself
   if (appctx != NULL)
@@ -227,6 +224,8 @@ main (gint argc, gchar *argv[])
   GstAudioAppContext *appctx = NULL;
   gboolean ret = FALSE;
   guint intrpt_watch_id = 0;
+  gchar *default_output_file = NULL;
+  gchar *output_file_override = NULL;
 
   // Create the application context
   appctx = gst_app_context_new ();
@@ -235,6 +234,22 @@ main (gint argc, gchar *argv[])
     return -1;
   }
 
+  // Ensure the standard media directory exists before constructing the default path.
+  if (!create_default_media_dir ()) {
+    g_printerr ("\n Failed to create the default media directory.\n");
+    gst_app_context_free (appctx);
+    return -1;
+  }
+  default_output_file = g_build_filename (g_get_home_dir (),
+      "Downloads", "qimsdk_samples", "media", "audio_record.flac", NULL);
+  if (default_output_file == NULL) {
+    g_printerr ("\n Failed to allocate the default output path.\n");
+    gst_app_context_free (appctx);
+    return -1;
+  }
+  appctx->output_file = default_output_file;
+  default_output_file = NULL;
+
   // Configure the input parameters
   GOptionEntry entries[] = {
       {"audio_format", 'f', 0, G_OPTION_ARG_INT, &appctx->format,
@@ -242,9 +257,9 @@ main (gint argc, gchar *argv[])
        "\n\t1-GST_AENCODE_FLAC"
        "\n\t2-GST_AENCODE_WAV"
       },
-      {"output_file", 'o', 0, G_OPTION_ARG_STRING, &appctx->output_file,
+      {"output_file", 'o', 0, G_OPTION_ARG_STRING, &output_file_override,
        "Output Filename",
-       "-o /etc/media/<audiofile>"
+       "-o $HOME/Downloads/qimsdk_samples/media/<audiofile>"
       },
       { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
   };
@@ -264,10 +279,12 @@ main (gint argc, gchar *argv[])
       g_printerr ("\n Failed to parse command line options: %s!\n",
           GST_STR_NULL (error->message));
       g_clear_error (&error);
+      g_clear_pointer (&output_file_override, g_free);
       gst_app_context_free (appctx);
       return -1;
     } else if (!success && (NULL == error)) {
       g_printerr ("\n Initializing: Unknown error!\n");
+      g_clear_pointer (&output_file_override, g_free);
       gst_app_context_free (appctx);
       return -1;
     }
@@ -277,6 +294,12 @@ main (gint argc, gchar *argv[])
     return -1;
   }
 
+  if (output_file_override != NULL) {
+    g_free (appctx->output_file);
+    appctx->output_file = output_file_override;
+    output_file_override = NULL;
+  }
+  g_clear_pointer (&output_file_override, g_free);
   // check for input parameters from user
   if (appctx->format < GST_AENCODE_FLAC || appctx->format > GST_AENCODE_WAV ||
       appctx->output_file == NULL) {

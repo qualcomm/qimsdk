@@ -27,11 +27,15 @@
 *   - or libcamerasrc -> qtivtransform
 * *******************************************************************
 */
+#include <errno.h>
 #include <glib-unix.h>
+#include <glib/gstdio.h>
 #include <gst/gst.h>
 #include <gst_sample_apps_utils.h>
 
-#define DEFAULT_OUTPUT_FILENAME "/etc/media/camera_mutistream_out.mp4"
+#define DEFAULT_OP_MP4_FILENAME \
+  (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
+      "media", "camera_mutistream_out.mp4", NULL))
 #define DEFAULT_WIDTH 1280
 #define DEFAULT_HEIGHT 720
 #define DEFAULT_NUM_OF_STREAM 2
@@ -42,7 +46,7 @@
   "encoded stream. \n " \
   "\nCommand:\n" \
   "For Two Stream \n" \
-  "  gst-multi-stream-example -w 1920 -h 1080 -n 2 -o /etc/media/camera_mutistream_out.mp4 \n" \
+  "  gst-multi-stream-example -w 1920 -h 1080 -n 2 -o $HOME/Downloads/qimsdk_samples/media/camera_mutistream_out.mp4 \n" \
   "\nOutput:\n" \
   "  Upon execution, application will generates output as preview and " \
   "encoded mp4 file."
@@ -55,6 +59,38 @@ struct GstMultiStreamAppContext : GstAppContext {
   gchar *output_file;
 };
 
+static gboolean
+create_qimsdk_media_dir ()
+{
+  const gchar *home_dir = g_get_home_dir ();
+  gchar *media_dir = NULL;
+  gboolean ret = FALSE;
+
+  if (home_dir == NULL || home_dir[0] == '\0') {
+    g_printerr ("\n Failed to get HOME directory.\n");
+    return FALSE;
+  }
+
+  media_dir = g_build_filename (home_dir, "Downloads", "qimsdk_samples",
+      "media", NULL);
+  if (media_dir == NULL) {
+    g_printerr ("\n Failed to build default media directory path.\n");
+    return FALSE;
+  }
+
+  if (g_mkdir_with_parents (media_dir, 0755) != 0) {
+    g_printerr ("\n Failed to create default media directory %s: %s.\n",
+        media_dir, g_strerror (errno));
+    goto cleanup;
+  }
+
+  ret = TRUE;
+
+cleanup:
+  g_free (media_dir);
+  return ret;
+}
+
 /**
 * Create and initialize application context:
 *
@@ -65,7 +101,7 @@ gst_app_context_new ()
 {
   // Allocate memory for the new context
   GstMultiStreamAppContext *ctx = (GstMultiStreamAppContext *)
-      g_new0 (GstMultiStreamAppContext, 1);
+      g_try_new0 (GstMultiStreamAppContext, 1);
 
   // If memory allocation failed, print an error message and return NULL
   if (NULL == ctx) {
@@ -74,13 +110,13 @@ gst_app_context_new ()
   }
 
   // Initialize the context fields
-  ctx->pipeline    = NULL;
-  ctx->mloop       = NULL;
-  ctx->plugins     = NULL;
-  ctx->width       = DEFAULT_WIDTH;
-  ctx->height      = DEFAULT_HEIGHT;
+  ctx->pipeline     = NULL;
+  ctx->mloop        = NULL;
+  ctx->plugins      = NULL;
+  ctx->width        = DEFAULT_WIDTH;
+  ctx->height       = DEFAULT_HEIGHT;
   ctx->stream_count = DEFAULT_NUM_OF_STREAM;
-  ctx->output_file = const_cast<gchar *> (DEFAULT_OUTPUT_FILENAME);
+  ctx->output_file  = NULL;
 
   return ctx;
 }
@@ -123,9 +159,7 @@ gst_app_context_free (GstMultiStreamAppContext * appctx)
     appctx->pipeline = NULL;
   }
 
-  if (appctx->output_file != NULL &&
-      appctx->output_file != (gchar *)(DEFAULT_OUTPUT_FILENAME))
-    g_free ((gpointer)appctx->output_file);
+  g_clear_pointer (&appctx->output_file, g_free);
 
   if (appctx != NULL)
     g_free ((gpointer)appctx);
@@ -355,7 +389,7 @@ main (gint argc, gchar *argv[])
       &appctx->stream_count, "num_of_streams", "Stream count for single camera" },
     { "output_file", 'o', 0, G_OPTION_ARG_STRING, &appctx->output_file,
       "Output Filename",
-      "-o /etc/media/video_mutistream_out.mp4" },
+      "-o $HOME/Downloads/qimsdk_samples/media/video_mutistream_out.mp4" },
     { NULL, 0, 0, (GOptionArg)0, NULL, NULL, NULL }
   };
 
@@ -385,6 +419,20 @@ main (gint argc, gchar *argv[])
     g_printerr ("\n Failed to create options context!\n");
     gst_app_context_free (appctx);
     return -1;
+  }
+
+  if (appctx->output_file == NULL) {
+    if (!create_qimsdk_media_dir ()) {
+      gst_app_context_free (appctx);
+      return -1;
+    }
+
+    appctx->output_file = DEFAULT_OP_MP4_FILENAME;
+    if (appctx->output_file == NULL) {
+      g_printerr ("\n Failed to build default output file path.\n");
+      gst_app_context_free (appctx);
+      return -1;
+    }
   }
 
   // Initialize GST library.
