@@ -72,6 +72,7 @@ namespace camera = qmmf;
 #define OUTPUT_HEIGHT            1080
 #define DELAY_TO_START_RECORDING 30
 #define RECORD_DURATION          30
+#define MP4MUX_DRAIN_MARGIN_SECONDS 60
 #define JPEG_SNAPHOT_WIDTH       1920
 #define JPEG_SNAPHOT_HEIGHT      1080
 #define RAW_SNAPHOT_WIDTH        1920
@@ -107,6 +108,7 @@ struct _GstStreamInf {
   GstElement *appsink;
   GstPad *qmmf_pad;
   GstCaps *qmmf_caps;
+  gulong new_sample_handler_id;
   gint width;
   gint height;
   gboolean is_dummy;
@@ -166,6 +168,8 @@ struct _GstAppContext {
   GCond live_pts_signal;
   // Source ID
   guint process_src_id;
+  GCond queued_buffers_drained_signal;
+  gboolean queued_buffers_drained;
   // Duration control based on frame timestamps
   GstClockTime recording_start_pts;
   GstClockTime recording_end_pts;
@@ -602,6 +606,33 @@ check_for_exit (GstAppContext * appctx)
   return FALSE;
 }
 
+static void
+signal_queued_buffers_drained (GstAppContext *appctx)
+{
+  if (!appctx)
+    return;
+
+  g_mutex_lock (&appctx->lock);
+  appctx->queued_buffers_drained = TRUE;
+  g_mutex_unlock (&appctx->lock);
+  g_cond_signal (&appctx->queued_buffers_drained_signal);
+}
+
+static void
+wait_for_queued_buffers_drained (GstAppContext *appctx)
+{
+  if (!appctx)
+    return;
+
+  g_mutex_lock (&appctx->lock);
+  while (!appctx->queued_buffers_drained && !appctx->exit) {
+    gint64 wait_time = g_get_monotonic_time () + G_GINT64_CONSTANT (1000000);
+    g_cond_wait_until (&appctx->queued_buffers_drained_signal, &appctx->lock,
+        wait_time);
+  }
+  g_mutex_unlock (&appctx->lock);
+}
+
 // Wait for end of streaming
 static gboolean
 wait_for_eos (GstAppContext * appctx)
@@ -660,6 +691,7 @@ handle_interrupt_signal (gpointer userdata)
   // Signal any waiting threads
   g_print ("[INFO] Signaling EOS condition to waiting threads\n");
   g_cond_signal (&appctx->eos_signal);
+  g_cond_signal (&appctx->queued_buffers_drained_signal);
 
   if (appctx->mloop && g_main_loop_is_running (appctx->mloop)) {
     g_print ("[INFO] Quitting main loop\n");
@@ -970,8 +1002,12 @@ create_encoder_stream (GstAppContext * appctx, GstStreamInf * stream,
       1000000, NULL);
   g_object_set (G_OBJECT (stream->mp4mux), "reserved-bytes-per-sec", 10000,
       NULL);
-  g_object_set (G_OBJECT (stream->mp4mux), "reserved-max-duration", 8000000000,
-      NULL);
+  const guint64 reserved_duration =
+      ((guint64) appctx->delay_to_start_recording +
+       (guint64) appctx->record_duration +
+       MP4MUX_DRAIN_MARGIN_SECONDS) * GST_SECOND;
+  g_object_set (G_OBJECT (stream->mp4mux), "reserved-max-duration",
+      reserved_duration, NULL);
 
   snprintf (temp_str, sizeof (temp_str), "/data/video_live_data_%d.mp4",
       output_cnt++);
@@ -1096,8 +1132,9 @@ create_appsink_stream (GstAppContext * appctx, GstStreamInf * stream,
   // Set caps the the caps filter
   g_object_set (G_OBJECT (stream->capsfilter), "caps", stream->qmmf_caps, NULL);
   gst_app_sink_set_emit_signals (GST_APP_SINK (stream->appsink), TRUE);
-  g_signal_connect (stream->appsink, "new-sample", G_CALLBACK (on_new_sample),
-      appctx);
+  stream->new_sample_handler_id =
+      g_signal_connect (stream->appsink, "new-sample",
+          G_CALLBACK (on_new_sample), appctx);
 
   // Add the elements to the pipeline
   gst_bin_add_many (GST_BIN (appctx->main_pipeline),
@@ -1293,6 +1330,15 @@ link_stream (GstAppContext * appctx, GstStreamInf * stream)
 static void
 unlink_stream (GstAppContext * appctx, GstStreamInf * stream)
 {
+  if (stream->appsink) {
+    gst_app_sink_set_emit_signals (GST_APP_SINK (stream->appsink), FALSE);
+    if (stream->new_sample_handler_id != 0) {
+      g_signal_handler_disconnect (stream->appsink,
+          stream->new_sample_handler_id);
+      stream->new_sample_handler_id = 0;
+    }
+  }
+
   /* Deactivate the pad */
   if (stream->qmmf_pad)
     gst_pad_set_active (stream->qmmf_pad, FALSE);
@@ -1604,6 +1650,7 @@ process_queued_buffers (gpointer user_data)
     g_print ("[INFO] Buffer queue empty, sending EOS and stopping\n");
     g_print ("[INFO] Procesing of queued buffers are done.\n");
     gst_object_unref (appsrc);
+    signal_queued_buffers_drained (appctx);
     return FALSE;
   }
 
@@ -1632,6 +1679,9 @@ start_pushing_buffers (gpointer user_data)
   GstAppContext *appctx = static_cast<GstAppContext *> (user_data);
 
   g_print ("[INFO] Starting to push queued buffers to appsrc pipeline\n");
+  g_mutex_lock (&appctx->lock);
+  appctx->queued_buffers_drained = FALSE;
+  g_mutex_unlock (&appctx->lock);
   appctx->process_src_id = g_timeout_add(10, process_queued_buffers, appctx);
 
   return FALSE;
@@ -1860,6 +1910,7 @@ prebuffering_usecase (GstAppContext *appctx)
   start_pushing_buffers (appctx);
 
   // release appsink stream (prebuffered) after switching to live
+  wait_for_queued_buffers_drained (appctx);
   release_stream (appctx, stream_inf_1);
   release_stream (appctx, stream_inf_2);
 
@@ -1954,6 +2005,7 @@ main (gint argc, gchar * argv[])
   g_mutex_init (&appctx->lock);
   g_cond_init (&appctx->eos_signal);
   g_cond_init (&appctx->live_pts_signal);
+  g_cond_init (&appctx->queued_buffers_drained_signal);
   appctx->stream_cnt = 0;
   appctx->camera_id = 2;
   appctx->height = OUTPUT_HEIGHT;
@@ -1964,6 +2016,7 @@ main (gint argc, gchar * argv[])
   appctx->usecase_fn = prebuffering_usecase;
   appctx->first_live_pts = GST_CLOCK_TIME_NONE;
   appctx->switch_to_live = FALSE;
+  appctx->queued_buffers_drained = FALSE;
   appctx->record_duration = RECORD_DURATION;
   // Initialize duration control fields
   appctx->recording_start_pts = GST_CLOCK_TIME_NONE;
@@ -2405,6 +2458,7 @@ main (gint argc, gchar * argv[])
   g_mutex_clear (&appctx->lock);
   g_cond_clear (&appctx->eos_signal);
   g_cond_clear(&appctx->live_pts_signal);
+  g_cond_clear (&appctx->queued_buffers_drained_signal);
 
   // Cleanup pipelines
   if (appctx->appsrc_pipeline)
