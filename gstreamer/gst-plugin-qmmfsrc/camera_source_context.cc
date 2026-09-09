@@ -4042,30 +4042,36 @@ gst_qmmf_context_get_camera_param (GstQmmfContext * context, guint param_id,
     }
     case PARAM_CAMERA_VIDEO_METADATA:
     {
-      ::camera::CameraMetadata *meta = new ::camera::CameraMetadata();
+      ::camera::CameraMetadata *meta = NULL;
 
-      if (context->state >= GST_STATE_READY)
+      if (context->state >= GST_STATE_READY) {
+        meta = new ::camera::CameraMetadata ();
         recorder->GetCameraParam (context->camera_id, *meta);
+      }
 
       g_value_set_pointer (value, meta);
       break;
     }
     case PARAM_CAMERA_IMAGE_METADATA:
     {
-      ::camera::CameraMetadata *meta = new ::camera::CameraMetadata();
+      ::camera::CameraMetadata *meta = NULL;
 
-      if (context->state >= GST_STATE_READY)
+      if (context->state >= GST_STATE_READY) {
+        meta = new ::camera::CameraMetadata ();
         recorder->GetDefaultCaptureParam (context->camera_id, *meta);
+      }
 
       g_value_set_pointer (value, meta);
       break;
     }
     case PARAM_CAMERA_STATIC_METADATA:
     {
-      ::camera::CameraMetadata *meta = new ::camera::CameraMetadata();
+      ::camera::CameraMetadata *meta = NULL;
 
-      if (context->state >= GST_STATE_READY)
+      if (context->state >= GST_STATE_READY) {
+        meta = new ::camera::CameraMetadata ();
         recorder->GetCameraCharacteristics (context->camera_id, *meta);
+      }
 
       g_value_set_pointer (value, meta);
       break;
