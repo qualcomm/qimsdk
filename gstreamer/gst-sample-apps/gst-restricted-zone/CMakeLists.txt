@@ -17,6 +17,9 @@ pkg_check_modules(GST_SDP
 
 pkg_check_modules(JSON_GLIB REQUIRED json-glib-1.0)
 
+# Add config files
+file(GLOB CONFIG_FILE *.json)
+
 # Check for libsoup version
 pkg_search_module(GST_SOUP QUIET libsoup-3.0)
 if (GST_SOUP_FOUND)
@@ -73,3 +76,5 @@ install(
               GROUP_EXECUTE GROUP_READ
               WORLD_EXECUTE WORLD_READ
 )
+
+install(FILES ${CONFIG_FILE} DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_CONFIG})

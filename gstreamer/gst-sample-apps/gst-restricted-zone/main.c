@@ -18,7 +18,8 @@
  *   element is created, configured, added to the bin, and linked explicitly in
  *   C/C++. This keeps the code close to how production applications are usually
  *   structured and makes ownership, dynamic pads, bus handling, and error paths
- *   visible to the reader.
+ *   visible to the reader. The user can provide the polygon figure,
+ *   representing the restricted zone, through a .json config file.
  *
  * Supported inputs:
  *   --input-type=usb   --input-config=/dev/video0
@@ -26,7 +27,10 @@
  *   --input-type=rtsp  --input-config=rtsp://...
  *   --input-type=file  --input-config=/path/to/video.mp4
  *
- * Supported outputs:
+ * Custom polygon config path:
+ *   --polygon-config-path (Default value: /etc/configs/polygon_config.json)
+ *
+ *  Supported outputs:
  *   --output-type=none
  *   --output-type=file    --output-config=/path/to/output.mp4
  *   --output-type=rtsp    --output-config=8554
@@ -41,6 +45,7 @@
  *   ./gst-restricted-zone \
  *       --input-type=usb \
  *       --input-config=/dev/video0 \
+ *       --polygon-config-path=/etc/configs/polygon_config.json \
  *       --width=1280 \
  *       --height=720 \
  *       --framerate=30 \
@@ -78,6 +83,7 @@
 #define DEFAULT_FRAMERATE 30
 #define DEFAULT_RTSP_LATENCY_MS 200
 #define DEFAULT_WEBRTC_ID 1010
+#define DEFAULT_POLYGON_CONFIG_PATH "/etc/configs/polygon_config.json"
 
 #define QUEUE_COUNT 8
 #define TEE_COUNT 2
@@ -115,6 +121,7 @@ typedef struct GstAppConfig
   gchar *output_type;
   gchar *output_config;
   gchar *model_base_path;
+  gchar *polygon_config_path;
   gboolean no_display;
   gint width;
   gint height;
@@ -947,6 +954,10 @@ gst_app_config_apply_defaults (GstAppConfig * config)
 
   if (config->webrtc_id <= 0)
     config->webrtc_id = DEFAULT_WEBRTC_ID;
+
+  if (config->polygon_config_path == NULL) {
+    config->polygon_config_path = g_strdup (DEFAULT_POLYGON_CONFIG_PATH);
+  }
 }
 
 /*
@@ -1014,6 +1025,7 @@ gst_app_config_free (GstAppConfig * config)
   g_free (config->output_type);
   g_free (config->output_config);
   g_free (config->model_base_path);
+  g_free (config->polygon_config_path);
 }
 
 /*
@@ -1710,6 +1722,83 @@ error:
 }
 
 /*
+ * Load polygon configuration from a JSON file.
+ *
+ * Expected JSON format:
+ * {
+ *   "polygon_edges": [
+ *     [x1, y1],
+ *     [x2, y2],
+ *     ...
+ *   ],
+ *   "color": "0xAARRGGBB"
+ * }
+ *
+ * The function converts the polygon array into the string format expected
+ * by the downstream components:
+ *
+ *   <<x1,y1>,<x2,y2>,...,<xn,yn>>
+ *
+ * and returns both the polygon string and color string through the output
+ * parameters. The caller becomes the owner of the returned strings and must
+ * free them using g_free().
+ *
+ * Returns:
+ *   TRUE  - configuration loaded and parsed successfully.
+ *   FALSE - failed to load or parse the configuration file.
+ */
+static gboolean
+load_polygon_config (const gchar *config_path, gchar **polygon_str,
+    gchar **color_str)
+{
+  JsonParser *parser;
+  JsonObject *root;
+  JsonArray *polygon;
+  GString *polygon_builder;
+  GError *error = NULL;
+
+  g_return_val_if_fail (polygon_str != NULL, FALSE);
+  g_return_val_if_fail (color_str != NULL, FALSE);
+
+  *polygon_str = NULL;
+  *color_str = NULL;
+
+  parser = json_parser_new ();
+
+  if (!json_parser_load_from_file (parser, config_path, &error)) {
+      g_warning ("Failed to load '%s': %s", config_path, error->message);
+      g_clear_error (&error);
+      g_object_unref (parser);
+      return FALSE;
+  }
+
+  root = json_node_get_object (json_parser_get_root (parser));
+  polygon = json_object_get_array_member (root, "polygon_edges");
+  polygon_builder = g_string_new ("<");
+
+  for (guint i = 0; i < json_array_get_length (polygon); i++) {
+    JsonArray *point = json_array_get_array_element (polygon, i);
+
+    gint x = json_array_get_int_element (point, 0);
+    gint y = json_array_get_int_element (point, 1);
+
+    if (i > 0)
+        g_string_append_c (polygon_builder, ',');
+
+    g_string_append_printf (polygon_builder, "<%d,%d>", x, y);
+  }
+
+  g_string_append (polygon_builder, ">");
+
+  *polygon_str = g_string_free (polygon_builder, FALSE);
+  *color_str = g_strdup (json_object_get_string_member (root, "color"));
+
+  g_object_unref (parser);
+
+  return TRUE;
+}
+
+/*
  * Create the demo-specific pipeline section.
  *
  * Documentation examples should replace ONLY this function body. The function
@@ -1743,10 +1832,19 @@ gst_app_create_user_pipe (GstAppContext * appctx, GstElement * input_tail,
   GstElement *tee[TEE_COUNT], *queue[QUEUE_COUNT];
   GstCaps *pad_filter = NULL;
   gchar element_name[128];
+  gchar *polygon = NULL, *color = NULL;
+
+  if (!load_polygon_config (appctx->config.polygon_config_path, &polygon, &color)) {
+    g_printerr ("ERROR: Failed to get polygon edges and color.\n");
+    return FALSE;
+  }
+
+  g_print ("INFO: Using polygon-config-path: %s polygon: %s, color: %s\n",
+    appctx->config.polygon_config_path, polygon, color);
 
   gchar *overlay_rz =
-      g_strdup ("{(structure)\"Zone1,polygon=<<640,420>,<687,408>,<843,476>,"
-                "<848,528>,<937,583>,<641,729>>,color=0x7F00007F;\"}");
+      g_strdup_printf ("{(structure)\"Zone1,polygon=%s,color=%s;\"}", polygon,
+        color);
 
   /* Create processing elements */
   g_print ("Creating elements...\n");
@@ -1851,10 +1949,12 @@ gst_app_create_user_pipe (GstAppContext * appctx, GstElement * input_tail,
   g_object_set (G_OBJECT (postprocess_caps), "caps", pad_filter, NULL);
   gst_caps_unref (pad_filter);
 
-  g_object_set (G_OBJECT (qtirestrictedzonedbg),
-    "zone-config",
-    "Zones,Zone1=<<640,420>,<687,408>,<843,476>,<848,528>,<937,583>,<641,729>>;",
-    NULL);
+  gchar *zone_config = g_strdup_printf ("Zones,Zone1=%s;", polygon);
+
+  g_object_set (G_OBJECT (qtirestrictedzonedbg), "zone-config", zone_config,
+      NULL);
+
+  g_free (zone_config);
 
   g_object_set (G_OBJECT (qtivoverlay), "masks", overlay_rz, NULL);
 
@@ -2258,6 +2358,8 @@ main (int argc, char * argv[])
       "Input type: usb, isp, rtsp or file", "TYPE" },
     { "input-config", 0, 0, G_OPTION_ARG_STRING, &appctx.config.input_config,
       "Input config: /dev/videoX, rtsp://..., or file path", "CONFIG" },
+    { "polygon-config-path", 0, 0, G_OPTION_ARG_STRING, &appctx.config.polygon_config_path,
+      "Polygon config path: /etc/configs/polygon_config.json", "PATH" },
     { "output-type", 0, 0, G_OPTION_ARG_STRING, &appctx.config.output_type,
       "Output type: none, file, rtsp or webrtc", "TYPE" },
     { "output-config", 0, 0, G_OPTION_ARG_STRING, &appctx.config.output_config,
