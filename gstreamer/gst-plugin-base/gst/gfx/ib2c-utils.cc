@@ -83,7 +83,10 @@ int32_t QueryAlignment() {
         return kAlignment;
       }
 
-      void *handle = dlopen("libadreno_utils.so.1", RTLD_NOW);
+      void *handle = dlopen("libadreno-utils.so.1", RTLD_NOW);
+
+      if (nullptr == handle)
+        handle = dlopen("libadreno_utils.so.1", RTLD_NOW);
 
       if (nullptr == handle)
         throw Exception(e.what(), "Fallback to Adreno utils. Failed to load "
