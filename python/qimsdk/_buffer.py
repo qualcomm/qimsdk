@@ -29,26 +29,13 @@ class Buffer:
         else:
             self._buf = None
 
-    @classmethod
-    def from_readable_sample(cls, sample: Any) -> Buffer:
-        """Creates a Buffer wrapper from the GstBuffer inside a GstSample.
-
-        Args:
-            sample: GstSample to wrap or read. Type: Any.
-
-        Returns:
-            Buffer: Result of the operation.
-        """
-        buf = sample.get_buffer()
-        return cls(gst_buffer=buf)
-
     def data(self) -> memoryview | None:
         """Maps the buffer for reading and returns the payload bytes.
 
         Returns:
             memoryview | None: Result of the operation.
         """
-        if self._buf is None:
+        if not self.valid():
             return None
         flags = self._Gst.MapFlags.WRITE if self.is_writable() else self._Gst.MapFlags.READ
         ok, info = self._buf.map(flags)
@@ -65,16 +52,7 @@ class Buffer:
         Returns:
             int: Result of the operation.
         """
-        if self._buf is None:
-            return 0
-        try:
-            return int(self._buf.get_size())
-        except Exception:
-            try:
-                data = self.data()
-                return len(data) if data is not None else 0
-            except Exception:
-                return 0
+        return int(self._buf.get_size()) if self.valid() else 0
 
     def resize(self, n: int) -> None:
         """Resizes the wrapped buffer when it is writable.
@@ -85,7 +63,7 @@ class Buffer:
         Returns:
             None.
         """
-        if self._buf is None:
+        if not self.valid():
             self._buf = self._Gst.Buffer.new_allocate(None, int(n), None)
             return
         new_buf = self._Gst.Buffer.new_allocate(None, int(n), None)
@@ -99,45 +77,6 @@ class Buffer:
                     new_buf.unmap(info)
         self._buf = new_buf
 
-    def set_pts(self, pts_ns: int) -> None:
-        """Sets the presentation timestamp on the wrapped buffer.
-
-        Args:
-            pts_ns: Pts ns value. Type: int.
-
-        Returns:
-            None.
-        """
-        if self._buf is None:
-            return
-        self._buf.pts = pts_ns
-
-    def set_dts(self, dts_ns: int) -> None:
-        """Sets the decode timestamp on the wrapped buffer.
-
-        Args:
-            dts_ns: Dts ns value. Type: int.
-
-        Returns:
-            None.
-        """
-        if self._buf is None:
-            return
-        self._buf.dts = dts_ns
-
-    def set_duration(self, duration_ns: int) -> None:
-        """Sets the duration on the wrapped buffer.
-
-        Args:
-            duration_ns: Duration ns value. Type: int.
-
-        Returns:
-            None.
-        """
-        if self._buf is None:
-            return
-        self._buf.duration = duration_ns
-
     @property
     def pts(self) -> int | None:
         """Returns the presentation timestamp.
@@ -145,7 +84,13 @@ class Buffer:
         Returns:
             int | None: Result of the operation.
         """
-        return self._buf.pts if self._buf is not None else None
+        return self._buf.pts if self.valid() else None
+
+    @pts.setter
+    def pts(self, pts_ns: int) -> None:
+        """Sets the presentation timestamp on the wrapped buffer."""
+        if self.valid():
+            self._buf.pts = pts_ns
 
     @property
     def dts(self) -> int | None:
@@ -154,7 +99,13 @@ class Buffer:
         Returns:
             int | None: Result of the operation.
         """
-        return self._buf.dts if self._buf is not None else None
+        return self._buf.dts if self.valid() else None
+
+    @dts.setter
+    def dts(self, dts_ns: int) -> None:
+        """Sets the decode timestamp on the wrapped buffer."""
+        if self.valid():
+            self._buf.dts = dts_ns
 
     @property
     def duration(self) -> int | None:
@@ -163,7 +114,13 @@ class Buffer:
         Returns:
             int | None: Result of the operation.
         """
-        return self._buf.duration if self._buf is not None else None
+        return self._buf.duration if self.valid() else None
+
+    @duration.setter
+    def duration(self, duration_ns: int) -> None:
+        """Sets the duration on the wrapped buffer."""
+        if self.valid():
+            self._buf.duration = duration_ns
 
     def is_writable(self) -> bool:
         """Returns whether the wrapped GstBuffer is writable.
@@ -171,12 +128,7 @@ class Buffer:
         Returns:
             bool: Result of the operation.
         """
-        if self._buf is None:
-            return False
-        try:
-            return bool(self._buf.is_writable())
-        except Exception:
-            return False
+        return self.valid() and bool(self._buf.is_writable())
 
     def is_readonly(self) -> bool:
         """Returns whether the wrapped GstBuffer is read-only.
@@ -186,6 +138,18 @@ class Buffer:
         """
         return self.valid() and not self.is_writable()
 
+    def make_writable(self) -> bool:
+        """Ensures the payload is writable, copying the buffer if it is shared.
+
+        Returns:
+            bool: True when the buffer is writable afterwards.
+        """
+        if not self.valid():
+            return False
+        if not self.is_writable():
+            self._buf = self._buf.copy()
+        return self.is_writable()
+
     def valid(self) -> bool:
         """Returns whether this wrapper currently contains a GstBuffer.
 
@@ -194,7 +158,7 @@ class Buffer:
         """
         return self._buf is not None
 
-    def take_gst_buffer(self) -> Any | None:
+    def get_raw_buffer(self) -> Any | None:
         """Transfers the wrapped GstBuffer reference and clears this wrapper.
 
         Returns:
@@ -203,25 +167,3 @@ class Buffer:
         buf = self._buf
         self._buf = None
         return buf
-
-    def refill_for_appsrc(self, n: int) -> None:
-        """Stores a replacement GstBuffer after appsrc consumes the current buffer.
-
-        Args:
-            n: Numerator value. Type: int.
-
-        Returns:
-            None.
-        """
-        self._buf = self._Gst.Buffer.new_allocate(None, int(n), None)
-
-    def wrap_from_sample(self, sample: Any) -> None:
-        """Replaces the current buffer with the buffer contained in a GstSample.
-
-        Args:
-            sample: GstSample to wrap or read. Type: Any.
-
-        Returns:
-            None.
-        """
-        self._buf = sample.get_buffer() if sample is not None else None

@@ -15,11 +15,8 @@ class Buffer {
  public:
   // Create an empty buffer wrapper.
   Buffer();
-  // Allocate a buffer with the requested payload size.
+  // Allocate a writable buffer with the requested payload size.
   explicit Buffer(size_t size);
-
-  // Wrap a readable GstSample and expose its payload/metadata as Buffer.
-  static Buffer from_readable_sample(void* gst_sample_opaque);
 
   // Mutable payload access.
   uint8_t* data();
@@ -49,15 +46,12 @@ class Buffer {
   bool is_writable() const;
   // Returns true when underlying memory is read-only.
   bool is_readonly() const;
+  // Ensure the payload is writable, copying the underlying memory if it is
+  // currently shared. Returns true when the buffer is writable afterwards.
+  // Any pointer previously returned by data() is invalidated; re-fetch it.
+  bool make_writable();
   // Returns true when this wrapper currently references valid data.
   bool valid() const;
-
-  // Transfer ownership of underlying GstBuffer to caller.
-  void* take_gst_buffer();
-  // Prepare buffer storage for appsrc producer callbacks.
-  void refill_for_appsrc(size_t n);
-  // Rebind this wrapper to a sample payload (internal use).
-  void wrap_from_sample(void* sample);
 
   Buffer(const Buffer&) = delete;
   Buffer& operator=(const Buffer&) = delete;
@@ -67,10 +61,16 @@ class Buffer {
 
   ~Buffer();
 
+ private:
+  // Take ownership of a GstBuffer. Used by element wrappers to hand samples
+  // to the application.
+  explicit Buffer(void* gst_buffer_opaque);
+  // Transfer ownership of the underlying GstBuffer to the caller.
+  void* get_raw_buffer();
+
   friend class AppSrc;
   friend class AppSink;
 
- private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

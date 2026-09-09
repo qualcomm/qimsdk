@@ -86,6 +86,16 @@ struct AppSink::Impl {
     return self;
   }
 
+  // Extract the sample's payload as an owned Buffer and release the sample.
+  // The Buffer derives its own writability (samples are typically shared, so
+  // read-only). Returns an invalid Buffer if the sample carries no buffer.
+  static qti::Buffer buffer_from_sample(GstSample* sample) {
+    GstBuffer* b = gst_sample_get_buffer(sample);
+    GstBuffer* owned = b ? gst_buffer_ref(b) : nullptr;
+    gst_sample_unref(sample);
+    return qti::Buffer(owned);
+  }
+
   static GstFlowReturn on_new_sample(GstElement* /*unused*/, gpointer ud) {
     auto* self = static_cast<Impl*>(ud);
     if (!self) return GST_FLOW_ERROR;
@@ -95,17 +105,12 @@ struct AppSink::Impl {
     if (!sample) return GST_FLOW_EOS;
 
     try {
-      qti::Buffer b =
-        qti::Buffer::from_readable_sample(static_cast<void*>(sample));
+      qti::Buffer b = buffer_from_sample(sample);
       if (self->consumer_) {
         self->consumer_(std::move(b));
       }
-      else {
-        gst_sample_unref(sample);
-      }
     }
     catch (...) {
-      if (sample) gst_sample_unref(sample);
       return GST_FLOW_ERROR;
     }
 
@@ -122,17 +127,12 @@ struct AppSink::Impl {
 
     bool ok = true;
     try {
+      qti::Buffer b = buffer_from_sample(sample);
       if (self->preroll_) {
-        qti::Buffer b =
-          qti::Buffer::from_readable_sample(static_cast<void*>(sample));
         ok = self->preroll_(std::move(b));
-      }
-      else {
-        gst_sample_unref(sample);
       }
     }
     catch (...) {
-      if (sample) gst_sample_unref(sample);
       return GST_FLOW_ERROR;
     }
 

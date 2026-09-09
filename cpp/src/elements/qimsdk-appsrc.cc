@@ -75,7 +75,7 @@ struct AppSrc::Impl {
   }
 
   bool push_buffer(qti::Buffer& buffer) {
-    GstBuffer* raw = static_cast<GstBuffer*>(buffer.take_gst_buffer());
+    GstBuffer* raw = static_cast<GstBuffer*>(buffer.get_raw_buffer());
     if (!raw) {
       if (buffer.size() == 0 || buffer.data() == nullptr) {
         return false;
@@ -115,8 +115,7 @@ struct AppSrc::Impl {
     try {
       if (!self->producer_) return;
 
-      qti::Buffer buf;
-      buf.refill_for_appsrc(length);
+      qti::Buffer buf(length);
 
       const bool should_push = self->producer_(buf);
       if (should_push) {

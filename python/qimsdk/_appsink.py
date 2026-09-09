@@ -114,7 +114,7 @@ class AppSink(Element):
             return self._Gst.FlowReturn.EOS
         try:
             if self._buffer_handler:
-                self._buffer_handler(Buffer.from_readable_sample(sample))
+                self._buffer_handler(Buffer(gst_buffer=sample.get_buffer()))
             return self._Gst.FlowReturn.OK
         except Exception:
             return self._Gst.FlowReturn.ERROR
@@ -138,7 +138,7 @@ class AppSink(Element):
             return self._Gst.FlowReturn.EOS
         try:
             ok = (
-                self._preroll_handler(Buffer.from_readable_sample(sample))
+                self._preroll_handler(Buffer(gst_buffer=sample.get_buffer()))
                 if self._preroll_handler
                 else True
             )

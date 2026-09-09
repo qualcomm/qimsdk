@@ -124,7 +124,7 @@ class AppSrc(Element):
         Returns:
             bool: Result of the operation.
         """
-        gst_buffer = buffer.take_gst_buffer()
+        gst_buffer = buffer.get_raw_buffer()
         if gst_buffer is None:
             return False
         res = self._elem.emit("push-buffer", gst_buffer)
