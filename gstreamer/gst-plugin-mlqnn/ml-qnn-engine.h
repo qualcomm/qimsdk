@@ -10,6 +10,8 @@
 #include <gst/ml/ml-info.h>
 #include <gst/ml/ml-frame.h>
 
+G_BEGIN_DECLS
+
 /**
  * GST_ML_QNN_ENGINE_OPT_MODEL:
  *
@@ -50,14 +52,30 @@
  */
 #define GST_ML_QNN_ENGINE_OPT_OUTPUTS "GstMLQNNEngine.outputs"
 
+/**
+ * GST_ML_QNN_ENGINE_OPT_BACKEND_OPTIONS:
+ *
+ * #GST_TYPE_STRUCTURE, backend specific options. Currently supports a "htp"
+ * structure with a "perf-mode" field, either as a string name (e.g. "burst",
+ * "power-saver") or as its underlying integer value. Sets the HTP DCVS
+ * performance mode, which configures a distinct combination of core/bus
+ * voltage corners, sleep latency and RPC polling behavior, as defined in the
+ * QNN HTP backend documentation. Recognised names, in increasing performance
+ * order: extreme-power-saver (1), low-power-saver (2), power-saver (3),
+ * high-power-saver (4), low-balanced (5), balanced (6), high-performance (7),
+ * sustained-high-performance (8), burst (9). Leaving "perf-mode" unset
+ * leaves the HTP DCVS settings untouched.
+ * Default: NULL
+ */
+#define GST_ML_QNN_ENGINE_OPT_BACKEND_OPTIONS \
+    "GstMLQNNEngine.backend_options"
+
 #define GET_OPT_MODEL(s) \
   gst_structure_get_string (s, GST_ML_QNN_ENGINE_OPT_MODEL)
 #define GET_OPT_BACKEND(s) \
   gst_structure_get_string (s, GST_ML_QNN_ENGINE_OPT_BACKEND)
 #define GET_OPT_SYSLIB(s) \
   gst_structure_get_string (s, GST_ML_QNN_ENGINE_OPT_SYSLIB)
-
-G_BEGIN_DECLS
 
 typedef struct _GstMLQnnEngine GstMLQnnEngine;
 

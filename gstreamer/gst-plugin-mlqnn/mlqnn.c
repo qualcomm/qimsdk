@@ -27,6 +27,7 @@ G_DEFINE_TYPE (GstMLQnn, gst_ml_qnn, GST_TYPE_BASE_TRANSFORM);
 #define PROP_QNN_SYSTEM_DEFAULT         "/usr/lib/libQnnSystem.so"
 #define PROP_QNN_MODEL_DEFAULT          NULL
 #define PROP_BACKEND_DEVICE_ID_DEFAULT  0
+#define PROP_BACKEND_OPTIONS_DEFAULT    NULL
 
 #define DEFAULT_PROP_MIN_BUFFERS  2
 #define DEFAULT_PROP_MAX_BUFFERS  10
@@ -49,6 +50,7 @@ enum
   PROP_QNN_SYSTEM,
   PROP_BACKEND_DEVICE_ID,
   PROP_TENSORS,
+  PROP_BACKEND_OPTIONS,
 };
 
 static GstStaticCaps gst_ml_qnn_static_caps = GST_STATIC_CAPS (GST_ML_QNN_CAPS);
@@ -436,6 +438,8 @@ gst_ml_qnn_change_state (GstElement * element, GstStateChange transition)
           GST_ML_QNN_ENGINE_OPT_BACKEND_DEVICE_ID, G_TYPE_UINT,
           mlqnn->backend_device_id,
           GST_ML_QNN_ENGINE_OPT_OUTPUTS, G_TYPE_POINTER, mlqnn->outputs,
+          GST_ML_QNN_ENGINE_OPT_BACKEND_OPTIONS, GST_TYPE_STRUCTURE,
+          mlqnn->backend_options,
           NULL);
 
       mlqnn->engine = gst_ml_qnn_engine_new (settings);
@@ -566,6 +570,10 @@ gst_ml_qnn_set_property (GObject * object, guint property_id,
     case PROP_BACKEND_DEVICE_ID:
       mlqnn->backend_device_id = g_value_get_uint (value);
       break;
+    case PROP_BACKEND_OPTIONS:
+      g_clear_pointer (&mlqnn->backend_options, gst_structure_free);
+      mlqnn->backend_options = GST_STRUCTURE_CAST (g_value_dup_boxed (value));
+      break;
     case PROP_TENSORS:
     {
       guint idx = 0;
@@ -604,6 +612,10 @@ gst_ml_qnn_get_property (GObject * object, guint property_id,
       break;
     case PROP_BACKEND_DEVICE_ID:
       g_value_set_uint (value, mlqnn->backend_device_id);
+      break;
+    case PROP_BACKEND_OPTIONS:
+      if (mlqnn->backend_options)
+        g_value_set_boxed (value, mlqnn->backend_options);
       break;
     case PROP_TENSORS:
     {
@@ -649,6 +661,8 @@ gst_ml_qnn_finalize (GObject * object)
 
   g_list_free_full (mlqnn->outputs, (GDestroyNotify) g_free);
 
+  g_clear_pointer (&mlqnn->backend_options, gst_structure_free);
+
   G_OBJECT_CLASS (gst_ml_qnn_parent_class)->finalize (object);
 }
 
@@ -687,6 +701,12 @@ gst_ml_qnn_class_init (GstMLQnnClass * klass)
               "Name of the output tensor.", NULL,
               G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS),
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  g_object_class_install_property (gobject_class, PROP_BACKEND_OPTIONS,
+      g_param_spec_boxed ("backend-options", "Backend Options",
+          "Backend specific options, e.g. \"htp,perf-mode=burst\" or "
+          "\"htp,perf-mode=6\" to set the HTP DCVS performance mode.",
+          GST_TYPE_STRUCTURE,
+          G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
       "QNN based ML plugin", "QNN", "QNN based ML plugin", "QTI");
 
@@ -718,6 +738,7 @@ gst_ml_qnn_init (GstMLQnn * mlqnn)
   mlqnn->backend = NULL;
   mlqnn->syslib = NULL;
   mlqnn->outputs = NULL;
+  mlqnn->backend_options = PROP_BACKEND_OPTIONS_DEFAULT;
 
   g_strlcpy (mlqnn->hw_util, "N/A", sizeof (mlqnn->hw_util));
 
