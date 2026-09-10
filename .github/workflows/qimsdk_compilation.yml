@@ -1,0 +1,60 @@
+name: QIMSDK_UAT_Compilation
+run-name: "${{ github.event_name == 'pull_request' && format('QIMSDK UAT Compilation: #{0}', github.event.pull_request.number) || '' }}"
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  # Forked pull_request runs never receive repo secrets, so this job just
+  # records which commit to build. The actual build (which needs secrets to
+  # download the SDK and upload artifacts) runs from qimsdk_compilation_pr.yml,
+  # triggered via workflow_run once this job finishes.
+  save-pr-context:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Save PR number and head SHA
+        run: |
+          mkdir -p pr
+          echo "${{ github.event.pull_request.number }}" > pr/NR
+          echo "${{ github.event.pull_request.head.sha }}" > pr/SHA
+
+      - name: Upload PR context
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-context
+          path: pr/
+
+  init:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      sdk-url: ${{ steps.urls.outputs.sdk-url }}
+      image-urls: ${{ steps.urls.outputs.image-urls }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Resolve SDK URL from latest wrynose nightly
+        id: urls
+        uses: qualcomm/gst-plugins-imsdk/.github/actions/resolve-nightly-download-url@main
+        with:
+          token: ${{ secrets.QUALCOMM_LINUX_PAT }}
+          artifact-token: ${{ secrets.S3_WEBAPP_TOKEN }}
+  build:
+    if: github.event_name != 'pull_request'
+    needs: init
+    uses: ./.github/workflows/qimsdk-build.yml
+    with:
+      ref: ${{ github.sha }}
+      sdk-url: ${{ needs.init.outputs.sdk-url }}
+      image-urls: ${{ needs.init.outputs.image-urls }}
+    secrets:
+      s3-webapp-token: ${{ secrets.S3_WEBAPP_TOKEN }}
