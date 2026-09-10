@@ -18,6 +18,7 @@
 #include <gst/ml/gstmlmeta.h>
 
 #include <QnnInterface.h>
+#include <HTP/QnnHtpDevice.h>
 #include <System/QnnSystemInterface.h>
 #include <System/QnnSystemContext.h>
 #include <System/QnnSystemDlc.h>
@@ -211,6 +212,10 @@ struct _GstMLQnnEngine
 
   // Device Platform Information.
   const QnnDevice_PlatformInfo_t *device_platform;
+
+  // QNN HTP power configuration id, used to set the DCVS performance mode.
+  uint32_t                       power_config_id;
+  gboolean                       has_power_config_id;
 };
 
 static GstDebugCategory *
@@ -237,6 +242,85 @@ gst_ml_qnn_sdk_debug_category (void)
     g_once_init_leave (&catonce, catdone);
   }
   return (GstDebugCategory *) catonce;
+}
+
+// HTP DCVS performance modes, as defined in the QNN HTP backend documentation,
+// set through the "perf-mode" field of a "htp" backend-options structure.
+enum {
+  GST_ML_QNN_HTP_PERF_MODE_DEFAULT = 0,
+  GST_ML_QNN_HTP_PERF_MODE_EXTREME_POWER_SAVER,
+  GST_ML_QNN_HTP_PERF_MODE_LOW_POWER_SAVER,
+  GST_ML_QNN_HTP_PERF_MODE_POWER_SAVER,
+  GST_ML_QNN_HTP_PERF_MODE_HIGH_POWER_SAVER,
+  GST_ML_QNN_HTP_PERF_MODE_LOW_BALANCED,
+  GST_ML_QNN_HTP_PERF_MODE_BALANCED,
+  GST_ML_QNN_HTP_PERF_MODE_HIGH_PERFORMANCE,
+  GST_ML_QNN_HTP_PERF_MODE_SUSTAINED_HIGH_PERFORMANCE,
+  GST_ML_QNN_HTP_PERF_MODE_BURST,
+};
+
+typedef struct {
+  const gchar *name;
+  gint mode;
+} GstMLQnnHtpPerfModeName;
+
+static const GstMLQnnHtpPerfModeName htp_perf_mode_names[] = {
+  { "default", GST_ML_QNN_HTP_PERF_MODE_DEFAULT },
+  { "extreme-power-saver", GST_ML_QNN_HTP_PERF_MODE_EXTREME_POWER_SAVER },
+  { "low-power-saver", GST_ML_QNN_HTP_PERF_MODE_LOW_POWER_SAVER },
+  { "power-saver", GST_ML_QNN_HTP_PERF_MODE_POWER_SAVER },
+  { "high-power-saver", GST_ML_QNN_HTP_PERF_MODE_HIGH_POWER_SAVER },
+  { "low-balanced", GST_ML_QNN_HTP_PERF_MODE_LOW_BALANCED },
+  { "balanced", GST_ML_QNN_HTP_PERF_MODE_BALANCED },
+  { "high-performance", GST_ML_QNN_HTP_PERF_MODE_HIGH_PERFORMANCE },
+  { "sustained-high-performance",
+      GST_ML_QNN_HTP_PERF_MODE_SUSTAINED_HIGH_PERFORMANCE },
+  { "burst", GST_ML_QNN_HTP_PERF_MODE_BURST },
+};
+
+static gboolean
+gst_ml_qnn_parse_htp_perf_mode (const GstStructure *backend_options,
+    gint *mode)
+{
+  const GValue *value = nullptr;
+
+  *mode = GST_ML_QNN_HTP_PERF_MODE_DEFAULT;
+
+  if ((nullptr == backend_options) ||
+      !gst_structure_has_name (backend_options, "htp") ||
+      !gst_structure_has_field (backend_options, "perf-mode"))
+    return TRUE;
+
+  value = gst_structure_get_value (backend_options, "perf-mode");
+
+  if (G_VALUE_HOLDS_STRING (value)) {
+    const gchar *name = g_value_get_string (value);
+
+    for (guint idx = 0; idx < G_N_ELEMENTS (htp_perf_mode_names); idx++) {
+      if (g_strcmp0 (name, htp_perf_mode_names[idx].name) == 0) {
+        *mode = htp_perf_mode_names[idx].mode;
+        return TRUE;
+      }
+    }
+
+    GST_ERROR ("Unknown HTP perf-mode name '%s'!", name);
+    return FALSE;
+  } else if (G_VALUE_HOLDS_INT (value) || G_VALUE_HOLDS_UINT (value)) {
+    gint numeric = G_VALUE_HOLDS_UINT (value) ?
+        (gint) g_value_get_uint (value) : g_value_get_int (value);
+
+    if ((numeric < GST_ML_QNN_HTP_PERF_MODE_DEFAULT) ||
+        (numeric > GST_ML_QNN_HTP_PERF_MODE_BURST)) {
+      GST_ERROR ("HTP perf-mode value %d out of range!", numeric);
+      return FALSE;
+    }
+
+    *mode = numeric;
+    return TRUE;
+  }
+
+  GST_ERROR ("HTP perf-mode must be a string name or an integer value!");
+  return FALSE;
 }
 
 static gboolean
@@ -600,6 +684,205 @@ gst_ml_qnn_create_device_config (GstMLQnnEngine *engine,
 }
 
 static gboolean
+gst_ml_qnn_get_htp_perf_profile_config (gint mode,
+    QnnHtpPerfInfrastructure_SleepLatency_t *sleep_latency,
+    QnnHtpPerfInfrastructure_VoltageCorner_t *voltage_corner,
+    QnnHtpPerfInfrastructure_PowerMode_t *power_mode,
+    gboolean *rpc_polling_on)
+{
+  switch (mode) {
+    case GST_ML_QNN_HTP_PERF_MODE_BURST:
+      *sleep_latency = 40;
+      *voltage_corner = DCVS_VOLTAGE_VCORNER_MAX_VOLTAGE_CORNER;
+      *power_mode = QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_PERFORMANCE_MODE;
+      *rpc_polling_on = TRUE;
+      break;
+    case GST_ML_QNN_HTP_PERF_MODE_SUSTAINED_HIGH_PERFORMANCE:
+    case GST_ML_QNN_HTP_PERF_MODE_HIGH_PERFORMANCE:
+      *sleep_latency = 100;
+      *voltage_corner = DCVS_VOLTAGE_VCORNER_TURBO;
+      *power_mode = QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_PERFORMANCE_MODE;
+      *rpc_polling_on = TRUE;
+      break;
+    case GST_ML_QNN_HTP_PERF_MODE_BALANCED:
+      *sleep_latency = 1000;
+      *voltage_corner = DCVS_VOLTAGE_VCORNER_NOM_PLUS;
+      *power_mode = QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_ADJUST_UP_DOWN;
+      *rpc_polling_on = FALSE;
+      break;
+    case GST_ML_QNN_HTP_PERF_MODE_LOW_BALANCED:
+      *sleep_latency = 1000;
+      *voltage_corner = DCVS_VOLTAGE_VCORNER_NOM;
+      *power_mode = QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_ADJUST_UP_DOWN;
+      *rpc_polling_on = FALSE;
+      break;
+    case GST_ML_QNN_HTP_PERF_MODE_HIGH_POWER_SAVER:
+      *sleep_latency = 1000;
+      *voltage_corner = DCVS_VOLTAGE_VCORNER_SVS_PLUS;
+      *power_mode = QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_POWER_SAVER_MODE;
+      *rpc_polling_on = FALSE;
+      break;
+    case GST_ML_QNN_HTP_PERF_MODE_POWER_SAVER:
+      *sleep_latency = 1000;
+      *voltage_corner = DCVS_VOLTAGE_VCORNER_SVS;
+      *power_mode = QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_POWER_SAVER_MODE;
+      *rpc_polling_on = FALSE;
+      break;
+    case GST_ML_QNN_HTP_PERF_MODE_LOW_POWER_SAVER:
+      *sleep_latency = 1000;
+      *voltage_corner = DCVS_VOLTAGE_VCORNER_SVS2;
+      *power_mode = QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_POWER_SAVER_MODE;
+      *rpc_polling_on = FALSE;
+      break;
+    case GST_ML_QNN_HTP_PERF_MODE_EXTREME_POWER_SAVER:
+      *sleep_latency = 1000;
+      *voltage_corner = DCVS_VOLTAGE_CORNER_DISABLE;
+      *power_mode =
+          QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_POWER_SAVER_AGGRESSIVE_MODE;
+      *rpc_polling_on = FALSE;
+      break;
+    default:
+      return FALSE;
+  }
+  return TRUE;
+}
+
+static gboolean
+gst_ml_qnn_get_htp_perf_infrastructure (GstMLQnnEngine *engine,
+    QnnHtpDevice_PerfInfrastructure_t *perf_infra)
+{
+  QnnDevice_Infrastructure_t device_infra = nullptr;
+  QnnHtpDevice_Infrastructure_t *htp_infra = nullptr;
+  Qnn_ErrorHandle_t error = QNN_SUCCESS;
+
+  if (nullptr == engine->interface.deviceGetInfrastructure) {
+    GST_WARNING ("Device infrastructure API not supported by backend!");
+    return FALSE;
+  }
+
+  error = engine->interface.deviceGetInfrastructure (&device_infra);
+
+  if ((QNN_SUCCESS != error) || (nullptr == device_infra)) {
+    GST_WARNING ("Failed to get device infrastructure, error: %ld!",
+        QNN_GET_ERROR_CODE (error));
+    return FALSE;
+  }
+
+  htp_infra = static_cast<QnnHtpDevice_Infrastructure_t *> (device_infra);
+
+  if (QNN_HTP_DEVICE_INFRASTRUCTURE_TYPE_PERF != htp_infra->infraType) {
+    GST_WARNING ("HTP device infrastructure doesn't expose perf interface!");
+    return FALSE;
+  }
+
+  *perf_infra = htp_infra->perfInfra;
+
+  return TRUE;
+}
+
+static gboolean
+gst_ml_qnn_engine_set_htp_performance_mode (GstMLQnnEngine *engine)
+{
+  QnnHtpDevice_PerfInfrastructure_t perf_infra =
+      QNN_HTP_DEVICE_PERF_INFRASTRUCTURE_INIT;
+  QnnHtpPerfInfrastructure_SleepLatency_t sleep_latency = 0;
+  QnnHtpPerfInfrastructure_VoltageCorner_t voltage_corner =
+      DCVS_VOLTAGE_CORNER_DISABLE;
+  QnnHtpPerfInfrastructure_PowerMode_t power_mode =
+      QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_ADJUST_UP_DOWN;
+  gboolean rpc_polling_on = FALSE;
+  guint backend_device_id = 0;
+  GstStructure *backend_options = nullptr;
+  gint mode = GST_ML_QNN_HTP_PERF_MODE_DEFAULT;
+  Qnn_ErrorHandle_t error = QNN_SUCCESS;
+
+  gst_structure_get (engine->settings, GST_ML_QNN_ENGINE_OPT_BACKEND_OPTIONS,
+      GST_TYPE_STRUCTURE, &backend_options, NULL);
+
+  if (!gst_ml_qnn_parse_htp_perf_mode (backend_options, &mode)) {
+    GST_ERROR ("Failed to parse HTP perf-mode from backend-options!");
+    g_clear_pointer (&backend_options, gst_structure_free);
+    return FALSE;
+  }
+
+  g_clear_pointer (&backend_options, gst_structure_free);
+
+  if (GST_ML_QNN_HTP_PERF_MODE_DEFAULT == mode)
+    return TRUE;
+
+  if (!gst_ml_qnn_get_htp_perf_profile_config (
+      mode, &sleep_latency, &voltage_corner, &power_mode, &rpc_polling_on)) {
+    GST_ERROR ("Unknown HTP performance mode %d!", mode);
+    return FALSE;
+  }
+
+  // Device infrastructure or perf interface not exposed by this backend,
+  // silently skip instead of failing engine creation.
+  if (!gst_ml_qnn_get_htp_perf_infrastructure (engine, &perf_infra))
+    return TRUE;
+
+  if ((nullptr == perf_infra.createPowerConfigId) ||
+      (nullptr == perf_infra.setPowerConfig)) {
+    GST_WARNING ("HTP perf infrastructure functions not populated, ignoring "
+        "HTP performance mode request!");
+    return TRUE;
+  }
+
+  gst_structure_get_uint (engine->settings,
+      GST_ML_QNN_ENGINE_OPT_BACKEND_DEVICE_ID, &backend_device_id);
+
+  error = perf_infra.createPowerConfigId (backend_device_id, 0,
+      &(engine->power_config_id));
+
+  if (QNN_SUCCESS != error) {
+    GST_ERROR ("Failed to create HTP power config id, error: %ld!",
+        QNN_GET_ERROR_CODE (error));
+    return FALSE;
+  }
+
+  engine->has_power_config_id = TRUE;
+
+  QnnHtpPerfInfrastructure_PowerConfig_t dcvs_config = {};
+  dcvs_config.option = QNN_HTP_PERF_INFRASTRUCTURE_POWER_CONFIGOPTION_DCVS_V3;
+  dcvs_config.dcvsV3Config.contextId = engine->power_config_id;
+  dcvs_config.dcvsV3Config.setDcvsEnable = 1;
+  dcvs_config.dcvsV3Config.dcvsEnable = 0;
+  dcvs_config.dcvsV3Config.powerMode = power_mode;
+  dcvs_config.dcvsV3Config.setSleepLatency = 1;
+  dcvs_config.dcvsV3Config.sleepLatency = sleep_latency;
+  dcvs_config.dcvsV3Config.setBusParams = 1;
+  dcvs_config.dcvsV3Config.busVoltageCornerMin = voltage_corner;
+  dcvs_config.dcvsV3Config.busVoltageCornerTarget = voltage_corner;
+  dcvs_config.dcvsV3Config.busVoltageCornerMax = voltage_corner;
+  dcvs_config.dcvsV3Config.setCoreParams = 1;
+  dcvs_config.dcvsV3Config.coreVoltageCornerMin = voltage_corner;
+  dcvs_config.dcvsV3Config.coreVoltageCornerTarget = voltage_corner;
+  dcvs_config.dcvsV3Config.coreVoltageCornerMax = voltage_corner;
+
+  QnnHtpPerfInfrastructure_PowerConfig_t rpc_polling_config = {};
+  rpc_polling_config.option =
+      QNN_HTP_PERF_INFRASTRUCTURE_POWER_CONFIGOPTION_RPC_POLLING_TIME;
+  rpc_polling_config.rpcPollingTimeConfig = rpc_polling_on ?
+      QNN_HTP_PERF_INFRASTRUCTURE_POWER_CONFIG_MAX_RPC_POLLING_TIME : 0;
+
+  const QnnHtpPerfInfrastructure_PowerConfig_t *power_configs[] = {
+    &dcvs_config, &rpc_polling_config, nullptr
+  };
+
+  error = perf_infra.setPowerConfig (engine->power_config_id, power_configs);
+
+  if (QNN_SUCCESS != error) {
+    GST_ERROR ("Failed to set HTP power config, error: %ld!",
+        QNN_GET_ERROR_CODE (error));
+    return FALSE;
+  }
+
+  GST_INFO ("HTP performance mode set to %d", mode);
+
+  return TRUE;
+}
+
+static gboolean
 gst_ml_qnn_engine_setup_backend (GstMLQnnEngine *engine)
 {
   gboolean success = TRUE;
@@ -711,6 +994,11 @@ gst_ml_qnn_engine_setup_backend (GstMLQnnEngine *engine)
     GST_DEBUG ("Device created");
   } else if (QNN_DEVICE_ERROR_UNSUPPORTED_FEATURE != status) {
     GST_ERROR ("Could not create device!");
+    return FALSE;
+  }
+
+  if (!gst_ml_qnn_engine_set_htp_performance_mode (engine)) {
+    GST_ERROR ("Failed to set HTP performance mode!");
     return FALSE;
   }
 
@@ -1299,6 +1587,17 @@ gst_ml_qnn_engine_free (GstMLQnnEngine * engine)
   if (engine->interface.deviceFreePlatformInfo && engine->device_platform)
     engine->interface.deviceFreePlatformInfo (nullptr, engine->device_platform);
 
+  if (engine->has_power_config_id) {
+    QnnHtpDevice_PerfInfrastructure_t perf_infra =
+        QNN_HTP_DEVICE_PERF_INFRASTRUCTURE_INIT;
+
+    if (gst_ml_qnn_get_htp_perf_infrastructure (engine, &perf_infra) &&
+        perf_infra.destroyPowerConfigId)
+      perf_infra.destroyPowerConfigId (engine->power_config_id);
+
+    engine->has_power_config_id = FALSE;
+  }
+
   if (engine->interface.contextFree && engine->context)
     engine->interface.contextFree (engine->context, nullptr);
 
@@ -1347,6 +1646,7 @@ gst_ml_qnn_engine_execute (GstMLQnnEngine *engine, GstMLFrame *inframe,
     GstMLFrame *outframe)
 {
   GstMLTensorMeta *mlmeta = NULL;
+  GstClockTime time = GST_CLOCK_TIME_NONE;
   const GraphInfo_t *graph_info = engine->graph_infos[0];
   guint idx = 0, num = 0, size = 0;
 
@@ -1383,11 +1683,19 @@ gst_ml_qnn_engine_execute (GstMLQnnEngine *engine, GstMLFrame *inframe,
     QNN_TENSOR_CLIENTBUF (tensor).dataSize = size;
   }
 
+  time = gst_util_get_timestamp ();
+
   // Execute Graph
   auto status = engine->interface.graphExecute(graph_info->graph,
       graph_info->inputTensors, graph_info->numInputTensors,
       graph_info->outputTensors, graph_info->numOutputTensors, engine->profiler,
       nullptr);
+
+  time = GST_CLOCK_DIFF (time, gst_util_get_timestamp ());
+
+  GST_DEBUG ("Graph Execute time %" G_GINT64_FORMAT ".%03"
+      G_GINT64_FORMAT " ms", GST_TIME_AS_MSECONDS (time),
+      (GST_TIME_AS_USECONDS (time) % 1000));
 
   if (QNN_GRAPH_NO_ERROR != status) {
     GST_ERROR ("Graph execution failed!");
