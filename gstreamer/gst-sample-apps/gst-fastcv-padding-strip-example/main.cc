@@ -26,12 +26,13 @@
  *
  * Usage:
  *   gst-fastcv-padding-strip-example --width=1296 --height=1296 \
- *       --output_path=/etc/media --dumpcount=5
+ *       --output_path=$HOME/Downloads/qimsdk_samples/media --dumpcount=5
  * =============================================================================
  */
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
@@ -49,6 +50,48 @@
 #endif
 
 /* ---------------------------------------------------------------------------
+ * Default media directory helpers
+ * ---------------------------------------------------------------------------*/
+static gchar *
+build_default_output_path(void)
+{
+    const gchar *home_dir = g_getenv("HOME");
+
+    if (home_dir == NULL || *home_dir == '\0')
+        home_dir = g_get_home_dir();
+
+    if (home_dir == NULL || *home_dir == '\0') {
+        g_printerr("[main] HOME directory is not available.\n");
+        return NULL;
+    }
+
+    return g_build_filename(home_dir, "Downloads", "qimsdk_samples",
+                            "media", NULL);
+}
+
+static gboolean
+create_default_media_dir(void)
+{
+    gchar *media_dir = build_default_output_path();
+    gboolean ret = FALSE;
+
+    if (media_dir == NULL) {
+        g_printerr("[main] Unable to build default media directory path.\n");
+        return FALSE;
+    }
+
+    if (g_mkdir_with_parents(media_dir, 0755) != 0 && errno != EEXIST) {
+        g_printerr("[main] Unable to create media directory '%s': %s\n",
+                   media_dir, g_strerror(errno));
+    } else {
+        ret = TRUE;
+    }
+
+    g_free(media_dir);
+    return ret;
+}
+
+/* ---------------------------------------------------------------------------
  * Constants
  * ---------------------------------------------------------------------------*/
 #define DEFAULT_WIDTH    1296
@@ -57,7 +100,6 @@
 #define NV12_UV_SIZE(w,h)  ((size_t)(w) * ((h) / 2))
 #define NV12_FRAME_SIZE(w,h) (NV12_Y_SIZE(w,h) + NV12_UV_SIZE(w,h))
 
-#define DEFAULT_OUTPUT_PATH "/etc/media"
 #define DEFAULT_DUMPCOUNT   5
 
 /* ---------------------------------------------------------------------------
@@ -401,7 +443,7 @@ create_pipe(AppCtx *ctx)
     gst_caps_unref(src_caps);
 
     /* qtivtransform engine=gles */
-    g_object_set(G_OBJECT(qtivtransform), "engine", GST_VCE_BACKEND_GLES, NULL);
+    g_object_set(G_OBJECT(qtivtransform), "engine", GST_VIDEO_CONVERTER_BACKEND_GLES, NULL);
 
     /* Sink-side caps: video/x-raw,format=NV12,width=<w>,height=<h> */
     sink_caps = gst_caps_new_simple("video/x-raw",
@@ -478,8 +520,9 @@ int main(int argc, char *argv[])
     GstStateChangeReturn sc_ret;
     GOptionContext *opt_ctx = NULL;
     GError *opt_err = NULL;
+    gchar *output_path_override = NULL;
+    gboolean using_default_output_path = TRUE;
 
-    ctx.output_path = g_strdup(DEFAULT_OUTPUT_PATH);
     ctx.dumpcount   = DEFAULT_DUMPCOUNT;
     ctx.width       = DEFAULT_WIDTH;
     ctx.height      = DEFAULT_HEIGHT;
@@ -491,9 +534,9 @@ int main(int argc, char *argv[])
         { "height", 'H', 0, G_OPTION_ARG_INT, &ctx.height,
           "Frame height (must match the sensor/qtivtransform output height)",
           "-Default height:" G_STRINGIFY(DEFAULT_HEIGHT) },
-        { "output_path", 'o', 0, G_OPTION_ARG_STRING, &ctx.output_path,
+        { "output_path", 'o', 0, G_OPTION_ARG_STRING, &output_path_override,
           "Directory to dump padding-stripped NV12 .yuv frames to",
-          "-Default path:" DEFAULT_OUTPUT_PATH },
+          "-Default path: $HOME/Downloads/qimsdk_samples/media" },
         { "dumpcount", 'c', 0, G_OPTION_ARG_INT, &ctx.dumpcount,
           "Max number of .yuv frames to dump (0 disables dumping)",
           "-Default count:5" },
@@ -509,10 +552,28 @@ int main(int argc, char *argv[])
                    opt_err ? opt_err->message : "unknown");
         g_clear_error(&opt_err);
         g_option_context_free(opt_ctx);
-        g_free(ctx.output_path);
+        g_free(output_path_override);
         return EXIT_FAILURE;
     }
     g_option_context_free(opt_ctx);
+
+    if (output_path_override != NULL) {
+        ctx.output_path = output_path_override;
+        output_path_override = NULL;
+        using_default_output_path = FALSE;
+    } else {
+        ctx.output_path = build_default_output_path();
+        if (ctx.output_path == NULL) {
+            g_free(output_path_override);
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (using_default_output_path && !create_default_media_dir()) {
+        g_printerr("[main] Failed to create default media directory.\n");
+        g_free(ctx.output_path);
+        return EXIT_FAILURE;
+    }
 
     if (ctx.width <= 0 || ctx.height <= 0) {
         g_printerr("Invalid --width/--height (%d x %d): must be positive\n",
@@ -523,7 +584,7 @@ int main(int argc, char *argv[])
 
     /* Allocate tight output buffer */
     ctx.output_buf_size = NV12_FRAME_SIZE(ctx.width, ctx.height);
-    ctx.output_buf      = (uint8_t *)malloc(ctx.output_buf_size);
+    ctx.output_buf      = (uint8_t *)g_try_malloc0(ctx.output_buf_size);
     if (!ctx.output_buf) {
         g_printerr("Failed to allocate output buffer\n");
         g_free(ctx.output_path);
@@ -592,7 +653,7 @@ cleanup:
         gst_object_unref(ctx.pipeline);
     if (ctx.loop)
         g_main_loop_unref(ctx.loop);
-    free(ctx.output_buf);
+    g_free(ctx.output_buf);
     g_free(ctx.output_path);
 
     return EXIT_SUCCESS;
