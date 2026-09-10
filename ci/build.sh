@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 set -e
 
 echo "Checking disk space"
