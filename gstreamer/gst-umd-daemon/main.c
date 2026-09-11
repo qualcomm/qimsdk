@@ -690,7 +690,7 @@ gst_service_context_new ()
   }
 
   // Open Auto Framing Algorithm library and load its symbols.
-  ctx->afrmalgo->handle = dlopen ("libqtiafralgo.so", RTLD_NOW);
+  ctx->afrmalgo->handle = dlopen ("libqtiafralgoori.so", RTLD_NOW);
 
   if (ctx->afrmalgo->handle != NULL) {
     gboolean success = TRUE;
