@@ -15,29 +15,33 @@ gi.require_version("Gst", "1.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gst, GLib
 
+# Base directory containing the sample artifacts (models, labels, media)
+ARTIFACT_DIR = os.path.join(
+    os.path.expanduser("~"), "Downloads", "qimsdk_samples")
+
 # Configurations for Detection (0)
-DEFAULT_DETECTION_INPUT_0 = "/etc/media/video.mp4"
-DEFAULT_DETECTION_MODEL_0 = "/etc/models/yolox_quantized.tflite"
+DEFAULT_DETECTION_INPUT_0 = f"{ARTIFACT_DIR}/media/video.mp4"
+DEFAULT_DETECTION_MODEL_0 = f"{ARTIFACT_DIR}/models/yolox_quantized.tflite"
 DEFAULT_DETECTION_MODULE_0 = "yolov8"
-DEFAULT_DETECTION_LABELS_0 = "/etc/labels/yolox.json"
+DEFAULT_DETECTION_LABELS_0 = f"{ARTIFACT_DIR}/labels/yolox.json"
 
 # Configurations for Detection (1)
-DEFAULT_DETECTION_INPUT_1 = "/etc/media/video.mp4"
-DEFAULT_DETECTION_MODEL_1 = "/etc/models/yolox_quantized.tflite"
+DEFAULT_DETECTION_INPUT_1 = f"{ARTIFACT_DIR}/media/video.mp4"
+DEFAULT_DETECTION_MODEL_1 = f"{ARTIFACT_DIR}/models/yolox_quantized.tflite"
 DEFAULT_DETECTION_MODULE_1 = "yolov8"
-DEFAULT_DETECTION_LABELS_1 = "/etc/labels/yolox.json"
+DEFAULT_DETECTION_LABELS_1 = f"{ARTIFACT_DIR}/labels/yolox.json"
 
 # Configurations for Classification
-DEFAULT_CLASSIFICATION_INPUT = "/etc/media/video.mp4"
-DEFAULT_CLASSIFICATION_MODEL = "/etc/models/inception_v3_quantized.tflite"
+DEFAULT_CLASSIFICATION_INPUT = f"{ARTIFACT_DIR}/media/video.mp4"
+DEFAULT_CLASSIFICATION_MODEL = f"{ARTIFACT_DIR}/models/inception_v3_quantized.tflite"
 DEFAULT_CLASSIFICATION_MODULE = "mobilenet-softmax"
-DEFAULT_CLASSIFICATION_LABELS = "/etc/labels/classification.json"
+DEFAULT_CLASSIFICATION_LABELS = f"{ARTIFACT_DIR}/labels/classification.json"
 
 # Configurations for Segmentation
-DEFAULT_SEGMENTATION_INPUT = "/etc/media/video.mp4"
-DEFAULT_SEGMENTATION_MODEL = "/etc/models/deeplabv3_plus_mobilenet_quantized.tflite"
+DEFAULT_SEGMENTATION_INPUT = f"{ARTIFACT_DIR}/media/video.mp4"
+DEFAULT_SEGMENTATION_MODEL = f"{ARTIFACT_DIR}/models/deeplabv3_plus_mobilenet_quantized.tflite"
 DEFAULT_SEGMENTATION_MODULE = "deeplab-argmax"
-DEFAULT_SEGMENTATION_LABELS = "/etc/labels/deeplabv3_resnet50.json"
+DEFAULT_SEGMENTATION_LABELS = f"{ARTIFACT_DIR}/labels/deeplabv3_resnet50.json"
 
 DESCRIPTION = f"""
 The application uses:

@@ -15,15 +15,19 @@ gi.require_version("Gst", "1.0")
 gi.require_version("GLib", "2.0")
 from gi.repository import Gst, GLib
 
+# Base directory containing the sample artifacts (models, labels, media)
+ARTIFACT_DIR = os.path.join(
+    os.path.expanduser("~"), "Downloads", "qimsdk_samples")
+
 # Configurations for Detection
-DEFAULT_DETECTION_MODEL = "/etc/models/yolox_quantized.tflite"
+DEFAULT_DETECTION_MODEL = f"{ARTIFACT_DIR}/models/yolox_quantized.tflite"
 DEFAULT_DETECTION_MODULE = "yolov8"
-DEFAULT_DETECTION_LABELS = "/etc/labels/yolox.json"
+DEFAULT_DETECTION_LABELS = f"{ARTIFACT_DIR}/labels/yolox.json"
 
 # Configurations for Classification
-DEFAULT_CLASSIFICATION_MODEL = "/etc/models/inception_v3_quantized.tflite"
+DEFAULT_CLASSIFICATION_MODEL = f"{ARTIFACT_DIR}/models/inception_v3_quantized.tflite"
 DEFAULT_CLASSIFICATION_MODULE = "mobilenet-softmax"
-DEFAULT_CLASSIFICATION_LABELS = "/etc/labels/classification.json"
+DEFAULT_CLASSIFICATION_LABELS = f"{ARTIFACT_DIR}/labels/classification.json"
 
 DESCRIPTION = f"""
 The application uses:

@@ -17,10 +17,14 @@ from gi.repository import Gst, GLib
 
 DEFAULT_RTSP_SRC = "rtsp://127.0.0.1:8900/live"
 
+# Base directory containing the sample artifacts (models, labels, media)
+ARTIFACT_DIR = os.path.join(
+    os.path.expanduser("~"), "Downloads", "qimsdk_samples")
+
 # Configurations for Detection
-DEFAULT_DETECTION_MODEL = "/etc/models/yolox_quantized.tflite"
+DEFAULT_DETECTION_MODEL = f"{ARTIFACT_DIR}/models/yolox_quantized.tflite"
 DEFAULT_DETECTION_MODULE = "yolov8"
-DEFAULT_DETECTION_LABELS = "/etc/labels/yolox.json"
+DEFAULT_DETECTION_LABELS = f"{ARTIFACT_DIR}/labels/yolox.json"
 
 DESCRIPTION = f"""
 The application receives an RTSP stream as source, decodes it, uses a TFLite

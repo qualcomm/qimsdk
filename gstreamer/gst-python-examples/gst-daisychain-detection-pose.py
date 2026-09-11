@@ -23,11 +23,15 @@ camera, file and rtsp stream.
 The pipeline reads input, performs inference and displays
 output with preview on wayland display.
 """
-DEFAULT_TFLITE_YOLOX_MODEL = "/etc/models/yolox_quantized.tflite"
-DEFAULT_YOLOX_LABELS = "/etc/labels/yolox.json"
-DEFAULT_TFLITE_POSE_MODEL = "/etc/models/hrnet_pose_quantized.tflite"
-DEFAULT_POSE_LABELS = "/etc/labels/hrnet_pose.json"
-DEFAULT_POSE_SETTINGS = "/etc/labels/hrnet_pose_settings.json"
+# Base directory containing the sample artifacts (models, labels, media)
+ARTIFACT_DIR = os.path.join(
+    os.path.expanduser("~"), "Downloads", "qimsdk_samples")
+
+DEFAULT_TFLITE_YOLOX_MODEL = f"{ARTIFACT_DIR}/models/yolox_quantized.tflite"
+DEFAULT_YOLOX_LABELS = f"{ARTIFACT_DIR}/labels/yolox.json"
+DEFAULT_TFLITE_POSE_MODEL = f"{ARTIFACT_DIR}/models/hrnet_pose_quantized.tflite"
+DEFAULT_POSE_LABELS = f"{ARTIFACT_DIR}/labels/hrnet_pose.json"
+DEFAULT_POSE_SETTINGS = f"{ARTIFACT_DIR}/labels/hrnet_pose_settings.json"
 DELEGATE_PATH = "libQnnTFLiteDelegate.so"
 
 QUEUE_COUNT = 20

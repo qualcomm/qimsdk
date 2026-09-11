@@ -16,15 +16,19 @@ gi.require_version("GLib", "2.0")
 from gi.repository import Gst, GLib
 
 # Constants
-DEFAULT_TFLITE_OBJECT_DETECTION_MODEL = "/etc/models/yolox_quantized.tflite"
-DEFAULT_OBJECT_DETECTION_LABELS = "/etc/labels/yolox.json"
-DEFAULT_TFLITE_CLASSIFICATION_MODEL = "/etc/models/inception_v3_quantized.tflite"
-DEFAULT_CLASSIFICATION_LABELS = "/etc/labels/classification.json"
-DEFAULT_TFLITE_POSE_DETECTION_MODEL = "/etc/models/hrnet_pose_quantized.tflite"
-DEFAULT_POSE_DETECTION_LABELS = "/etc/labels/hrnet_pose.json"
-DEFAULT_POSE_SETTING_LABELS = "/etc/labels/hrnet_settings.json"
-DEFAULT_TFLITE_SEGMENTATION_MODEL = "/etc/models/deeplabv3_plus_mobilenet_quantized.tflite"
-DEFAULT_SEGMENTATION_LABELS = "/etc/labels/deeplabv3_resnet50.json"
+# Base directory containing the sample artifacts (models, labels, media)
+ARTIFACT_DIR = os.path.join(
+    os.path.expanduser("~"), "Downloads", "qimsdk_samples")
+
+DEFAULT_TFLITE_OBJECT_DETECTION_MODEL = f"{ARTIFACT_DIR}/models/yolox_quantized.tflite"
+DEFAULT_OBJECT_DETECTION_LABELS = f"{ARTIFACT_DIR}/labels/yolox.json"
+DEFAULT_TFLITE_CLASSIFICATION_MODEL = f"{ARTIFACT_DIR}/models/inception_v3_quantized.tflite"
+DEFAULT_CLASSIFICATION_LABELS = f"{ARTIFACT_DIR}/labels/classification.json"
+DEFAULT_TFLITE_POSE_DETECTION_MODEL = f"{ARTIFACT_DIR}/models/hrnet_pose_quantized.tflite"
+DEFAULT_POSE_DETECTION_LABELS = f"{ARTIFACT_DIR}/labels/hrnet_pose.json"
+DEFAULT_POSE_SETTING_LABELS = f"{ARTIFACT_DIR}/labels/hrnet_settings.json"
+DEFAULT_TFLITE_SEGMENTATION_MODEL = f"{ARTIFACT_DIR}/models/deeplabv3_plus_mobilenet_quantized.tflite"
+DEFAULT_SEGMENTATION_LABELS = f"{ARTIFACT_DIR}/labels/deeplabv3_resnet50.json"
 DELEGATE_PATH = "libQnnTFLiteDelegate.so"
 
 DESCRIPTION = f"""
@@ -436,13 +440,13 @@ def create_pipeline(pipeline):
         if i == GST_SEGMENTATION:
             elements[f"capsfilter{i}"].set_property(
                 "caps", Gst.Caps.from_string(
-                    "video/x-raw,width=256,height=144,"
+                    "video/x-raw,format=RGBA"
                 )
             )
         else:
             elements[f"capsfilter{i}"].set_property(
                 "caps", Gst.Caps.from_string(
-                    "video/x-raw,format=BGRA,width=640,height=360"
+                    "video/x-raw,format=RGBA"
                 )
             )
 
