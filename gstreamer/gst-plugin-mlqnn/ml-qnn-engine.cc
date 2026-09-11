@@ -1252,6 +1252,25 @@ gst_ml_qnn_engine_free (GstMLQnnEngine * engine)
   }
 
   if (engine->graph_infos) {
+    const GraphInfo_t *graph_info = engine->graph_infos[0];
+    Qnn_Tensor_t *tensor;
+
+    // Clear the client buffer pointers set during execute(), some of the
+    // graph info below may alias memory owned by the QNN system context or
+    // model library, which must not be walked with stale buffer pointers
+    // when it gets freed.
+    for (guint idx = 0; idx < graph_info->numInputTensors; idx++) {
+      tensor = &(graph_info->inputTensors[idx]);
+      QNN_TENSOR_CLIENTBUF (tensor).data = NULL;
+      QNN_TENSOR_CLIENTBUF (tensor).dataSize = 0;
+    }
+
+    for (guint idx = 0; idx < graph_info->numOutputTensors; ++idx) {
+      tensor = &(graph_info->outputTensors[idx]);
+      QNN_TENSOR_CLIENTBUF (tensor).data = NULL;
+      QNN_TENSOR_CLIENTBUF (tensor).dataSize = 0;
+    }
+
     // A model library owns its graph info and frees it through its own API.
     if (engine->FreeGraph != NULL) {
       engine->FreeGraph (&(engine->graph_infos), engine->n_graphs);
