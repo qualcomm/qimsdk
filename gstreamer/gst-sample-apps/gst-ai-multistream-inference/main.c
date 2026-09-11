@@ -44,11 +44,11 @@
 /**
  * Default models and labels path, if not provided by user
  */
-#define DEFAULT_TFLITE_YOLOX_MODEL "/etc/models/yolox_quantized.tflite"
-#define DEFAULT_YOLOX_LABELS "/etc/labels/yolox.json"
+#define DEFAULT_TFLITE_YOLOX_MODEL "yolox_quantized.tflite"
+#define DEFAULT_YOLOX_LABELS "yolox.json"
 #define DEFAULT_TFLITE_INCEPTIONV3_MODEL \
-    "/etc/models/inception_v3_quantized.tflite"
-#define DEFAULT_CLASSIFICATION_LABELS "/etc/labels/classification.json"
+    "inception_v3_quantized.tflite"
+#define DEFAULT_CLASSIFICATION_LABELS "classification.json"
 
 /**
  * To enable softmax operation for post processing
@@ -108,12 +108,13 @@
 /**
  * Default path for config file
  */
-#define DEFAULT_CONFIG_FILE "/etc/configs/config-multistream-inference.json"
+#define DEFAULT_CONFIG_FILE "config-multistream-inference.json"
 
 /**
  * Structure for various application specific options
  */
 typedef struct {
+  gchar *artifacts_dir;
   gchar *mlframework;
   gchar *model_path;
   GstInputStreamType input_type;
@@ -231,7 +232,7 @@ set_ml_params (GstElement * qtimlelement, GstElement * qtimlpostprocess,
 
   // Set the properties of pad_filter for negotiation with qtivcomposer
   pad_filter = gst_caps_new_simple ("video/x-raw",
-      "format", G_TYPE_STRING, "BGRA",
+      "format", G_TYPE_STRING, "RGBA",
       "width", G_TYPE_INT, DEFAULT_FILTER_WIDTH,
       "height", G_TYPE_INT, DEFAULT_FILTER_HEIGHT, NULL);
   g_object_set (G_OBJECT (detection_filter), "caps", pad_filter, NULL);
@@ -383,16 +384,12 @@ gst_app_context_free
     appctx->mloop = NULL;
   }
 
-  if (options->model_path != NULL &&
-    options->model_path != (gchar *)(&DEFAULT_TFLITE_YOLOX_MODEL) &&
-    options->model_path != (gchar *)(&DEFAULT_TFLITE_INCEPTIONV3_MODEL)) {
+  if (options->model_path != NULL) {
     g_free ((gpointer)options->model_path);
     options->model_path = NULL;
   }
 
-  if (options->labels_path != NULL &&
-    options->labels_path != (gchar *)(&DEFAULT_YOLOX_LABELS) &&
-    options->labels_path != (gchar *)(&DEFAULT_CLASSIFICATION_LABELS)) {
+  if (options->labels_path != NULL) {
     g_free ((gpointer)options->labels_path);
     options->labels_path = NULL;
   }
@@ -414,8 +411,12 @@ gst_app_context_free
     options->port_num = NULL;
   }
 
-  if (config_file != NULL &&
-      config_file != (gchar *)(&DEFAULT_CONFIG_FILE)) {
+  if (options->artifacts_dir != NULL) {
+    g_free ((gpointer)options->artifacts_dir);
+    options->artifacts_dir = NULL;
+  }
+
+  if (config_file != NULL) {
     g_free ((gpointer)config_file);
     config_file = NULL;
   }
@@ -1341,6 +1342,10 @@ parse_json (gchar * config_file, GstAppOptions * options)
   GError *error = NULL;
   JsonArray *files_info = NULL;
   JsonArray *rtsp_info = NULL;
+  const gchar *model_filename = NULL;
+  const gchar *label_filename = NULL;
+  const gchar *input_filename = NULL;
+  const gchar *output_filename = NULL;
 
   parser = json_parser_new ();
 
@@ -1380,8 +1385,17 @@ parse_json (gchar * config_file, GstAppOptions * options)
       return -1;
     }
     for (gint i = 0; i < options->num_file; i++) {
-      options->input_file_path[i] =
-          g_strdup (json_array_get_string_element (files_info, i));
+      input_filename = json_array_get_string_element (files_info, i);
+      if (g_path_is_absolute (input_filename)) {
+        options->input_file_path[i] = g_strdup (input_filename);
+      } else {
+        if (options->artifacts_dir == NULL) {
+          g_object_unref (parser);
+          return -1;
+        }
+        options->input_file_path[i] =
+            g_build_filename (options->artifacts_dir, "media", input_filename, NULL);
+      }
     }
   }
 
@@ -1415,18 +1429,45 @@ parse_json (gchar * config_file, GstAppOptions * options)
   }
 
   if (json_object_has_member (root_obj, "model")) {
-    options->model_path =
-        g_strdup (json_object_get_string_member (root_obj, "model"));
+    model_filename = json_object_get_string_member (root_obj, "model");
+    if (g_path_is_absolute (model_filename)) {
+      options->model_path = g_strdup (model_filename);
+    } else {
+      if (options->artifacts_dir == NULL) {
+        g_object_unref (parser);
+        return -1;
+      }
+      options->model_path =
+          g_build_filename (options->artifacts_dir, "models", model_filename, NULL);
+    }
   }
 
   if (json_object_has_member (root_obj, "labels")) {
-    options->labels_path =
-        g_strdup (json_object_get_string_member (root_obj, "labels"));
+    label_filename = json_object_get_string_member (root_obj, "labels");
+    if (g_path_is_absolute (label_filename)) {
+      options->labels_path = g_strdup (label_filename);
+    } else {
+      if (options->artifacts_dir == NULL) {
+        g_object_unref (parser);
+        return -1;
+      }
+      options->labels_path =
+          g_build_filename (options->artifacts_dir, "labels", label_filename, NULL);
+    }
   }
 
   if (json_object_has_member (root_obj, "output-file-path")) {
-    options->out_file =
-        g_strdup (json_object_get_string_member (root_obj, "output-file-path"));
+    output_filename = json_object_get_string_member (root_obj, "output-file-path");
+    if (g_path_is_absolute (output_filename)) {
+      options->out_file = g_strdup (output_filename);
+    } else {
+      if (options->artifacts_dir == NULL) {
+        g_object_unref (parser);
+        return -1;
+      }
+      options->out_file =
+          g_build_filename (options->artifacts_dir, "media", output_filename, NULL);
+    }
   }
 
   if (json_object_has_member (root_obj, "output-ip-address")) {
@@ -1471,6 +1512,10 @@ main (gint argc, gchar * argv[])
   gboolean ret = FALSE;
   gchar help_description[4096];
   gint htp_count = 1;
+  const gchar *home_dir = NULL;
+
+  home_dir = g_getenv ("HOME");
+  options.artifacts_dir = NULL;
 
   // Define the new limit
   rl.rlim_cur = 4096; // Soft limit
@@ -1532,7 +1577,10 @@ main (gint argc, gchar * argv[])
       "%s"
       "  input-file-path: <json array>\n"
       "      json array of input files. Eg:\n"
-      "      [\"/etc/media/video1.mp4\", \"/etc/media/video2.mp4\"]\n"
+      "      [\"video1.mp4\", \"video2.mp4\"]\n"
+      "      Relative paths are resolved under:\n"
+      "        $HOME/Downloads/qimsdk_samples/media\n"
+      "      Absolute file paths are also supported.\n"
       "      max number of input files: %d\n"
       "  input-rtsp-path: <json array>\n"
       "      json array of input rtsp streams. Eg:\n"
@@ -1540,18 +1588,27 @@ main (gint argc, gchar * argv[])
       "\"rtsp://127.0.0.1:8554/live2.mkv\"]\n"
       "      max number of rtsp input streams: %d\n"
       "  Maximum number of input streams: %d\n"
-      "  model: path to model file\n"
-      "      This is an optional parameter and overrides default path\n"
-      "      Default detection model path: " DEFAULT_TFLITE_YOLOX_MODEL "\n"
-      "      Default classification model path: "
+      "  model: \"/PATH\"\n"
+      "      Path to model file.\n"
+      "      Default detection model file: " DEFAULT_TFLITE_YOLOX_MODEL "\n"
+      "      Default classification model file: "
       DEFAULT_TFLITE_INCEPTIONV3_MODEL "\n"
-      "  labels: path to labels file\n"
-      "      This is an optional parameter and overrides default path\n"
-      "      Default detection labels path: " DEFAULT_YOLOX_LABELS "\n"
-      "      Default classification model path: "
+      "      Model files should be placed in:\n"
+      "        $HOME/Downloads/qimsdk_samples/models\n"
+      "      Alternatively, provide an absolute file path.\n"
+      "  labels: \"/PATH\"\n"
+      "      Path to labels file.\n"
+      "      Default detection labels file: " DEFAULT_YOLOX_LABELS "\n"
+      "      Default classification labels file: "
       DEFAULT_CLASSIFICATION_LABELS "\n"
+      "      Label files should be placed in:\n"
+      "        $HOME/Downloads/qimsdk_samples/labels\n"
+      "      Alternatively, provide an absolute file path.\n"
       "  output-file-path: /PATH\n"
       "      Path to save H.264 Encoded file\n"
+      "      Relative paths are resolved under:\n"
+      "        $HOME/Downloads/qimsdk_samples/media\n"
+      "      Absolute file paths are also supported.\n"
       "  output-ip-address: valid IP address\n"
       "      RTSP server listening address.\n"
       "      default IP address: " DEFAULT_IP "\n"
@@ -1599,9 +1656,24 @@ main (gint argc, gchar * argv[])
     return -EFAULT;
   }
 
-  if (config_file == NULL) {
-    config_file = DEFAULT_CONFIG_FILE;
+  if (home_dir == NULL) {
+    g_printerr ("HOME env variable is not set!\n");
+    gst_app_context_free (&appctx, &options, config_file);
+    return EXIT_FAILURE;
   }
+
+  if (config_file == NULL) {
+    config_file = resolve_config_file (DEFAULT_CONFIG_FILE);
+  }
+
+  if (config_file == NULL) {
+    g_printerr ("Unable to resolve configuration file path\n");
+    gst_app_context_free (&appctx, &options, NULL);
+    return -EINVAL;
+  }
+
+  options.artifacts_dir =
+      g_build_filename (home_dir, "Downloads", "qimsdk_samples", NULL);
 
   if (!file_exists (config_file)) {
     g_printerr ("Invalid config file path: %s\n", config_file);
@@ -1623,9 +1695,11 @@ main (gint argc, gchar * argv[])
 
   if (options.use_case == GST_OBJECT_DETECTION) {
     if (options.model_path ==  NULL)
-      options.model_path = DEFAULT_TFLITE_YOLOX_MODEL;
+      options.model_path =
+          g_build_filename (options.artifacts_dir, "models", DEFAULT_TFLITE_YOLOX_MODEL, NULL);
     if (options.labels_path ==  NULL)
-      options.labels_path = DEFAULT_YOLOX_LABELS;
+      options.labels_path =
+          g_build_filename (options.artifacts_dir, "labels", DEFAULT_YOLOX_LABELS, NULL);
   }
 
   g_print ("model_path=%s labels_path=%s\n",
@@ -1633,9 +1707,11 @@ main (gint argc, gchar * argv[])
 
   if (options.use_case == GST_CLASSIFICATION) {
     if (options.model_path ==  NULL)
-      options.model_path = DEFAULT_TFLITE_INCEPTIONV3_MODEL;
+      options.model_path =
+          g_build_filename (options.artifacts_dir, "models", DEFAULT_TFLITE_INCEPTIONV3_MODEL, NULL);
     if (options.labels_path ==  NULL)
-      options.labels_path = DEFAULT_CLASSIFICATION_LABELS;
+      options.labels_path =
+          g_build_filename (options.artifacts_dir, "labels", DEFAULT_CLASSIFICATION_LABELS, NULL);
   }
 
   if (options.num_camera > MAX_CAMSRCS) {

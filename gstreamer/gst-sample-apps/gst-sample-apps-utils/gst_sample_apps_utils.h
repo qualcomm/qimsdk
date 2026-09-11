@@ -585,6 +585,27 @@ is_v66_arch ();
 gboolean
 create_default_media_dir (void);
 
+/**
+ * Builds and checks the qimsdk configuration file path.
+ *
+ * @param base_dir base directory path
+ * @param config_filename Configuration file name.
+ */
+gchar *
+check_config_path (const gchar *base_dir, const gchar *config_filename);
+
+/**
+ * Resolves the configuration file using:
+ *
+ * 1. $XDG_CONFIG_HOME/qimsdk_samples/<config_filename>
+ * 2. $HOME/.config/qimsdk_samples/<config_filename>
+ * 3. DEFAULT_CONFIG_FILE
+ *
+ * @param config_filename Configuration file name.
+ */
+gchar *
+resolve_config_file (const gchar *default_config_file);
+
 G_END_DECLS
 
 #endif //GST_SAMPLE_APPS_UTILS_H

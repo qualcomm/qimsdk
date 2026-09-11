@@ -99,16 +99,16 @@
 /**
  * Default models and labels path, if not provided by user
  */
-#define DEFAULT_TFLITE_YOLOX_MODEL "/etc/models/yolox_quantized.tflite"
+#define DEFAULT_TFLITE_YOLOX_MODEL "yolox_quantized.tflite"
 #define DEFAULT_TFLITE_CLASSIFICATION_MODEL \
-    "/etc/models/inception_v3_quantized.tflite"
-#define DEFAULT_DETECTION_LABELS "/etc/labels/yolox.json"
-#define DEFAULT_CLASSIFICATION_LABELS "/etc/labels/classification.json"
+    "inception_v3_quantized.tflite"
+#define DEFAULT_DETECTION_LABELS "yolox.json"
+#define DEFAULT_CLASSIFICATION_LABELS "classification.json"
 
 /**
  * Default path of config file
  */
-#define DEFAULT_CONFIG_FILE "/etc/configs/config_daisychain_detection_classification.json"
+#define DEFAULT_CONFIG_FILE "config_daisychain_detection_classification.json"
 
 /**
  * Default settings of camera output resolution, Scaling of camera output
@@ -119,7 +119,7 @@
 #define USB_CAMERA_OUTPUT_WIDTH 1280
 #define USB_CAMERA_OUTPUT_HEIGHT 720
 #define DEFAULT_CAMERA_FRAME_RATE 30
-#define DEFAULT_OUTPUT_FILENAME "/etc/media/daisychain_detection_classification.mp4"
+#define DEFAULT_OUTPUT_FILENAME "daisychain_detection_classification.mp4"
 #define DEFAULT_IP "127.0.0.1"
 #define DEFAULT_PORT "8900"
 #define MAX_VID_DEV_CNT 64
@@ -141,6 +141,7 @@
  */
 typedef struct
 {
+  gchar *artifacts_dir;
   gboolean camera_source;
   gchar *file_path;
   gchar *rtsp_ip_port;
@@ -216,35 +217,27 @@ gst_app_context_free (GstAppContext * appctx, GstAppOptions * options,
     options->rtsp_ip_port = NULL;
   }
 
-  if (options->detection_model_path != NULL &&
-      options->detection_model_path !=
-      (gchar *) (&DEFAULT_TFLITE_YOLOX_MODEL)) {
+  if (options->detection_model_path != NULL) {
     g_free ((gpointer) options->detection_model_path);
     options->detection_model_path = NULL;
   }
 
-  if (options->classification_model_path != NULL &&
-      options->classification_model_path !=
-      (gchar *) (&DEFAULT_TFLITE_CLASSIFICATION_MODEL)) {
+  if (options->classification_model_path != NULL) {
     g_free ((gpointer) options->classification_model_path);
     options->classification_model_path = NULL;
   }
 
-  if (options->detection_labels_path != NULL &&
-      options->detection_labels_path != (gchar *)(&DEFAULT_DETECTION_LABELS)) {
+  if (options->detection_labels_path != NULL) {
     g_free ((gpointer)options->detection_labels_path);
     options->detection_labels_path = NULL;
   }
 
-  if (options->classification_labels_path != NULL &&
-      options->classification_labels_path !=
-      (gchar *) (&DEFAULT_CLASSIFICATION_LABELS)) {
+  if (options->classification_labels_path != NULL) {
     g_free ((gpointer) options->classification_labels_path);
     options->classification_labels_path = NULL;
   }
 
-  if (options->output_file != (gchar *)(&DEFAULT_OUTPUT_FILENAME) &&
-      options->output_file != NULL) {
+  if (options->output_file != NULL) {
     g_free ((gpointer)options->output_file);
   }
 
@@ -258,9 +251,12 @@ gst_app_context_free (GstAppContext * appctx, GstAppOptions * options,
     g_free ((gpointer)options->port_num);
   }
 
-  if (config_file != NULL && config_file != (gchar *) (&DEFAULT_CONFIG_FILE)) {
+  if (options->artifacts_dir != NULL) {
+    g_free ((gpointer) options->artifacts_dir);
+  }
+
+  if (config_file != NULL) {
     g_free ((gpointer) config_file);
-    config_file = NULL;
   }
 
   if (appctx->pipeline != NULL) {
@@ -1479,6 +1475,12 @@ parse_json (gchar * config_file, GstAppOptions * options)
   JsonNode *root = NULL;
   JsonObject *root_obj = NULL;
   GError *error = NULL;
+  const gchar *input_filename = NULL;
+  const gchar *output_filename = NULL;
+  const gchar *det_model_filename = NULL;
+  const gchar *det_label_filename = NULL;
+  const gchar *cls_model_filename = NULL;
+  const gchar *cls_label_filename = NULL;
 
   parser = json_parser_new ();
 
@@ -1501,8 +1503,17 @@ parse_json (gchar * config_file, GstAppOptions * options)
   root_obj = json_node_get_object (root);
 
   if (json_object_has_member (root_obj, "input-file")) {
-    options->file_path =
-        g_strdup (json_object_get_string_member (root_obj, "input-file"));
+    input_filename = json_object_get_string_member (root_obj, "input-file");
+    if (g_path_is_absolute (input_filename)) {
+      options->file_path = g_strdup (input_filename);
+    } else {
+      if (options->artifacts_dir == NULL) {
+        g_object_unref (parser);
+        return -1;
+      }
+      options->file_path =
+          g_build_filename (options->artifacts_dir, "media", input_filename, NULL);
+    }
   }
 
   if (json_object_has_member (root_obj, "rtsp-ip-port")) {
@@ -1535,31 +1546,76 @@ parse_json (gchar * config_file, GstAppOptions * options)
   }
 
   if (json_object_has_member (root_obj, "output-file")) {
-    options->output_file =
-        g_strdup (json_object_get_string_member (root_obj, "output-file"));
+    output_filename = json_object_get_string_member (root_obj, "output-file");
+    if (g_path_is_absolute (output_filename)) {
+      options->output_file = g_strdup (output_filename);
+    } else {
+      if (options->artifacts_dir == NULL) {
+        g_object_unref (parser);
+        return -1;
+      }
+      options->output_file =
+          g_build_filename (options->artifacts_dir, "media", output_filename, NULL);
+    }
     g_print ("Output File Name : %s\n", options->output_file);
   }
 
   if (json_object_has_member (root_obj, "detection-model")) {
-    options->detection_model_path =
-        g_strdup (json_object_get_string_member (root_obj, "detection-model"));
+    det_model_filename = json_object_get_string_member (root_obj, "detection-model");
+    if (g_path_is_absolute (det_model_filename)) {
+      options->detection_model_path = g_strdup (det_model_filename);
+    } else {
+      if (options->artifacts_dir == NULL) {
+        g_object_unref (parser);
+        return -1;
+      }
+      options->detection_model_path =
+          g_build_filename (options->artifacts_dir, "models", det_model_filename, NULL);
+    }
   }
 
   if (json_object_has_member (root_obj, "detection-labels")) {
-    options->detection_labels_path =
-        g_strdup (json_object_get_string_member (root_obj, "detection-labels"));
+    det_label_filename = json_object_get_string_member (root_obj, "detection-labels");
+    if (g_path_is_absolute (det_label_filename)) {
+      options->detection_labels_path = g_strdup (det_label_filename);
+    } else {
+      if (options->artifacts_dir == NULL) {
+        g_object_unref (parser);
+        return -1;
+      }
+      options->detection_labels_path =
+          g_build_filename (options->artifacts_dir, "labels", det_label_filename, NULL);
+    }
   }
 
   if (json_object_has_member (root_obj, "classification-model")) {
-    options->classification_model_path =
-        g_strdup (json_object_get_string_member (root_obj,
-            "classification-model"));
+    cls_model_filename = json_object_get_string_member (root_obj,
+        "classification-model");
+    if (g_path_is_absolute (cls_model_filename)) {
+      options->classification_model_path = g_strdup (cls_model_filename);
+    } else {
+      if (options->artifacts_dir == NULL) {
+        g_object_unref (parser);
+        return -1;
+      }
+      options->classification_model_path =
+          g_build_filename (options->artifacts_dir, "models", cls_model_filename, NULL);
+    }
   }
 
   if (json_object_has_member (root_obj, "classification-labels")) {
-    options->classification_labels_path =
-        g_strdup (json_object_get_string_member (root_obj,
-            "classification-labels"));
+    cls_label_filename = json_object_get_string_member (root_obj,
+        "classification-labels");
+    if (g_path_is_absolute (cls_label_filename)) {
+      options->classification_labels_path = g_strdup (cls_label_filename);
+    } else {
+      if (options->artifacts_dir == NULL) {
+        g_object_unref (parser);
+        return -1;
+      }
+      options->classification_labels_path =
+          g_build_filename (options->artifacts_dir, "labels", cls_label_filename, NULL);
+    }
   }
 
   if (json_object_has_member (root_obj, "detection-runtime")) {
@@ -1573,6 +1629,8 @@ parse_json (gchar * config_file, GstAppOptions * options)
       options->detection_use_gpu = TRUE;
     else {
       gst_printerr ("Runtime can only be one of \"cpu\", \"dsp\" and \"gpu\"\n");
+      g_object_unref (parser);
+      return -1;
     }
     g_print ("Detection delegate : %s\n", delegate);
   }
@@ -1588,6 +1646,8 @@ parse_json (gchar * config_file, GstAppOptions * options)
       options->classification_use_gpu = TRUE;
     else {
       gst_printerr ("Runtime can only be one of \"cpu\", \"dsp\" and \"gpu\"\n");
+      g_object_unref (parser);
+      return -1;
     }
     g_print ("Classification delegate : %s\n", delegate);
   }
@@ -1674,7 +1734,9 @@ main (gint argc, gchar * argv[])
   gchar help_description[4096];
   guint intrpt_watch_id = 0;
   gchar *config_file = NULL;
+  const gchar *home_dir = NULL;
 
+  home_dir = g_getenv ("HOME");
   options.file_path = NULL;
   options.rtsp_ip_port = NULL;
   options.camera_source = FALSE;
@@ -1691,7 +1753,8 @@ main (gint argc, gchar * argv[])
   options.height = USB_CAMERA_OUTPUT_HEIGHT;
   options.video_format = GST_NV12_VIDEO_FORMAT;
   options.framerate = DEFAULT_CAMERA_FRAME_RATE;
-  options.output_file = DEFAULT_OUTPUT_FILENAME;
+  options.output_file = NULL;
+  options.artifacts_dir = NULL;
   options.output_ip_address = DEFAULT_IP;
   options.port_num = DEFAULT_PORT;
 
@@ -1724,30 +1787,39 @@ main (gint argc, gchar * argv[])
       "\nConfig file Fields:\n"
 
       "  input-file: \"/PATH\"\n"
-      "      Input File path\n"
+      "      Path to the input media file.\n"
+      "      The media file should be placed in:\n"
+      "        $HOME/Downloads/qimsdk_samples/media\n"
+      "      Alternatively, provide an absolute file path.\n"
       "  rtsp-ip-port: \"rtsp://<ip>:<port>/<stream>\"\n"
       "      Use this parameter to provide the rtsp input.\n"
       "      Input should be provided as rtsp://<ip>:<port>/<stream>,\n"
       "      eg: rtsp://192.168.1.110:8554/live.mkv\n"
       "  %s"
       "  detection-model: \"/PATH\"\n"
-      "      This is an optional parameter and overrides default path "
-      "for YOLOX detection model\n"
-      "      Default path for YOLOX model: "DEFAULT_TFLITE_YOLOX_MODEL"\n"
+      "      Path to YOLOX detection model file.\n"
+      "      Default model file: "DEFAULT_TFLITE_YOLOX_MODEL"\n"
+      "      Model files should be placed in:\n"
+      "        $HOME/Downloads/qimsdk_samples/models\n"
+      "      Alternatively, provide an absolute file path.\n"
       "  detection-labels: \"/PATH\"\n"
-      "      This is an optional parameter and overrides default path "
-      " for YOLOX labels\n"
-      "      Default path for YOLOX labels: "DEFAULT_DETECTION_LABELS"\n"
+      "      Path to YOLOX labels file.\n"
+      "      Default labels file: "DEFAULT_DETECTION_LABELS"\n"
+      "      Label files should be placed in:\n"
+      "        $HOME/Downloads/qimsdk_samples/labels\n"
+      "      Alternatively, provide an absolute file path.\n"
       "  classification-model: \"/PATH\"\n"
-      "      This is an optional parameter and overrides default path "
-      "for classification model\n"
-      "      Default path for Classification model: "
-      DEFAULT_TFLITE_CLASSIFICATION_MODEL"\n"
+      "      Path to classification model file.\n"
+      "      Default model file: "DEFAULT_TFLITE_CLASSIFICATION_MODEL"\n"
+      "      Model files should be placed in:\n"
+      "        $HOME/Downloads/qimsdk_samples/models\n"
+      "      Alternatively, provide an absolute file path.\n"
       "  classification-labels: \"/PATH\"\n"
-      "      This is an optional parameter and overrides default path "
-      " for classification labels\n"
-      "      Default path for classification labels: "
-      DEFAULT_CLASSIFICATION_LABELS"\n"
+      "      Path to classification labels file.\n"
+      "      Default labels file: "DEFAULT_CLASSIFICATION_LABELS"\n"
+      "      Label files should be placed in:\n"
+      "        $HOME/Downloads/qimsdk_samples/labels\n"
+      "      Alternatively, provide an absolute file path.\n"
       "  enable-usb-camera: Use this Parameter to enable-usb-camera\n"
       "      This can be either TRUE or FALSE.\n"
       "  width: USB Camera Resolution width.\n"
@@ -1756,7 +1828,9 @@ main (gint argc, gchar * argv[])
       "  video-format: USB Video Format format can be nv12, yuy2 or mjpeg\n"
       "  output-type: It can be either be waylandsink, filesink or rtspsink\n"
       "  output-file: Use this Parameter to set output file path\n"
-      "      Default output file path is:" DEFAULT_OUTPUT_FILENAME "\n"
+      "      Default output file path is:\n"
+      "        $HOME/Downloads/qimsdk_samples/media/"DEFAULT_OUTPUT_FILENAME"\n"
+      "      Alternatively, provide an absolute file path.\n"
       "  output-ip-address: Use this parameter to provide the rtsp output address.\n"
       "      eg: 127.0.0.1\n"
       "      Default ip is:" DEFAULT_IP "\n"
@@ -1796,8 +1870,21 @@ main (gint argc, gchar * argv[])
     return -EFAULT;
   }
 
+    if (home_dir == NULL) {
+    g_printerr ("HOME env variable is not set!\n");
+    gst_app_context_free (&appctx, &options, config_file);
+    return EXIT_FAILURE;
+  }
+
   if (config_file == NULL) {
-    config_file = DEFAULT_CONFIG_FILE;
+    config_file = resolve_config_file (DEFAULT_CONFIG_FILE);
+  }
+
+  if (config_file == NULL) {
+    g_printerr ("Unable to resolve configuration file path\n");
+
+    gst_app_context_free (&appctx, &options, NULL);
+    return -EINVAL;
   }
 
   if (!file_exists (config_file)) {
@@ -1805,6 +1892,9 @@ main (gint argc, gchar * argv[])
     gst_app_context_free (&appctx, &options, config_file);
     return -EINVAL;
   }
+
+  options.artifacts_dir =
+      g_build_filename (home_dir, "Downloads", "qimsdk_samples", NULL);
 
   if (parse_json (config_file, &options) != 0) {
     gst_app_context_free (&appctx, &options, config_file);
@@ -1865,7 +1955,8 @@ main (gint argc, gchar * argv[])
   }
 
   if (options.detection_model_path == NULL) {
-    options.detection_model_path = DEFAULT_TFLITE_YOLOX_MODEL;
+    options.detection_model_path =
+        g_build_filename (options.artifacts_dir, "models", DEFAULT_TFLITE_YOLOX_MODEL, NULL);
   }
   if (!file_exists (options.detection_model_path)) {
     g_printerr ("Invalid detection model file path: %s\n",
@@ -1875,7 +1966,8 @@ main (gint argc, gchar * argv[])
   }
 
   if (options.classification_model_path == NULL) {
-    options.classification_model_path = DEFAULT_TFLITE_CLASSIFICATION_MODEL;
+    options.classification_model_path =
+        g_build_filename (options.artifacts_dir, "models", DEFAULT_TFLITE_CLASSIFICATION_MODEL, NULL);
   }
   if (!file_exists (options.classification_model_path)) {
     g_printerr ("Invalid classification model file path: %s\n",
@@ -1885,7 +1977,8 @@ main (gint argc, gchar * argv[])
   }
 
   if (options.detection_labels_path == NULL) {
-    options.detection_labels_path = DEFAULT_DETECTION_LABELS;
+    options.detection_labels_path =
+        g_build_filename (options.artifacts_dir, "labels", DEFAULT_DETECTION_LABELS, NULL);
   }
   if (!file_exists (options.detection_labels_path)) {
     g_printerr ("Invalid detection labels file path: %s\n",
@@ -1895,7 +1988,13 @@ main (gint argc, gchar * argv[])
   }
 
   if (options.classification_labels_path == NULL) {
-    options.classification_labels_path = DEFAULT_CLASSIFICATION_LABELS;
+    options.classification_labels_path =
+        g_build_filename (options.artifacts_dir, "labels", DEFAULT_CLASSIFICATION_LABELS, NULL);
+  }
+
+  if (options.output_file == NULL && options.sinktype == GST_VIDEO_ENCODE) {
+    options.output_file =
+        g_build_filename (options.artifacts_dir, "media", DEFAULT_OUTPUT_FILENAME, NULL);
   }
   if (!file_exists (options.classification_labels_path)) {
     g_printerr ("Invalid classification labels file path: %s\n",
