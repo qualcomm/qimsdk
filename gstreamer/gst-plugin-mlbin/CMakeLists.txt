@@ -140,6 +140,42 @@ install(
               WORLD_EXECUTE WORLD_READ
 )
 
+# GStreamer ML QAIRT Bin plugin.
+set(GST_QTI_ML_BIN gstqtimlvideoqairtbin)
+
+add_library(${GST_QTI_ML_BIN} SHARED
+  mlbin.c
+)
+
+target_compile_definitions(${GST_QTI_ML_BIN} PRIVATE
+  GST_ML_BIN_STRUCT_NAME=GstMLQairtBin
+  GST_ML_BIN_STRUCT_CLASS_NAME=GstMLQairtBinClass
+  GST_ML_BIN_CORE=qairt
+  GST_ML_BIN_TYPE=video
+)
+
+target_include_directories(${GST_QTI_ML_BIN} PUBLIC
+  ${GST_INCLUDE_DIRS}
+  ${GST_QCOM_ML_INCLUDE_DIRS}
+  ${GST_QCOM_UTILS_INCLUDE_DIRS}
+)
+
+target_link_libraries(${GST_QTI_ML_BIN} PRIVATE
+  ${GST_LIBRARIES}
+  ${GST_BASE_LIBRARIES}
+  ${GST_ALLOC_LIBRARIES}
+  ${GST_QCOM_ML_LIBRARIES}
+  ${GST_QCOM_UTILS_LIBRARIES}
+)
+
+install(
+  TARGETS ${GST_QTI_ML_BIN}
+  LIBRARY DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}/gstreamer-1.0
+  PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
+              GROUP_EXECUTE GROUP_READ
+              WORLD_EXECUTE WORLD_READ
+)
+
 # GStreamer ML ONNX Bin plugin.
 set(GST_QTI_ML_BIN gstqtimlvideoonnxbin)
 
