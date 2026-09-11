@@ -12,10 +12,8 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <filesystem>
 
 #include <gst/ml/gstmlmeta.h>
-
 #include <QairtApi.hpp>
 #include <QairtBackend.hpp>
 #include <QairtContext.hpp>
@@ -27,39 +25,7 @@
 #include <System/QairtSystemDlc.hpp>
 
 #define GST_CAT_DEFAULT gst_ml_qairt_engine_debug_category()
-
-#define GST_ML_RETURN_VAL_IF_FAIL(expression, value, ...) \
-{ \
-  if (!(expression)) { \
-    GST_ERROR (__VA_ARGS__); \
-    return (value); \
-  } \
-}
-
-#define GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN(expression, value, cleanup, ...) \
-{ \
-  if (!(expression)) { \
-    GST_ERROR (__VA_ARGS__); \
-    cleanup; \
-    return (value); \
-  } \
-}
-
-/// QAIRT system library, loaded at runtime via the loader search path.
-#define GST_ML_QAIRT_SYSTEM_LIB "libQairtSystem.so"
-//TODO: Better way to fetch major version?
-#define QAIRT_MAJOR_VERSION 2
-
-/// Per-output tensor descriptor holding the dequantization parameters and the
-/// QAIRT tensor used to bind the output buffer at execution time.
-struct GstMLQairtOutput {
-  std::shared_ptr<qairt::Tensor> tensor;
-  qairt::DataType                type;
-  gboolean                       quantized;
-  gfloat                         scale;
-  gint32                         offset;
-  std::string                    name;
-};
+#define GST_CAT_QAIRT_SDK gst_ml_qairt_sdk_debug_category()
 
 struct _GstMLQairtEngine
 {
@@ -68,39 +34,18 @@ struct _GstMLQairtEngine
 
   // QAIRT low-level runtime objects. Declared in destruction-safe order; the
   // struct is released with delete so members tear down bottom-to-top.
-  std::shared_ptr<qairt::Api>                api;
-  std::shared_ptr<qairt::SystemApi>          sysapi;
-  std::shared_ptr<qairt::Log>                log;
-  std::shared_ptr<qairt::Backend>            backend;
-  std::shared_ptr<qairt::Context>            context;
-
-  // Model containers. Kept alive for the lifetime of the engine as the graph
-  // metadata references memory owned by them.
-  std::shared_ptr<qairt::SystemDlc>          dlc;
-  std::shared_ptr<qairt::SystemContext>      syscontext;
-  std::shared_ptr<qairt::SystemContextGraphInfoSet> graphinfoset;
-  std::vector<qairt::SystemContextGraphInfo> graphinfos;
+  std::shared_ptr<qairt::Api>       api;
+  std::shared_ptr<qairt::SystemApi> sysapi;
+  std::shared_ptr<qairt::Backend>   backend;
+  std::shared_ptr<qairt::Context>   context;
 
   // The single graph being executed (graph 0).
-  std::shared_ptr<qairt::Graph>              graph;
+  std::shared_ptr<qairt::Graph> graph;
 
-  // Pre-built input tensors and output descriptors, in negotiated order.
+  // Pre-built input and output tensors, in negotiated order.
   std::vector<std::shared_ptr<qairt::Tensor>> inputs;
-  std::vector<GstMLQairtOutput>              outputs;
+  std::vector<std::shared_ptr<qairt::Tensor>> outputs;
 };
-
-static GstDebugCategory *
-gst_ml_qairt_engine_debug_category (void)
-{
-  static gsize catonce = 0;
-
-  if (g_once_init_enter (&catonce)) {
-    gsize catdone = (gsize) _gst_debug_category_new ("ml-qairt-engine", 0,
-        "Machine Learning QAIRT Engine");
-    g_once_init_leave (&catonce, catdone);
-  }
-  return (GstDebugCategory *) catonce;
-}
 
 GType
 gst_ml_qairt_backend_get_type (void)
@@ -154,8 +99,67 @@ gst_ml_qairt_exec_priority_get_type (void)
   return gtype;
 }
 
+static GstDebugCategory *
+gst_ml_qairt_engine_debug_category (void)
+{
+  static gsize catonce = 0;
+
+  if (g_once_init_enter (&catonce)) {
+    gsize catdone = (gsize) _gst_debug_category_new ("ml-qairt-engine", 0,
+        "Machine Learning QAIRT Engine");
+    g_once_init_leave (&catonce, catdone);
+  }
+  return (GstDebugCategory *) catonce;
+}
+
+static GstDebugCategory *
+gst_ml_qairt_sdk_debug_category (void)
+{
+  static gsize catonce = 0;
+
+  if (g_once_init_enter (&catonce)) {
+    gsize catdone = (gsize) _gst_debug_category_new ("ml-qairt-sdk", 0,
+        "Machine Learning QAIRT SDK");
+    g_once_init_leave (&catonce, catdone);
+  }
+  return (GstDebugCategory *) catonce;
+}
+
+static void
+gst_ml_qairt_log_callback (const char * format, QairtLog_Level_t loglvl,
+    G_GNUC_UNUSED uint64_t timestamp, G_GNUC_UNUSED void * userdata,
+    va_list vargs)
+{
+  GstDebugLevel level = GST_LEVEL_NONE;
+
+  switch (loglvl) {
+    case QAIRT_LOG_LEVEL_ERROR:
+      level = GST_LEVEL_ERROR;
+      break;
+    case QAIRT_LOG_LEVEL_WARN:
+      level = GST_LEVEL_WARNING;
+      break;
+    case QAIRT_LOG_LEVEL_INFO:
+      level = GST_LEVEL_INFO;
+      break;
+    case QAIRT_LOG_LEVEL_DEBUG:
+      level = GST_LEVEL_DEBUG;
+      break;
+    case QAIRT_LOG_LEVEL_VERBOSE:
+      level = GST_LEVEL_LOG;
+      break;
+    default:
+      break;
+  }
+
+  if (G_UNLIKELY (level <= GST_LEVEL_MAX && level <= _gst_debug_min)) {
+    gst_debug_log_valist (GST_CAT_QAIRT_SDK, level, __FILE__, GST_FUNCTION,
+        __LINE__, NULL, format, vargs);
+  }
+}
+
 static GstMLType
-qairt_to_ml_type (qairt::DataType type)
+gst_ml_type_from_data_type (qairt::DataType type)
 {
   switch (type) {
     case qairt::DataType::Int8:
@@ -193,48 +197,29 @@ qairt_to_ml_type (qairt::DataType type)
   return GST_ML_TYPE_UNKNOWN;
 }
 
-// Map the backend enum to the QAIRT backend shared library name. QAIRT selects
-// the backend by which library the Api loads (there is no runtime enum).
-static const gchar *
-gst_ml_qairt_backend_to_backend_lib (GstMLQairtBackend backend)
-{
-  switch (backend) {
-    case GST_ML_QAIRT_BACKEND_GPU:
-      return "libQairtGpu.so";
-    case GST_ML_QAIRT_BACKEND_HTP:
-      return "libQairtHtp.so";
-    case GST_ML_QAIRT_BACKEND_CPU:
-    default:
-      return "libQairtCpu.so";
-  }
-}
-
 template <typename T>
 static std::shared_ptr<T>
 gst_ml_qairt_load_library (std::string library)
 {
+  std::shared_ptr<T> api;
+
   try {
     GST_DEBUG ("Loading library '%s'", library.c_str ());
-    return std::make_shared<T> (library.c_str ());
+    api = std::make_shared<T> (library.c_str ());
   } catch (const std::exception &e) {
-    GST_DEBUG ("Failed to load library '%s' (%s)", library.c_str (),
-        e.what ());
-    library += "." + std::to_string (QAIRT_MAJOR_VERSION);
+    GST_DEBUG ("Failed to load library '%s' (%s)", library.c_str (), e.what ());
+    library += ".2";
 
-    try {
-      GST_DEBUG ("Loading versioned library '%s'", library.c_str ());
-      return std::make_shared<T> (library.c_str ());
-    } catch (const std::exception &e) {
-      GST_DEBUG ("Failed to load library '%s' (%s)", library.c_str (),
-          e.what ());
-    }
+    GST_DEBUG ("Loading versioned library '%s'", library.c_str ());
+    api = std::make_shared<T> (library.c_str ());
   }
 
-  return nullptr;
+  GST_DEBUG ("Loaded library '%s'", library.c_str ());
+  return api;
 }
 
 static qairt::Priority
-to_priority (GstMLQairtExecPriority priority)
+gst_ml_translate_priority (GstMLQairtExecPriority priority)
 {
   switch (priority) {
     case GST_ML_QAIRT_EXEC_PRIORITY_LOW:
@@ -251,33 +236,137 @@ to_priority (GstMLQairtExecPriority priority)
   }
 }
 
-// Fill a GstMLInfo tensor entry from a QAIRT tensor info. Returns FALSE if the
-// tensor rank exceeds what GstMLInfo can represent.
 static gboolean
-fill_tensor_dims (GstMLInfo * info, guint idx, guint rank,
-    const uint32_t * dims)
+gst_ml_info_populate_dimensions (GstMLInfo * info, guint idx, guint rank,
+    const uint32_t * dimensions)
 {
   if (rank > GST_ML_TENSOR_MAX_DIMS) {
-    GST_ERROR ("Tensor rank %u exceeds maximum %u!", rank,
-        GST_ML_TENSOR_MAX_DIMS);
+    GST_ERROR ("Tensor rank %u exceeds maximum %u!", rank, GST_ML_TENSOR_MAX_DIMS);
     return FALSE;
   }
 
   GST_ML_INFO_N_DIMENSIONS (info, idx) = rank;
 
   for (guint num = 0; num < rank; num++) {
-    GST_ML_INFO_TENSOR_DIM (info, idx, num) = dims[num];
-    GST_DEBUG ("Tensor[%u] Dimension[%u]: %u", idx, num, dims[num]);
+    GST_ML_INFO_TENSOR_DIM (info, idx, num) = dimensions[num];
+    GST_DEBUG ("Tensor[%u] Dimension[%u]: %u", idx, num, dimensions[num]);
   }
 
   return TRUE;
 }
 
-// Build a QAIRT Tensor from context tensor metadata, matching the reference
-// QairtSampleApp::prepareTensor(). The client buffer is bound per-inference.
+static void
+gst_ml_frame_normalize (GstMLFrame * outframe, guint idx,
+    qairt::DataType datatype, const qairt::QuantizeParams &qparams)
+{
+  // If output is not FLOAT32 and native type does not differ then nothing to do.
+  if (GST_ML_FRAME_TYPE (outframe) != GST_ML_TYPE_FLOAT32 ||
+      GST_ML_FRAME_TYPE (outframe) == gst_ml_type_from_data_type (datatype))
+    return;
+
+  qairt::QuantizationEncoding encoding = qparams.getQuantizationEncoding ();
+
+  gfloat scale = 1.0f;
+  gint32 offset = 0;
+
+  if (encoding == qairt::QuantizationEncoding::ScaleOffset) {
+    const qairt::ScaleOffset &so = qparams.getScaleOffsetEncoding ();
+
+    scale = so.getScale ();
+    offset = so.getOffset ();
+  }
+
+  gfloat *output =
+      reinterpret_cast<gfloat*>(GST_ML_FRAME_BLOCK_DATA (outframe, idx));
+  gsize n_elements = gst_ml_info_tensor_size (&(outframe->info), idx) /
+      gst_ml_type_get_size (GST_ML_FRAME_TYPE (outframe));
+
+  switch (datatype) {
+    case qairt::DataType::Float32:
+      // Native type already matches, no conversion needed.
+      break;
+#if defined(__ARM_FP16_FORMAT_IEEE)
+    case qairt::DataType::Float16:
+    {
+      __fp16 *data = reinterpret_cast<__fp16 *>(output);
+
+      for (gint pos = (n_elements - 1); pos >= 0; pos--)
+        output[pos] = (static_cast<gfloat> (data[pos]) + offset) * scale;
+
+      break;
+    }
+#endif  // defined(__ARM_FP16_FORMAT_IEEE)
+    case qairt::DataType::UFixedPoint8:
+    case qairt::DataType::UInt8:
+    case qairt::DataType::Bool8:
+    {
+      uint8_t *data = reinterpret_cast<uint8_t *> (output);
+
+      for (gint pos = static_cast<gint> (n_elements) - 1; pos >= 0; pos--)
+        output[pos] = (static_cast<gfloat> (data[pos]) + offset) * scale;
+
+      break;
+    }
+    case qairt::DataType::SFixedPoint8:
+    case qairt::DataType::Int8:
+    {
+      int8_t *data = reinterpret_cast<int8_t *> (output);
+
+      for (gint pos = static_cast<gint> (n_elements) - 1; pos >= 0; pos--)
+        output[pos] = (static_cast<gfloat> (data[pos]) + offset) * scale;
+
+      break;
+    }
+    case qairt::DataType::UFixedPoint16:
+    case qairt::DataType::UInt16:
+    {
+      uint16_t *data = reinterpret_cast<uint16_t *> (output);
+
+      for (gint pos = static_cast<gint> (n_elements) - 1; pos >= 0; pos--)
+        output[pos] = (static_cast<gfloat> (data[pos]) + offset) * scale;
+
+      break;
+    }
+    case qairt::DataType::SFixedPoint16:
+    case qairt::DataType::Int16:
+    {
+      int16_t *data = reinterpret_cast<int16_t *> (output);
+
+      for (gint pos = static_cast<gint> (n_elements) - 1; pos >= 0; pos--)
+        output[pos] = (static_cast<gfloat> (data[pos]) + offset) * scale;
+
+      break;
+    }
+    case qairt::DataType::UFixedPoint32:
+    case qairt::DataType::UInt32:
+    {
+      uint32_t *data = reinterpret_cast<uint32_t *> (output);
+
+      for (gint pos = static_cast<gint> (n_elements) - 1; pos >= 0; pos--)
+        output[pos] = (static_cast<gfloat> (data[pos]) + offset) * scale;
+
+      break;
+    }
+    case qairt::DataType::SFixedPoint32:
+    case qairt::DataType::Int32:
+    {
+      int32_t *data = reinterpret_cast<int32_t *> (output);
+
+      for (gint pos = static_cast<gint> (n_elements) - 1; pos >= 0; pos--)
+        output[pos] = (static_cast<gfloat> (data[pos]) + offset) * scale;
+
+      break;
+    }
+    default:
+      GST_ERROR ("Output data type %d not supported for conversion!",
+          static_cast<int> (datatype));
+      break;
+  }
+}
+
 static std::shared_ptr<qairt::Tensor>
-make_tensor (GstMLQairtEngine * engine, qairt::SystemContextTensorInfo & info,
-    gboolean is_input)
+gst_ml_qairt_make_tensor (GstMLQairtEngine * engine,
+    qairt::SystemContextTensorInfo &tinfo, gboolean is_input)
 {
   std::shared_ptr<qairt::Tensor> tensor =
       engine->api->makeShared<qairt::Tensor> ();
@@ -286,155 +375,327 @@ make_tensor (GstMLQairtEngine * engine, qairt::SystemContextTensorInfo & info,
   prop.setIsInput (is_input);
   prop.setIsOutput (!is_input);
 
-  tensor->setId (info.getId ());
-  tensor->setName (info.getName ());
+  tensor->setId (tinfo.getId ());
+  tensor->setName (tinfo.getName ());
   tensor->setTensorProperties (prop);
-  tensor->setDataFormat (0);  // Dense format.
-  tensor->setDataType (info.getDataType ());
-  tensor->setDimensions (std::vector<uint32_t> (info.getDimensions (),
-      info.getDimensions () + info.getRank ()));
-  tensor->setIsDynamicDimensions (std::vector<bool> (info.getRank (), false));
+  tensor->setDataFormat (0);
+  tensor->setDataType (tinfo.getDataType ());
+  tensor->setDimensions (std::vector<uint32_t> (tinfo.getDimensions (),
+      tinfo.getDimensions () + tinfo.getRank ()));
+  tensor->setIsDynamicDimensions (std::vector<bool> (tinfo.getRank (), false));
+
+  const qairt::SystemContextQuantizationInfo &qinfo = tinfo.getQuantInfo ();
+
+  if (qinfo.getQuantizationType () ==
+          qairt::SystemContextQuantInfoType::QAIRT_QUANTIZATION_INFO_SCALE_OFFSET) {
+    const qairt::SystemContextScaleOffset &so = qinfo.getScaleOffset ();
+    qairt::QuantizeParams qparams = engine->api->make<qairt::QuantizeParams> ();
+
+    qparams.setScaleOffsetEncoding (engine->api->make<qairt::ScaleOffset> ());
+    qparams.getScaleOffsetEncoding ().setScale (so.getScale ());
+    qparams.getScaleOffsetEncoding ().setOffset (so.getOffset ());
+
+    tensor->setQuantizeParams (qparams);
+
+    GST_DEBUG ("Tensor '%s' quantized: scale %f offset %d",
+        tinfo.getName ().c_str (), so.getScale (), so.getOffset ());
+  }
 
   return tensor;
 }
 
-// Populate a per-output descriptor and its bindable tensor from the metadata.
 static gboolean
-fill_output (GstMLQairtEngine * engine, GstMLQairtOutput * output,
-    qairt::SystemContextTensorInfo * info)
+gst_ml_qairt_engine_load_backend (GstMLQairtEngine * engine,
+    GstMLQairtBackend backend)
 {
-  output->tensor = make_tensor (engine, *info, FALSE);
-  output->type = info->getDataType ();
-  output->name = info->getName ();
-  output->quantized = FALSE;
-  output->scale = 1.0f;
-  output->offset = 0;
+  const gchar *libname = NULL;
 
-  const qairt::SystemContextQuantizationInfo &qinfo = info->getQuantInfo ();
+  switch (backend) {
+    case GST_ML_QAIRT_BACKEND_GPU:
+      libname = "libQairtGpu.so";
+      break;
+    case GST_ML_QAIRT_BACKEND_HTP:
+      libname = "libQairtHtp.so";
+      break;
+    case GST_ML_QAIRT_BACKEND_CPU:
+    default:
+      libname = "libQairtCpu.so";
+      break;
+  }
 
-  if (qinfo.getQuantizationType () ==
-      qairt::SystemContextQuantInfoType::QAIRT_QUANTIZATION_INFO_SCALE_OFFSET) {
-    const qairt::SystemContextScaleOffset &so = qinfo.getScaleOffset ();
-    output->quantized = TRUE;
-    output->scale = so.getScale ();
-    output->offset = so.getOffset ();
-    GST_DEBUG ("Output '%s' quantized: scale %f offset %d",
-        output->name.c_str (), output->scale, output->offset);
+  try {
+    engine->api = gst_ml_qairt_load_library<qairt::Api> (libname);
+    engine->sysapi =
+        gst_ml_qairt_load_library<qairt::SystemApi> ("libQairtSystem.so");
+
+    qairt::Log log = engine->api->make<qairt::Log> (gst_ml_qairt_log_callback,
+        static_cast<QairtLog_Level_t> (qairt::LogLevel::Warn));
+
+    engine->backend = engine->api->makeShared<qairt::Backend> (log);
+  } catch (const std::exception &e) {
+    GST_ERROR ("Failed to load backend: %s", e.what ());
+    return FALSE;
   }
 
   return TRUE;
 }
 
-// Read a model file into a caller-owned buffer. Returns NULL on failure.
-static gchar *
-read_model_file (const gchar * filename, gsize * length)
+static gboolean
+gst_ml_qairt_engine_build_input_tensors (GstMLQairtEngine * engine,
+    std::vector<qairt::SystemContextTensorInfo> &intensors)
+{
+  gboolean success = FALSE;
+
+  if (intensors.size () > GST_ML_MAX_TENSORS) {
+    GST_ERROR ("Model has %zu inputs, maximum is %u!", intensors.size (),
+        GST_ML_MAX_TENSORS);
+    return FALSE;
+  }
+
+  try {
+    for (guint idx = 0; idx < intensors.size (); idx++) {
+      qairt::SystemContextTensorInfo &tinfo = intensors[idx];
+
+      GST_DEBUG ("Input tensor[%u] name: %s", idx, tinfo.getName ().c_str ());
+
+      if (idx == 0)
+        engine->ininfo->type = gst_ml_type_from_data_type (tinfo.getDataType ());
+
+      success = gst_ml_info_populate_dimensions (engine->ininfo, idx,
+          tinfo.getRank (), tinfo.getDimensions ());
+
+      if (!success)
+        return FALSE;
+
+      engine->ininfo->n_tensors++;
+      engine->inputs.push_back (gst_ml_qairt_make_tensor (engine, tinfo, TRUE));
+    }
+  } catch (const std::exception &e) {
+    GST_ERROR ("Failed to build input tensors: %s", e.what ());
+    return FALSE;
+  }
+
+  GST_DEBUG ("Number of input tensors: %u",
+      GST_ML_INFO_N_TENSORS (engine->ininfo));
+  GST_DEBUG ("Input tensors type: %s",
+      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->ininfo)));
+
+  return TRUE;
+}
+
+static gboolean
+gst_ml_qairt_engine_build_output_tensors (GstMLQairtEngine * engine,
+    GList * names, std::vector<qairt::SystemContextTensorInfo> &outtensors)
+{
+  gboolean success = FALSE;
+
+  try {
+    // Honor the optional user-specified output names, if any were given.
+    if (names != NULL) {
+      guint length = g_list_length (names);
+
+      if (length > GST_ML_MAX_TENSORS) {
+        GST_ERROR ("Requested %u outputs, maximum is %u!", length,
+            GST_ML_MAX_TENSORS);
+        return FALSE;
+      }
+
+      for (guint idx = 0; idx < length; idx++) {
+        const gchar *name = (const gchar *) g_list_nth_data (names, idx);
+
+        auto it = std::find_if(outtensors.begin(), outtensors.end(),
+            [name] (const qairt::SystemContextTensorInfo &tinfo)
+            { return tinfo.getName () == name; } );
+
+        if (it == outtensors.end()) {
+          GST_ERROR ("Output tensor name '%s' not found in graph!", name);
+          return FALSE;
+        }
+
+        engine->outputs.push_back (gst_ml_qairt_make_tensor (engine, *it, FALSE));
+      }
+    } else {
+      if (outtensors.size () > GST_ML_MAX_TENSORS) {
+        GST_ERROR ("Model has %zu outputs, maximum is %u!", outtensors.size (),
+            GST_ML_MAX_TENSORS);
+        return FALSE;
+      }
+
+      for (guint idx = 0; idx < outtensors.size (); idx++) {
+        qairt::SystemContextTensorInfo &tinfo = outtensors[idx];
+        engine->outputs.push_back (gst_ml_qairt_make_tensor (engine, tinfo, FALSE));
+      }
+    }
+  } catch (const std::exception &e) {
+    GST_ERROR ("Failed to build output tensors: %s", e.what ());
+    return FALSE;
+  }
+
+  for (guint idx = 0; idx < engine->outputs.size (); idx++) {
+    std::shared_ptr<qairt::Tensor> &tensor = engine->outputs[idx];
+    const std::vector<uint32_t> &dims = tensor->getDimensions ();
+
+    if (idx == 0)
+      engine->outinfo->type = gst_ml_type_from_data_type (tensor->getDataType ());
+
+    GST_DEBUG ("Output tensor[%u] name: %s", idx, tensor->getName ().c_str ());
+
+    success = gst_ml_info_populate_dimensions (engine->outinfo, idx,
+        dims.size (), dims.data ());
+
+    if (!success)
+      return FALSE;
+
+    engine->outinfo->n_tensors++;
+  }
+
+  GST_DEBUG ("Number of output tensors: %u",
+      GST_ML_INFO_N_TENSORS (engine->outinfo));
+  GST_DEBUG ("Output tensors type: %s",
+      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
+
+  return TRUE;
+}
+
+static gboolean
+gst_ml_qairt_engine_build_tensors (GstMLQairtEngine * engine, GList * names,
+    qairt::SystemContextGraphInfo &graphinfo)
+{
+  if (!gst_ml_qairt_engine_build_input_tensors (engine,
+        graphinfo.getGraphInputs ()))
+    return FALSE;
+
+  return gst_ml_qairt_engine_build_output_tensors (engine, names,
+      graphinfo.getGraphOutputs ());
+}
+
+static gboolean
+gst_ml_qairt_engine_setup_dlc_graphs (GstMLQairtEngine * engine,
+    GstMLQairtSettings * settings)
+{
+  qairt::SystemContextGraphInfoSet graphinfoset;
+
+  try {
+    // Some backends (e.g. CPU) reject a priority context config with
+    // QNN_COMMON_ERROR_NOT_SUPPORTED; fall back to the default config.
+    try {
+      qairt::ContextConfiguration config =
+          engine->api->make<qairt::ContextConfiguration> ();
+
+      GST_DEBUG ("Creating context with priority configuration");
+      config.setPriority (gst_ml_translate_priority (settings->priority));
+
+      engine->context = std::make_shared<qairt::Context> (
+          engine->backend->createContext (config));
+    } catch (const std::exception &e) {
+      GST_WARNING ("Context creation with priority config failed (%s); "
+          "retrying with default configuration", e.what ());
+
+      engine->context = std::make_shared<qairt::Context> (
+          engine->backend->createContext ());
+    }
+
+    GST_DEBUG ("Composing graphs from DLC '%s'", settings->modelfile);
+    std::shared_ptr<qairt::SystemDlc> dlc =
+        engine->sysapi->makeShared<qairt::SystemDlc> (settings->modelfile);
+
+    graphinfoset = dlc->composeGraphs (
+        *engine->backend, *engine->context, *engine->api, *engine->sysapi);
+
+    if (graphinfoset.getGraphInfos ().size () != 1)
+      throw std::runtime_error ("Model contains 0 or more then 1 graphs!");
+
+    auto &graphinfo = graphinfoset.getGraphInfos ()[0];
+
+    engine->graph = engine->context->retrieveGraph (graphinfo.getGraphName ());
+    engine->graph->finalize ();
+  } catch (const std::exception &e) {
+    GST_ERROR ("Failed to compose DLC graphs from '%s': %s",
+        settings->modelfile, e.what ());
+    return FALSE;
+  }
+
+  auto &graphinfo = graphinfoset.getGraphInfos ()[0];
+  return gst_ml_qairt_engine_build_tensors (engine, settings->outputs, graphinfo);
+}
+
+static gboolean
+gst_ml_qairt_engine_setup_binary_graphs (GstMLQairtEngine * engine,
+    GstMLQairtSettings * settings)
 {
   gchar *contents = NULL;
   GError *error = NULL;
+  gsize length = 0;
 
-  if (!g_file_get_contents (filename, &contents, length, &error)) {
-    GST_ERROR ("Failed to read model file '%s': %s!", filename,
+  if (!g_file_get_contents (settings->modelfile, &contents, &length, &error)) {
+    GST_ERROR ("Failed to read model file '%s': %s!", settings->modelfile,
         GST_STR_NULL (error ? error->message : NULL));
     g_clear_error (&error);
-    return NULL;
+    return FALSE;
   }
 
-  return contents;
+  GST_DEBUG ("Creating context from cached binary '%s'", settings->modelfile);
+
+  std::shared_ptr<qairt::SystemContext> syscontext;
+  qairt::SystemContextBinaryInfo bininfo;
+
+  try {
+    qairt::ContextBinaryBuffer binary =
+        engine->api->make<qairt::ContextBinaryBuffer> ();
+
+    binary.setData (reinterpret_cast<void *> (contents));
+    binary.setSize (static_cast<uint64_t> (length));
+
+    syscontext = engine->sysapi->makeShared<qairt::SystemContext> ();
+    bininfo = syscontext->getBinaryInfo (
+        reinterpret_cast<void *> (contents), static_cast<uint64_t> (length));
+
+    engine->context = std::make_shared<qairt::Context> (
+        engine->backend->createContextFromBinary (std::nullopt, std::nullopt, binary));
+
+    if (bininfo.getGraphs ().size () != 1)
+      throw std::runtime_error ("Model contains 0 or more then 1 graphs!");
+
+    auto &graphinfo = bininfo.getGraphs ()[0];
+    engine->graph = engine->context->retrieveGraph (graphinfo.getGraphName ());
+  } catch (const std::exception &e) {
+    GST_ERROR ("Failed to create context '%s': %s", settings->modelfile, e.what ());
+    g_clear_pointer (&contents, g_free);
+    return FALSE;
+  }
+
+  g_clear_pointer (&contents, g_free);
+  auto &graphinfo = bininfo.getGraphs ()[0];
+
+  return gst_ml_qairt_engine_build_tensors (engine, settings->outputs, graphinfo);
 }
 
-// Compose the graphs contained in a '.dlc' model onto the backend context.
 static gboolean
-setup_dlc_graphs (GstMLQairtEngine * engine, const gchar * filename)
+gst_ml_qairt_engine_setup_model (GstMLQairtEngine * engine,
+    GstMLQairtSettings * settings)
 {
-  std::vector<qairt::SystemDlcGraphConfigInfo> configs;
+  // '.dlc' containers are composed into a fresh context; anything else is
+  // treated as a cached context binary.
+  if (g_str_has_suffix (settings->modelfile, ".dlc"))
+    return gst_ml_qairt_engine_setup_dlc_graphs (engine, settings);
 
-  engine->dlc =
-      engine->sysapi->makeShared<qairt::SystemDlc> (std::string (filename));
-
-  engine->graphinfoset = std::make_shared<qairt::SystemContextGraphInfoSet> (
-      engine->dlc->composeGraphs (configs, *engine->backend, *engine->context,
-          *engine->api, *engine->sysapi));
-
-  engine->graphinfos = std::move (engine->graphinfoset->getGraphInfos ());
-
-  if (engine->graphinfos.empty ()) {
-    GST_ERROR ("Model contains no graphs!");
-    return FALSE;
-  }
-
-  engine->graph =
-      engine->context->retrieveGraph (engine->graphinfos[0].getGraphName ());
-  engine->graph->finalize ();
-
-  return TRUE;
-}
-
-// Create the context from a cached context '.bin' binary and retrieve its
-// graphs. The binary bytes must remain valid until the context is created.
-static gboolean
-setup_binary_graphs (GstMLQairtEngine * engine, const gchar * filename)
-{
-  gsize length = 0;
-  gchar *contents = read_model_file (filename, &length);
-
-  if (contents == NULL)
-    return FALSE;
-
-  if (length == 0) {
-    GST_ERROR ("Model file '%s' is empty!", filename);
-    g_free (contents);
-    return FALSE;
-  }
-
-  qairt::ContextBinaryBuffer binbuffer =
-      engine->api->make<qairt::ContextBinaryBuffer> ();
-  binbuffer.setData (reinterpret_cast<void *> (contents));
-  binbuffer.setSize (static_cast<uint64_t> (length));
-
-  // The system context must outlive access to the extracted graph metadata.
-  engine->syscontext = engine->sysapi->makeShared<qairt::SystemContext> ();
-  qairt::SystemContextBinaryInfo bininfo =
-      engine->syscontext->getBinaryInfo (binbuffer.getData (),
-          binbuffer.getSize ());
-
-  engine->context = std::make_shared<qairt::Context> (
-      engine->backend->createContextFromBinary (std::nullopt, std::nullopt,
-          binbuffer));
-
-  std::vector<qairt::SystemContextGraphInfo> &graphs = bininfo.getGraphs ();
-  engine->graphinfos.clear ();
-  engine->graphinfos.reserve (graphs.size ());
-
-  for (qairt::SystemContextGraphInfo &graph : graphs)
-    engine->graphinfos.emplace_back (std::move (graph));
-
-  g_free (contents);
-
-  if (engine->graphinfos.empty ()) {
-    GST_ERROR ("Model contains no graphs!");
-    return FALSE;
-  }
-
-  engine->graph =
-      engine->context->retrieveGraph (engine->graphinfos[0].getGraphName ());
-
-  return TRUE;
+  return gst_ml_qairt_engine_setup_binary_graphs (engine, settings);
 }
 
 GstMLQairtEngine *
 gst_ml_qairt_engine_new (GstMLQairtSettings * settings)
 {
   GstMLQairtEngine *engine = NULL;
-  gboolean success = FALSE;
-  gboolean failed = FALSE;
 
   g_return_val_if_fail (settings != NULL, NULL);
-  GST_ML_RETURN_VAL_IF_FAIL (settings->modelfile != NULL, NULL,
-      "No model file name!");
-  GST_ML_RETURN_VAL_IF_FAIL (
-      g_file_test (settings->modelfile, G_FILE_TEST_IS_REGULAR), NULL,
-      "Model file '%s' does not exist or is not a regular file!",
-      settings->modelfile);
+
+  if (settings->modelfile == NULL) {
+    GST_ERROR ("No model file name!");
+    return NULL;
+  } else if (!g_file_test (settings->modelfile, G_FILE_TEST_IS_REGULAR)) {
+    GST_ERROR ("Model file '%s' does not exist!", settings->modelfile);
+    return NULL;
+  }
 
   engine = new GstMLQairtEngine;
   g_return_val_if_fail (engine != NULL, NULL);
@@ -442,190 +703,18 @@ gst_ml_qairt_engine_new (GstMLQairtSettings * settings)
   engine->ininfo = gst_ml_info_new ();
   engine->outinfo = gst_ml_info_new ();
 
-  try {
-    const gchar *backendlib =
-        gst_ml_qairt_backend_to_backend_lib (settings->backend);
+  if (!gst_ml_qairt_engine_load_backend (engine, settings->backend))
+    goto cleanup;
 
-    engine->api = gst_ml_qairt_load_library<qairt::Api> (backendlib);
-    GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (engine->api != nullptr, NULL,
-        gst_ml_qairt_engine_free (engine), "Failed to load QAIRT backend!");
+  if (!gst_ml_qairt_engine_setup_model (engine, settings))
+    goto cleanup;
 
-    engine->sysapi =
-        gst_ml_qairt_load_library<qairt::SystemApi> (GST_ML_QAIRT_SYSTEM_LIB);
-    GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (engine->sysapi != nullptr, NULL,
-        gst_ml_qairt_engine_free (engine), "Failed to load QAIRT system!");
-
-    // Set up logging routed to the GStreamer debug system category.
-    engine->log = engine->api->makeShared<qairt::Log> (
-        [](const char *fmt, QairtLog_Level_t level, uint64_t timestamp,
-            void *userdata, va_list argp) {
-          (void) level; (void) timestamp; (void) userdata;
-          if (G_LIKELY (GST_LEVEL_LOG > _gst_debug_min))
-            return;
-          gst_debug_log_valist (gst_ml_qairt_engine_debug_category (),
-              GST_LEVEL_LOG, __FILE__, GST_FUNCTION, __LINE__, NULL, fmt, argp);
-        },
-        static_cast<QairtLog_Level_t> (qairt::LogLevel::Warn));
-
-    GST_DEBUG ("Creating QAIRT backend handle");
-    engine->backend = engine->api->makeShared<qairt::Backend> (*engine->log);
-
-    // '.dlc' containers are composed into a fresh context; anything else is
-    // treated as a cached context binary.
-    std::filesystem::path modelpath (settings->modelfile);
-
-    if (modelpath.extension () == ".dlc") {
-      // Create the context, applying the priority configuration. Some backends
-      // (e.g. CPU) do not support the priority context-config option and reject
-      // createContext() with QNN_COMMON_ERROR_NOT_SUPPORTED; fall back to a
-      // default context in that case rather than failing engine creation.
-      try {
-        qairt::ContextConfiguration config =
-            engine->api->make<qairt::ContextConfiguration> ();
-        config.setPriority (to_priority (settings->priority));
-
-        GST_DEBUG ("Creating QAIRT context with priority configuration");
-        engine->context = std::make_shared<qairt::Context> (
-            engine->backend->createContext (config));
-      } catch (const std::exception &e) {
-        GST_WARNING ("Context creation with priority config failed (%s); "
-            "retrying with default configuration", e.what ());
-        engine->context = std::make_shared<qairt::Context> (
-            engine->backend->createContext ());
-      }
-
-      GST_DEBUG ("Composing graphs from DLC");
-      success = setup_dlc_graphs (engine, settings->modelfile);
-    } else {
-      GST_DEBUG ("Creating context from cached binary");
-      success = setup_binary_graphs (engine, settings->modelfile);
-    }
-
-    GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (success, NULL,
-        gst_ml_qairt_engine_free (engine), "Failed to load model '%s'!",
-        settings->modelfile);
-
-    GST_DEBUG ("Loaded model file '%s'!", settings->modelfile);
-
-    if (engine->graphinfos.size () > 1)
-      GST_WARNING ("Multiple graphs detected! Only the first will be executed.");
-
-    qairt::SystemContextGraphInfo &ginfo = engine->graphinfos[0];
-    std::vector<qairt::SystemContextTensorInfo> &intensors =
-        ginfo.getGraphInputs ();
-    std::vector<qairt::SystemContextTensorInfo> &outtensors =
-        ginfo.getGraphOutputs ();
-
-    // Fill input ML info and build the input tensors in graph order.
-    GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (
-        intensors.size () <= GST_ML_MAX_TENSORS, NULL,
-        gst_ml_qairt_engine_free (engine),
-        "Model has %zu inputs, maximum is %u!", intensors.size (),
-        GST_ML_MAX_TENSORS);
-
-    for (guint idx = 0; idx < intensors.size (); idx++) {
-      qairt::SystemContextTensorInfo &tensor = intensors[idx];
-
-      GST_DEBUG ("Input tensor[%u] name: %s", idx, tensor.getName ().c_str ());
-
-      if (idx == 0)
-        GST_ML_INFO_TYPE (engine->ininfo) =
-            qairt_to_ml_type (tensor.getDataType ());
-
-      GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (
-          fill_tensor_dims (engine->ininfo, idx, tensor.getRank (),
-              tensor.getDimensions ()), NULL,
-          gst_ml_qairt_engine_free (engine), "Invalid input tensor %u!", idx);
-
-      engine->ininfo->n_tensors++;
-      engine->inputs.push_back (make_tensor (engine, tensor, TRUE));
-    }
-
-    GST_DEBUG ("Number of input tensors: %u",
-        GST_ML_INFO_N_TENSORS (engine->ininfo));
-    GST_DEBUG ("Input tensors type: %s",
-        gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->ininfo)));
-
-    // Build the ordered output list, honoring the optional user-specified names.
-    if (settings->outputs != NULL) {
-      guint length = g_list_length (settings->outputs);
-
-      GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (length <= GST_ML_MAX_TENSORS, NULL,
-          gst_ml_qairt_engine_free (engine),
-          "Requested %u outputs, maximum is %u!", length, GST_ML_MAX_TENSORS);
-
-      for (guint idx = 0; idx < length; idx++) {
-        const gchar *name = (const gchar *) g_list_nth_data (settings->outputs,
-            idx);
-        gboolean found = FALSE;
-
-        for (guint num = 0; num < outtensors.size (); num++) {
-          if (outtensors[num].getName () == name) {
-            GstMLQairtOutput output;
-            fill_output (engine, &output, &outtensors[num]);
-            engine->outputs.push_back (std::move (output));
-            found = TRUE;
-            break;
-          }
-        }
-
-        GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (found, NULL,
-            gst_ml_qairt_engine_free (engine),
-            "Output tensor name '%s' not found in graph!", name);
-      }
-    } else {
-      GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (
-          outtensors.size () <= GST_ML_MAX_TENSORS, NULL,
-          gst_ml_qairt_engine_free (engine),
-          "Model has %zu outputs, maximum is %u!", outtensors.size (),
-          GST_ML_MAX_TENSORS);
-
-      for (guint idx = 0; idx < outtensors.size (); idx++) {
-        GstMLQairtOutput output;
-        fill_output (engine, &output, &outtensors[idx]);
-        engine->outputs.push_back (std::move (output));
-      }
-    }
-
-    // Output tensors are always dequantized to float for downstream elements.
-    GST_ML_INFO_TYPE (engine->outinfo) = GST_ML_TYPE_FLOAT32;
-
-    for (guint idx = 0; idx < engine->outputs.size (); idx++) {
-      const std::vector<uint32_t> &dims =
-          engine->outputs[idx].tensor->getDimensions ();
-
-      GST_DEBUG ("Output tensor[%u] name: %s", idx,
-          engine->outputs[idx].name.c_str ());
-
-      GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (
-          fill_tensor_dims (engine->outinfo, idx, dims.size (), dims.data ()),
-          NULL, gst_ml_qairt_engine_free (engine),
-          "Invalid output tensor %u!", idx);
-
-      engine->outinfo->n_tensors++;
-    }
-
-    GST_DEBUG ("Number of output tensors: %u",
-        GST_ML_INFO_N_TENSORS (engine->outinfo));
-    GST_DEBUG ("Output tensors type: %s",
-        gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
-  } catch (const std::exception &e) {
-    GST_ERROR ("Failed to create QAIRT engine: %s", e.what ());
-    // Defer teardown until the exception object has been fully destroyed.
-    // Freeing here destroys the qairt::Api, which dlclose()s the backend
-    // library; but the in-flight exception was allocated by that library, so
-    // unloading it now leaves the exception's cleanup code unmapped and the
-    // handler crashes on exit. Fall through and free below instead.
-    failed = TRUE;
-  }
-
-  if (failed) {
-    gst_ml_qairt_engine_free (engine);
-    return NULL;
-  }
-
-  GST_INFO ("Created MLE QAIRT engine: %p", engine);
+  GST_INFO ("Created engine: %p", engine);
   return engine;
+
+cleanup:
+  gst_ml_qairt_engine_free (engine);
+  return NULL;
 }
 
 void
@@ -634,105 +723,54 @@ gst_ml_qairt_engine_free (GstMLQairtEngine * engine)
   if (NULL == engine)
     return;
 
-  if (engine->outinfo != NULL) {
-    gst_ml_info_free (engine->outinfo);
-    engine->outinfo = NULL;
-  }
+  g_clear_pointer (&engine->outinfo, gst_ml_info_free);
+  g_clear_pointer (&engine->ininfo, gst_ml_info_free);
 
-  if (engine->ininfo != NULL) {
-    gst_ml_info_free (engine->ininfo);
-    engine->ininfo = NULL;
-  }
-
-  GST_INFO ("Destroyed MLE QAIRT engine: %p", engine);
+  GST_INFO ("Destroyed engine: %p", engine);
   delete engine;
 }
 
-const GstMLInfo *
-gst_ml_qairt_engine_get_input_info (GstMLQairtEngine * engine)
+GstCaps *
+gst_ml_qairt_engine_get_input_caps (GstMLQairtEngine * engine)
 {
-  return (engine == NULL) ? NULL : engine->ininfo;
+  if (engine == NULL)
+    return NULL;
+
+  return gst_ml_info_to_caps (engine->ininfo);
 }
 
-const GstMLInfo *
-gst_ml_qairt_engine_get_output_info (GstMLQairtEngine * engine)
+GstCaps *
+gst_ml_qairt_engine_get_output_caps (GstMLQairtEngine * engine)
 {
-  return (engine == NULL) ? NULL : engine->outinfo;
-}
+  GstCaps *caps = NULL;
+  GValue list = G_VALUE_INIT, value = G_VALUE_INIT;
 
-// Dequantize/convert a single native output tensor into the float output block.
-// The native data is read from and the float result written to the same buffer;
-// iterating from the last element backwards keeps the in-place expansion safe as
-// sizeof(float) is greater than or equal to the size of the native element.
-static void
-convert_to_float (GstMLFrame * outframe, guint idx,
-    const GstMLQairtOutput * output)
-{
-  gfloat *dst = reinterpret_cast<gfloat *> (GST_ML_FRAME_BLOCK_DATA (outframe,
-      idx));
-  gsize n_elements = gst_ml_info_tensor_size (&(outframe->info), idx) /
-      gst_ml_type_get_size (GST_ML_FRAME_TYPE (outframe));
-  gfloat scale = output->quantized ? output->scale : 1.0f;
-  gint32 offset = output->quantized ? output->offset : 0;
+  if (engine == NULL)
+    return NULL;
 
-  switch (output->type) {
-    case qairt::DataType::Float32:
-      // Native type already matches, no conversion needed.
-      break;
-    case qairt::DataType::UFixedPoint8:
-    case qairt::DataType::UInt8:
-    case qairt::DataType::Bool8:
-    {
-      uint8_t *src = reinterpret_cast<uint8_t *> (dst);
-      for (gint i = (gint) n_elements - 1; i >= 0; i--)
-        dst[i] = ((gfloat) src[i] + offset) * scale;
-      break;
-    }
-    case qairt::DataType::SFixedPoint8:
-    case qairt::DataType::Int8:
-    {
-      int8_t *src = reinterpret_cast<int8_t *> (dst);
-      for (gint i = (gint) n_elements - 1; i >= 0; i--)
-        dst[i] = ((gfloat) src[i] + offset) * scale;
-      break;
-    }
-    case qairt::DataType::UFixedPoint16:
-    case qairt::DataType::UInt16:
-    {
-      uint16_t *src = reinterpret_cast<uint16_t *> (dst);
-      for (gint i = (gint) n_elements - 1; i >= 0; i--)
-        dst[i] = ((gfloat) src[i] + offset) * scale;
-      break;
-    }
-    case qairt::DataType::SFixedPoint16:
-    case qairt::DataType::Int16:
-    {
-      int16_t *src = reinterpret_cast<int16_t *> (dst);
-      for (gint i = (gint) n_elements - 1; i >= 0; i--)
-        dst[i] = ((gfloat) src[i] + offset) * scale;
-      break;
-    }
-    case qairt::DataType::UFixedPoint32:
-    case qairt::DataType::UInt32:
-    {
-      uint32_t *src = reinterpret_cast<uint32_t *> (dst);
-      for (gint i = (gint) n_elements - 1; i >= 0; i--)
-        dst[i] = ((gfloat) src[i] + offset) * scale;
-      break;
-    }
-    case qairt::DataType::SFixedPoint32:
-    case qairt::DataType::Int32:
-    {
-      int32_t *src = reinterpret_cast<int32_t *> (dst);
-      for (gint i = (gint) n_elements - 1; i >= 0; i--)
-        dst[i] = ((gfloat) src[i] + offset) * scale;
-      break;
-    }
-    default:
-      GST_ERROR ("Output data type %d not supported for conversion!",
-          static_cast<int> (output->type));
-      break;
-  }
+  caps = gst_ml_info_to_caps (engine->outinfo);
+
+  // If current type is already FLOAT, return immediately.
+  if (GST_ML_INFO_TYPE (engine->outinfo) == GST_ML_TYPE_FLOAT32)
+    return caps;
+
+  g_value_init (&list, GST_TYPE_LIST);
+  g_value_init (&value, G_TYPE_STRING);
+
+  g_value_set_string (&value, gst_ml_type_to_string (GST_ML_TYPE_FLOAT32));
+  gst_value_list_append_value (&list, &value);
+
+  g_value_set_string (&value,
+      gst_ml_type_to_string (GST_ML_INFO_TYPE (engine->outinfo)));
+  gst_value_list_append_value (&list, &value);
+
+  // Overwrite the type field by adding FLOAT in addition to current type.
+  gst_caps_set_value (caps, "type", &list);
+
+  g_value_unset (&value);
+  g_value_unset (&list);
+
+  return caps;
 }
 
 gboolean
@@ -756,36 +794,35 @@ gst_ml_qairt_engine_execute (GstMLQairtEngine * engine, GstMLFrame * inframe,
   }
 
   try {
-    // Bind the mapped GStreamer memory blocks to the QAIRT tensors' client
-    // buffers, then execute the graph.
     for (guint idx = 0; idx < engine->inputs.size (); idx++) {
       qairt::ClientBuffer &cb = engine->inputs[idx]->getClientBuffer ();
+
       cb.setData (GST_ML_FRAME_BLOCK_DATA (inframe, idx));
-      cb.setDataSize (static_cast<uint32_t> (
-          gst_ml_info_tensor_size (&(inframe->info), idx)));
+      cb.setDataSize (gst_ml_info_tensor_size (&(inframe->info), idx));
     }
 
     for (guint idx = 0; idx < engine->outputs.size (); idx++) {
-      qairt::ClientBuffer &cb = engine->outputs[idx].tensor->getClientBuffer ();
+      qairt::ClientBuffer &cb = engine->outputs[idx]->getClientBuffer ();
+
       cb.setData (GST_ML_FRAME_BLOCK_DATA (outframe, idx));
-      cb.setDataSize (static_cast<uint32_t> (
-          gst_ml_info_tensor_size (&(outframe->info), idx)));
+      cb.setDataSize (gst_ml_info_tensor_size (&(outframe->info), idx));
     }
 
-    std::vector<std::shared_ptr<qairt::Tensor>> outtensors;
-    outtensors.reserve (engine->outputs.size ());
-    for (GstMLQairtOutput &output : engine->outputs)
-      outtensors.push_back (output.tensor);
-
-    engine->graph->execute (engine->inputs, outtensors);
+    engine->graph->execute (engine->inputs, engine->outputs);
 
     // Convert the native output tensors to float and stamp the tensor names.
     for (guint idx = 0; idx < engine->outputs.size (); idx++) {
-      convert_to_float (outframe, idx, &engine->outputs[idx]);
+      std::shared_ptr<qairt::Tensor> &tensor = engine->outputs[idx];
+      qairt::DataType datatype = tensor->getDataType ();
+      const qairt::QuantizeParams &qparams = tensor->getQuantizeParams ();
 
+      gst_ml_frame_normalize (outframe, idx, datatype, qparams);
       mlmeta = gst_buffer_get_ml_tensor_meta_id (outframe->buffer, idx);
-      if (mlmeta != NULL)
-        mlmeta->name = g_quark_from_string (engine->outputs[idx].name.c_str ());
+
+      if (mlmeta == NULL)
+        continue;
+
+      mlmeta->name = g_quark_from_string (tensor->getName ().c_str ());
     }
   } catch (const std::exception &e) {
     GST_ERROR ("Model execution failed: %s", e.what ());

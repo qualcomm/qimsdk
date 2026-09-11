@@ -27,14 +27,10 @@ add_definitions(-DHAVE_CONFIG_H)
 
 # Common compiler flags.
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Werror")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-parameter")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter")
-# The QAIRT C++ SDK headers (e.g. QairtGraph.hpp) declare stub methods with a
-# 'const' qualifier on a by-value return type, which triggers -Wignored-qualifiers.
-# Keep -Werror for our own code but do not let this vendor-header warning be fatal.
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=ignored-qualifiers")
+# These are needed due to QAIRT errors.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-error=ignored-qualifiers")
 
 # GStreamer ML QAIRT plugin.
 set(GST_QTI_ML_QAIRT gstqtimlqairt)
@@ -44,10 +40,6 @@ add_library(${GST_QTI_ML_QAIRT} SHARED
   ml-qairt-engine.cc
 )
 
-# The QAIRT C++ API is header-only. The system and backend libraries are loaded
-# at runtime via dlopen, so only the include directories and libdl are needed at
-# build time. Both the C API root and the C++ header root must be on the include
-# path (the C++ headers include the C headers by their QAIRT-relative path).
 target_include_directories(${GST_QTI_ML_QAIRT} PUBLIC
   ${CMAKE_SYSROOT}/${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}/QAIRT
   ${CMAKE_SYSROOT}/${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}/QAIRT/QairtCpp

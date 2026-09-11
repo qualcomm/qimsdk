@@ -77,11 +77,11 @@ gst_ml_qairt_engine_new               (GstMLQairtSettings * settings);
 GST_API void
 gst_ml_qairt_engine_free              (GstMLQairtEngine * engine);
 
-GST_API const GstMLInfo *
-gst_ml_qairt_engine_get_input_info    (GstMLQairtEngine * engine);
+GST_API GstCaps *
+gst_ml_qairt_engine_get_input_caps    (GstMLQairtEngine * engine);
 
-GST_API const GstMLInfo *
-gst_ml_qairt_engine_get_output_info   (GstMLQairtEngine * engine);
+GST_API GstCaps *
+gst_ml_qairt_engine_get_output_caps   (GstMLQairtEngine * engine);
 
 GST_API gboolean
 gst_ml_qairt_engine_execute           (GstMLQairtEngine * engine,

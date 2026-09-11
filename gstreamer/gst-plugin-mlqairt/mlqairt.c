@@ -27,10 +27,11 @@ G_DEFINE_TYPE (GstMLQairt, gst_ml_qairt, GST_TYPE_BASE_TRANSFORM);
 #define DEFAULT_PROP_MIN_BUFFERS 2
 #define DEFAULT_PROP_MAX_BUFFERS 10
 
-#define GST_ML_QAIRT_TENSOR_TYPES "{ INT8, UINT8, INT16, UINT16, INT32, UINT32, INT64, UINT64, FLOAT16, FLOAT32 }"
+#define GST_ML_QAIRT_TENSOR_TYPES \
+    "{ INT8, UINT8, INT16, UINT16, INT32, UINT32, INT64, UINT64, FLOAT16, FLOAT32 }"
 
-#define GST_ML_QAIRT_CAPS                       \
-    "neural-network/tensors, "                  \
+#define GST_ML_QAIRT_CAPS                        \
+    "neural-network/tensors, "                   \
     "type = (string) " GST_ML_QAIRT_TENSOR_TYPES
 
 #define RETRY_ON_FAILURE_CNT 3
@@ -81,7 +82,7 @@ gst_ml_qairt_create_pool (GstMLQairt * qairt, GstCaps * caps)
   GstBufferPool *pool = NULL;
   GstStructure *config = NULL;
   GstAllocator *allocator = NULL;
-  GstMLInfo info;
+  GstMLInfo info = { 0, };
 
   if (!gst_ml_info_from_caps (&info, caps)) {
     GST_ERROR_OBJECT (qairt, "Invalid caps %" GST_PTR_FORMAT, caps);
@@ -121,7 +122,7 @@ gst_ml_qairt_propose_allocation (GstBaseTransform * base,
 
   GstCaps *caps = NULL;
   GstBufferPool *pool = NULL;
-  GstMLInfo info;
+  GstMLInfo info = { 0, };
   guint size = 0;
   gboolean needpool = FALSE;
 
@@ -183,13 +184,12 @@ static gboolean
 gst_ml_qairt_decide_allocation (GstBaseTransform * base, GstQuery * query)
 {
   GstMLQairt *qairt = GST_ML_QAIRT (base);
-
   GstCaps *caps = NULL;
   GstBufferPool *pool = NULL;
   GstStructure *config = NULL;
   GstAllocator *allocator = NULL;
-  guint size, minbuffers, maxbuffers;
-  GstAllocationParams params;
+  GstAllocationParams params = { 0, };
+  guint size = 0, minbuffers = 0, maxbuffers = 0;
 
   gst_query_parse_allocation (query, &caps, NULL);
   if (!caps) {
@@ -198,8 +198,10 @@ gst_ml_qairt_decide_allocation (GstBaseTransform * base, GstQuery * query)
   }
 
   // Invalidate the cached pool if there is an allocation_query.
-  if (qairt->outpool)
+  if (qairt->outpool) {
     gst_object_unref (qairt->outpool);
+    qairt->outpool = NULL;
+  }
 
   // Create a new buffer pool.
   if ((pool = gst_ml_qairt_create_pool (qairt, caps)) == NULL) {
@@ -287,7 +289,6 @@ gst_ml_qairt_transform_caps (GstBaseTransform * base,
 {
   GstMLQairt *qairt = GST_ML_QAIRT (base);
   GstCaps *result = NULL;
-  const GstMLInfo *mlinfo = NULL;
   const GValue *value = NULL;
 
   if ((NULL == qairt->engine) && (filter != NULL))
@@ -303,17 +304,15 @@ gst_ml_qairt_transform_caps (GstBaseTransform * base,
   // the ML caps from the engine for the corresponding pad and apply filter.
   switch (direction) {
     case GST_PAD_SRC:
-      mlinfo = gst_ml_qairt_engine_get_input_info (qairt->engine);
+      result = gst_ml_qairt_engine_get_input_caps (qairt->engine);
       break;
     case GST_PAD_SINK:
-      mlinfo = gst_ml_qairt_engine_get_output_info (qairt->engine);
+      result = gst_ml_qairt_engine_get_output_caps (qairt->engine);
       break;
     default:
       GST_ERROR_OBJECT (qairt, "Invalid pad direction!");
       return NULL;
   }
-
-  result = gst_ml_info_to_caps (mlinfo);
 
   // Extract the rate.
   value = gst_structure_get_value (gst_caps_get_structure (caps, 0), "rate");
@@ -342,7 +341,6 @@ gst_ml_qairt_accept_caps (GstBaseTransform * base, GstPadDirection direction,
 {
   GstMLQairt *qairt = GST_ML_QAIRT (base);
   GstCaps *mlcaps = NULL;
-  const GstMLInfo *mlinfo = NULL;
   gboolean success = FALSE;
 
   GST_DEBUG_OBJECT (qairt, "Accept caps: %" GST_PTR_FORMAT
@@ -353,11 +351,9 @@ gst_ml_qairt_accept_caps (GstBaseTransform * base, GstPadDirection direction,
   } else if ((NULL == qairt->engine) && (direction == GST_PAD_SRC)) {
     mlcaps = gst_pad_get_pad_template_caps (GST_BASE_TRANSFORM_SRC_PAD (base));
   } else if (direction == GST_PAD_SINK) {
-    mlinfo = gst_ml_qairt_engine_get_input_info (qairt->engine);
-    mlcaps = gst_ml_info_to_caps (mlinfo);
+    mlcaps = gst_ml_qairt_engine_get_input_caps (qairt->engine);
   } else if (direction == GST_PAD_SRC) {
-    mlinfo = gst_ml_qairt_engine_get_output_info (qairt->engine);
-    mlcaps = gst_ml_info_to_caps (mlinfo);
+    mlcaps = gst_ml_qairt_engine_get_output_caps (qairt->engine);
   }
 
   if (NULL == mlcaps) {
@@ -381,7 +377,7 @@ gst_ml_qairt_set_caps (GstBaseTransform * base, GstCaps * incaps,
     GstCaps * outcaps)
 {
   GstMLQairt *qairt = GST_ML_QAIRT (base);
-  GstMLInfo info;
+  GstMLInfo info = { 0, };
 
   if (!gst_ml_info_from_caps (&info, incaps)) {
     GST_ERROR_OBJECT (qairt, "Failed to get input ML info from caps!");
@@ -450,15 +446,17 @@ gst_ml_qairt_transform (GstBaseTransform * base, GstBuffer * inbuffer,
     GstBuffer * outbuffer)
 {
   GstMLQairt *qairt = GST_ML_QAIRT (base);
-  GstMLFrame inframe, outframe;
-  GstClockTime ts_begin = GST_CLOCK_TIME_NONE, ts_end = GST_CLOCK_TIME_NONE;
-  GstClockTimeDiff tsdelta = GST_CLOCK_STIME_NONE;
+  GstMLFrame inframe = { 0, }, outframe = { 0, };
+  GstClockTime time = GST_CLOCK_TIME_NONE;
   gboolean success = FALSE;
+  guint num = 0;
 
   // GAP buffer, nothing to do. Propagate output buffer downstream.
   if (gst_buffer_get_size (outbuffer) == 0 &&
       GST_BUFFER_FLAG_IS_SET (outbuffer, GST_BUFFER_FLAG_GAP))
     return GST_FLOW_OK;
+
+  time = gst_util_get_timestamp ();
 
   // Create ML frame from input buffer.
   if (!gst_ml_frame_map (&inframe, qairt->ininfo, inbuffer, GST_MAP_READ)) {
@@ -473,18 +471,14 @@ gst_ml_qairt_transform (GstBaseTransform * base, GstBuffer * inbuffer,
     return GST_FLOW_ERROR;
   }
 
-  ts_begin = gst_util_get_timestamp ();
-
-  for (guint i = 0; i < RETRY_ON_FAILURE_CNT && success == FALSE; i++) {
+  for (num = 0; num < RETRY_ON_FAILURE_CNT && !success; num++) {
     success = gst_ml_qairt_engine_execute (qairt->engine, &inframe, &outframe);
 
     if (!success) {
       GST_ERROR_OBJECT (qairt, "Failed to execute inference, retrying %d/%d!",
-        i + 1, RETRY_ON_FAILURE_CNT);
+          num + 1, RETRY_ON_FAILURE_CNT);
     }
   }
-
-  ts_end = gst_util_get_timestamp ();
 
   gst_ml_frame_unmap (&outframe);
   gst_ml_frame_unmap (&inframe);
@@ -494,11 +488,11 @@ gst_ml_qairt_transform (GstBaseTransform * base, GstBuffer * inbuffer,
     return GST_FLOW_ERROR;
   }
 
-  tsdelta = GST_CLOCK_DIFF (ts_begin, ts_end);
+  time = GST_CLOCK_DIFF (time, gst_util_get_timestamp ());
 
-  GST_LOG_OBJECT (qairt, "Execute took %" G_GINT64_FORMAT ".%03"
-      G_GINT64_FORMAT " ms", GST_TIME_AS_MSECONDS (tsdelta),
-      (GST_TIME_AS_USECONDS (tsdelta) % 1000));
+  GST_LOG_OBJECT (qairt, "Performance time %" G_GINT64_FORMAT ".%03"
+      G_GINT64_FORMAT " ms, HW utilization: %s", GST_TIME_AS_MSECONDS (time),
+      (GST_TIME_AS_USECONDS (time) % 1000), qairt->hw_util);
 
   return GST_FLOW_OK;
 }
@@ -516,6 +510,16 @@ gst_ml_qairt_set_property (GObject * object, guint prop_id,
       break;
     case PROP_BACKEND:
       qairt->settings.backend = g_value_get_enum (value);
+
+      if (qairt->settings.backend == GST_ML_QAIRT_BACKEND_CPU)
+        g_strlcpy (qairt->hw_util, "CPU", sizeof (qairt->hw_util));
+      else if (qairt->settings.backend == GST_ML_QAIRT_BACKEND_GPU)
+        g_strlcpy (qairt->hw_util, "GPU", sizeof (qairt->hw_util));
+      else if (qairt->settings.backend == GST_ML_QAIRT_BACKEND_HTP)
+        g_strlcpy (qairt->hw_util, "NPU", sizeof (qairt->hw_util));
+      else
+        g_strlcpy (qairt->hw_util, "N/A", sizeof (qairt->hw_util));
+
       break;
     case PROP_EXEC_PRIORITY:
       qairt->settings.priority = g_value_get_enum (value);
@@ -523,16 +527,16 @@ gst_ml_qairt_set_property (GObject * object, guint prop_id,
     case PROP_LAYERS:
     case PROP_TENSORS:
     {
+      const gchar *name = NULL;
       guint idx = 0;
 
       g_list_free_full (qairt->settings.outputs, (GDestroyNotify) g_free);
       qairt->settings.outputs = NULL;
 
       for (idx = 0; idx < gst_value_array_get_size (value); idx++) {
-        const gchar *name = g_value_get_string (
-            gst_value_array_get_value (value, idx));
-        qairt->settings.outputs = g_list_append (
-            qairt->settings.outputs, g_strdup (name));
+        name = g_value_get_string (gst_value_array_get_value (value, idx));
+        qairt->settings.outputs =
+            g_list_append (qairt->settings.outputs, g_strdup (name));
       }
       break;
     }
@@ -682,6 +686,8 @@ gst_ml_qairt_init (GstMLQairt * qairt)
   qairt->settings.backend = DEFAULT_PROP_BACKEND;
   qairt->settings.priority = DEFAULT_PROP_EXEC_PRIORITY;
   qairt->settings.outputs = DEFAULT_PROP_OUTPUTS;
+
+  g_strlcpy (qairt->hw_util, "N/A", sizeof (qairt->hw_util));
 
   // Handle buffers with GAP flag internally.
   gst_base_transform_set_gap_aware (GST_BASE_TRANSFORM (qairt), TRUE);

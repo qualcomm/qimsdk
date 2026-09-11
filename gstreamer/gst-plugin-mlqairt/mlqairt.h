@@ -49,6 +49,9 @@ struct _GstMLQairt {
   /// Machine learning engine.
   GstMLQairtEngine  *engine;
 
+  /// The type of hardware being utilized.
+  gchar             hw_util[10];
+
   GstMLInfo         *ininfo;
   GstMLInfo         *outinfo;
 
