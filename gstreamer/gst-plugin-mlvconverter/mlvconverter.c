@@ -566,9 +566,9 @@ gst_buffer_new_from_parent_memory (GstBuffer * buffer, guint index, guint depth)
 
   // Transfer ROIs associated with the stream ID for this memory block.
   while ((roimeta = GST_BUFFER_ITERATE_ROI_METAS (buffer, state)) != NULL) {
-    guint id = roimeta->id;
+    gint id = roimeta->id;
 
-    if (!(id & (stream_id << GST_MUX_STREAM_ID_OFFSET)))
+    if (GST_META_ID_GET_STREAM (id) != stream_id)
       continue;
 
     roimeta = gst_buffer_add_video_region_of_interest_meta_id (newbuffer,
@@ -874,7 +874,7 @@ gst_ml_video_converter_retrieve_protection_meta (GstMLVideoConverter * mlconvert
   if (GST_VIDEO_INFO_MULTIVIEW_MODE (mlconverter->ininfo) ==
           GST_VIDEO_MULTIVIEW_MODE_SEPARATED) {
     gst_structure_set (pmeta->info,
-        "stream-id", G_TYPE_INT, GST_BUFFER_OFFSET (inbuffer),
+        "stream-id", G_TYPE_UINT, GST_BUFFER_OFFSET (inbuffer),
         "stream-timestamp", G_TYPE_UINT64, GST_BUFFER_DTS (inbuffer), NULL);
   }
 
@@ -2536,7 +2536,7 @@ gst_ml_video_converter_prepare_output_buffer (GstBaseTransform * base,
             "timestamp", G_TYPE_UINT64, GST_BUFFER_TIMESTAMP (inbuffer),
             "sequence-index", G_TYPE_UINT, 1,
             "sequence-num-entries", G_TYPE_UINT,  1,
-            "stream-id", G_TYPE_INT, stream_id,
+            "stream-id", G_TYPE_UINT, stream_id,
             "stream-timestamp", G_TYPE_UINT64, timestamp, NULL);
 
         gst_buffer_add_protection_meta (*outbuffer, structure);

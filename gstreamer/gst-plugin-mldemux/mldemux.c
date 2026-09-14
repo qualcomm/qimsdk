@@ -292,7 +292,7 @@ gst_ml_demux_sink_chain (GstPad * pad, GstObject * parent, GstBuffer * inbuffer)
       continue;
 
     // Get the stream ID for this batch and check if there is corresponding pad.
-    if (!(srcpad = gst_ml_demux_find_srcpad (demux, g_value_get_int (value))))
+    if (!(srcpad = gst_ml_demux_find_srcpad (demux, g_value_get_uint (value))))
       continue;
 
     // Create a new buffer wrapper to hold a reference to input buffer.
