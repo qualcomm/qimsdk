@@ -443,7 +443,7 @@ gst_ml_video_classification_fill_text_output (
   GstMemory *mem = NULL;
   gchar *string = NULL, *name = NULL;
   GValue list = G_VALUE_INIT, labels = G_VALUE_INIT, value = G_VALUE_INIT;
-  guint idx = 0, num = 0, n_entries = 0, sequence_idx = 0, id = 0;
+  guint idx = 0, num = 0, n_entries = 0, sequence_idx = 0, stream_id = 0, id = 0;
   gsize length = 0;
 
   g_value_init (&list, GST_TYPE_LIST);
@@ -462,8 +462,9 @@ gst_ml_video_classification_fill_text_output (
 
     mlparam = g_ptr_array_index (classification->mlparams, idx);
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
-    id = GST_META_ID (classification->stage_id, sequence_idx, 0);
+    id = GST_META_ID (stream_id, classification->stage_id, sequence_idx, 0);
 
     for (num = 0; num < n_entries; num++) {
       entry = gst_ml_classifications_entry (classifications, num);

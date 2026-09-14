@@ -559,8 +559,8 @@ gst_ml_video_detection_fill_text_output (GstMLVideoDetection * detection,
   GValue list = G_VALUE_INIT, bboxes = G_VALUE_INIT;
   GValue array = G_VALUE_INIT, value = G_VALUE_INIT;
   guint idx = 0, num = 0, mrk = 0, n_entries = 0, sequence_idx = 0, id = 0;
+  guint length = 0, stream_id = 0;
   gfloat x = 0.0, y = 0.0, width = 0.0, height = 0.0;
-  gsize length = 0;
 
   g_value_init (&list, GST_TYPE_LIST);
   g_value_init (&bboxes, GST_TYPE_ARRAY);
@@ -576,11 +576,12 @@ gst_ml_video_detection_fill_text_output (GstMLVideoDetection * detection,
 
     mlparam = g_ptr_array_index (detection->mlparams, idx);
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
     for (num = 0; num < n_entries; num++) {
       entry = gst_ml_detections_entry (detections, num);
 
-      id = GST_META_ID (detection->stage_id, sequence_idx, num);
+      id = GST_META_ID (stream_id, detection->stage_id, sequence_idx, num);
 
       x = entry->left;
       y = entry->top;
