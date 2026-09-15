@@ -3,6 +3,7 @@ set(GST_CAMERA_SAMPLE_APPS
     gst-camera-per-port-example
     gst-camera-burst-capture-example
     gst-camera-metadata-example
+    gst-fastcv-padding-strip-example
 )
 
 if (ENABLE_GST_SAMPLE_APPS_CAMERA)

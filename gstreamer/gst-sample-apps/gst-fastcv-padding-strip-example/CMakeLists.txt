@@ -47,7 +47,6 @@ target_compile_definitions(${GST_EXAMPLE_BIN} PRIVATE
 
 target_link_libraries(${GST_EXAMPLE_BIN} PRIVATE
   ${GST_LIBRARIES}
-  gstappsutils
   ${EXTRA_LIBS}
 )
 
