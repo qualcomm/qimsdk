@@ -302,14 +302,11 @@ gst_ml_demux_sink_chain (GstPad * pad, GstObject * parent, GstBuffer * inbuffer)
     gst_structure_get_uint64 (pmeta->info, "stream-timestamp",
         &GST_BUFFER_TIMESTAMP (outbuffer));
 
+    // Set sequence 1/1 as each batch corresponds to a single stream.
     structure = gst_structure_new (gst_batch_channel_name (0),
-        "timestamp", G_TYPE_UINT64, GST_BUFFER_TIMESTAMP (outbuffer), NULL);
-
-    value = gst_structure_get_value (pmeta->info, "sequence-index");
-    gst_structure_set_value (structure, "sequence-index", value);
-
-    value = gst_structure_get_value (pmeta->info, "sequence-num-entries");
-    gst_structure_set_value (structure, "sequence-num-entries", value);
+        "timestamp", G_TYPE_UINT64, GST_BUFFER_TIMESTAMP (outbuffer),
+        "sequence-index", G_TYPE_UINT, 1,
+        "sequence-num-entries", G_TYPE_UINT, 1, NULL);
 
     if ((value = gst_structure_get_value (pmeta->info, "parent-id"))) {
       // Remove the stream ID prefix from the muxed ROI ID.
