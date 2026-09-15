@@ -67,6 +67,7 @@ option(ENABLE_GST_PLUGIN_VTRANSFORM "Enable gst-plugin-vtransform" ${ENABLE_GST_
 
 # Software Plugins
 option(ENABLE_GST_PLUGIN_BATCH "Enable gst-plugin-batch" ${ENABLE_GST_SOFTWARE_PLUGINS})
+option(ENABLE_GST_PLUGIN_STREAMDEMUX "Enable gst-plugin-streamdemux" ${ENABLE_GST_SOFTWARE_PLUGINS})
 option(ENABLE_GST_PLUGIN_RTSPBIN "Enable gst-plugin-rtspbin" ${ENABLE_GST_SOFTWARE_PLUGINS})
 option(ENABLE_GST_PLUGIN_SOCKET "Enable gst-plugin-socket" ${ENABLE_GST_SOFTWARE_PLUGINS})
 option(ENABLE_GST_PLUGIN_URIDECODEBIN "Enable gst-plugin-uridecodebin" ${ENABLE_GST_SOFTWARE_PLUGINS})
@@ -179,6 +180,7 @@ add_plugin_if(ENABLE_GST_PLUGIN_VTRANSFORM      gst-plugin-vtransform)
 
 # Software Plugins
 add_plugin_if(ENABLE_GST_PLUGIN_BATCH           gst-plugin-batch)
+add_plugin_if(ENABLE_GST_PLUGIN_STREAMDEMUX     gst-plugin-streamdemux)
 add_plugin_if(ENABLE_GST_PLUGIN_RTSPBIN         gst-plugin-rtspbin)
 add_plugin_if(ENABLE_GST_PLUGIN_SOCKET          gst-plugin-socket)
 add_plugin_if(ENABLE_GST_PLUGIN_URIDECODEBIN    gst-plugin-uridecodebin)
