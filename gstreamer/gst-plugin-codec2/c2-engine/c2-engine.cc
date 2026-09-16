@@ -637,9 +637,15 @@ gst_c2_engine_queue (GstC2Engine * engine, GstC2QueueItem * item)
     try {
       qc2audio::QC2Status status = qc2audio::QC2_OK;
       std::shared_ptr<qc2audio::QC2Buffer> outbuffer;
+#if (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
+      std::shared_ptr<qc2audio::QC2LinearBufferPool> c2pool =
+          c2module->GetLinearBufferPool(size);
+      status = c2pool->allocate(&outbuffer);
+#else
       std::shared_ptr<qc2audio::QC2BufferCirclePools> c2circlePool =
-          c2module->GetLinearCirclePool(size);
+          c2module->GetLinearBufferPool(size);
       status = c2circlePool->take(&outbuffer, nullptr);
+#endif // (CODEC2_CONFIG_VERSION_MAJOR == 2 && CODEC2_CONFIG_VERSION_MINOR >= 3)
       c2buffer = GstC2Utils::CreateBuffer(buffer, outbuffer);
     } catch (std::exception& e) {
       GST_ERROR ("Failed to fetch memory block, error: '%s'!", e.what());
