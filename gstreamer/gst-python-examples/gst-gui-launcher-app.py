@@ -628,20 +628,20 @@ class DemoWindow(Gtk.Window):
                     sink_7::position='<960, 540>' sink_7::dimensions='<960, 540>' sink_7::alpha=0.5 \
                     mixer. ! queue ! fpsdisplaysink signal-fps-measurements=true text-overlay=true video-sink='gtksink' " + in_src + f"! queue ! tee name=split \
                     split. ! queue ! mixer. \
-                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/yolox_quantized.tflite ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=BGRA,width=640,height=360 ! queue ! mixer. \
+                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/yolox_quantized.tflite ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. \
                     split. ! queue ! mixer. \
-                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/inception_v3_quantized.tflite ! queue ! qtimlpostprocess settings='{{\"confidence\": 40.0}}' results=2 module=mobilenet-softmax labels={labels_dir}/classification.json ! video/x-raw,format=BGRA,width=640,height=360 ! queue ! mixer. \
+                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/inception_v3_quantized.tflite ! queue ! qtimlpostprocess settings='{{\"confidence\": 40.0}}' results=2 module=mobilenet-softmax labels={labels_dir}/classification.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. \
                     split. ! queue ! mixer. \
-                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/hrnet_pose_quantized.tflite ! queue ! qtimlpostprocess settings={labels_dir}/hrnet_pose_settings.json results=2 module=hrnet labels={labels_dir}/hrnet_pose.json ! video/x-raw,format=BGRA,width=640,height=360 ! queue ! mixer. \
+                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/hrnet_pose_quantized.tflite ! queue ! qtimlpostprocess settings={labels_dir}/hrnet_pose_settings.json results=2 module=hrnet labels={labels_dir}/hrnet_pose.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. \
                     split. ! queue ! mixer. \
-                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/deeplabv3_plus_mobilenet_quantized.tflite ! queue ! qtimlpostprocess module=deeplab-argmax labels={labels_dir}/deeplabv3_resnet50.json ! video/x-raw,format=BGRA,width=256,height=144 ! queue ! mixer. \
+                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/deeplabv3_plus_mobilenet_quantized.tflite ! queue ! qtimlpostprocess module=deeplab-argmax labels={labels_dir}/deeplabv3_resnet50.json ! video/x-raw,format=RGBA ! queue ! mixer. \
                     "
             elif application == "ObjectDetection":
                 pipeline = "gst-launch-1.0 " + in_src + f"! queue ! tee name=split \
                     split. ! queue ! qtivcomposer name=mixer ! queue ! gtksink \
                     split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model='{models_dir}/yolox_quantized.tflite' ! queue ! \
                     qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels='{labels_dir}/yolox.json' ! \
-                    video/x-raw,format=BGRA,width=640,height=360 ! queue ! mixer."
+                    video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer."
             elif application == "Face Detection":
                 if src == "On-Device-Camera":
                     in_src = "qtiqmmfsrc name=camsrc ! video/x-raw,format=NV12,width=640,height=480,framerate=30/1"
@@ -696,10 +696,10 @@ class DemoWindow(Gtk.Window):
                     filesrc location={video_in} ! qtdemux ! h264parse ! v4l2h264dec capture-io-mode=4 output-io-mode=4 ! video/x-raw,format=NV12 ! tee name=split_2 ! queue ! mixer. \
                     filesrc location={video_in} ! qtdemux ! h264parse ! v4l2h264dec capture-io-mode=4 output-io-mode=4 ! video/x-raw,format=NV12 ! tee name=split_3 ! queue ! mixer. \
                     filesrc location={video_in} ! qtdemux ! h264parse ! v4l2h264dec capture-io-mode=4 output-io-mode=4 ! video/x-raw,format=NV12 ! tee name=split_4 ! queue ! mixer. \
-                    stage_01_inference. ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=BGRA,width=640,height=360 ! queue ! mixer. \
-                    stage_02_inference. ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=BGRA,width=640,height=360 ! queue ! mixer. \
-                    stage_03_inference. ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=BGRA,width=640,height=360 ! queue ! mixer. \
-                    stage_04_inference. ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=BGRA,width=640,height=360 ! queue ! mixer. "
+                    stage_01_inference. ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. \
+                    stage_02_inference. ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. \
+                    stage_03_inference. ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. \
+                    stage_04_inference. ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. "
         if pipeline is not None:
             pipeline_thread = threading.Thread(target=self.execute, args=(pipeline,))
             pipeline_thread.start()
