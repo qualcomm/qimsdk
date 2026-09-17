@@ -186,6 +186,10 @@ gst_ml_module_parse_capabilities (const gchar * string, GstCaps ** caps)
 
           g_value_init (&dimension, GST_TYPE_INT_RANGE);
           gst_value_set_int_range (&dimension, min, max);
+        } else if (JSON_NODE_HOLDS_VALUE (node) && (dim == 0)) {
+          // First dimension is batching, override it as a range.
+          g_value_init (&dimension, GST_TYPE_INT_RANGE);
+          gst_value_set_int_range (&dimension, 1, 32);
         } else if (JSON_NODE_HOLDS_VALUE (node)) {
           g_value_init (&dimension, G_TYPE_INT);
           g_value_set_int (&dimension, json_node_get_int (node));
