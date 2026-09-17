@@ -37,7 +37,6 @@ public:
 
   std::shared_future<void> ShutdownFuture() const;
   bool IsShuttingDown() const noexcept;
-  GMainContext* MainContext() const noexcept;
 
   ShutdownListenerId AddShutdownListener(std::function<void()> cb);
   bool RemoveShutdownListener(ShutdownListenerId id);
@@ -92,7 +91,6 @@ private:
   // -------- Runtime state --------
   std::atomic<bool> shutting_down_{ false };
 
-  GMainContext* context_ = nullptr;
   GMainLoop* loop_ = nullptr;
   std::thread loop_thread_;
   std::atomic<bool> loop_thread_running_{ false };
