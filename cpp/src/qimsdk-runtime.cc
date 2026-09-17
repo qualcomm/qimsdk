@@ -49,10 +49,6 @@ bool GstRuntime::IsShuttingDown() const noexcept {
   return shutting_down_.load(std::memory_order_acquire);
 }
 
-GMainContext* GstRuntime::MainContext() const noexcept {
-  return context_;
-}
-
 GstRuntime::ShutdownListenerId
 GstRuntime::AddShutdownListener(std::function<void()> cb) {
   if (!cb) return 0;
@@ -184,17 +180,14 @@ void GstRuntime::FinalizeShutdownSync() {
 }
 
 void GstRuntime::StartMainLoop() {
-  assert(!context_ && !loop_);
+  assert(!loop_);
 
-  context_ = g_main_context_new();
-  loop_ = g_main_loop_new(context_, FALSE);
+  loop_ = g_main_loop_new(NULL, FALSE);
 
   loop_thread_running_.store(true, std::memory_order_release);
 
   loop_thread_ = std::thread([this] {
-    g_main_context_push_thread_default(context_);
     g_main_loop_run(loop_);
-    g_main_context_pop_thread_default(context_);
     loop_thread_running_.store(false, std::memory_order_release);
   });
 }
@@ -210,10 +203,6 @@ void GstRuntime::StopMainLoop() noexcept {
   if (loop_) {
     g_main_loop_unref(loop_);
     loop_ = nullptr;
-  }
-  if (context_) {
-    g_main_context_unref(context_);
-    context_ = nullptr;
   }
 }
 
@@ -249,7 +238,7 @@ void GstRuntime::StartUnixSignalSources_on_loop_thread() {
     GSource* s = g_unix_signal_source_new(SIGINT);
     g_source_set_callback(s, (GSourceFunc)&GstRuntime::UnixSignalCb,
                           this, nullptr);
-    sig_src_int_ = g_source_attach(s, context_);
+    sig_src_int_ = g_source_attach(s, NULL);
     g_source_unref(s);
   }
 
@@ -257,7 +246,7 @@ void GstRuntime::StartUnixSignalSources_on_loop_thread() {
     GSource* s = g_unix_signal_source_new(SIGTERM);
     g_source_set_callback(s, (GSourceFunc)&GstRuntime::UnixSignalCb,
                           this, nullptr);
-    sig_src_term_ = g_source_attach(s, context_);
+    sig_src_term_ = g_source_attach(s, NULL);
     g_source_unref(s);
   }
 }
@@ -265,7 +254,7 @@ void GstRuntime::StartUnixSignalSources_on_loop_thread() {
 void GstRuntime::StopUnixSignalSources_on_loop_thread() {
   if (sig_src_int_ != 0) {
     if (GSource* s =
-            g_main_context_find_source_by_id(context_, sig_src_int_)) {
+            g_main_context_find_source_by_id(NULL, sig_src_int_)) {
       g_source_destroy(s);
     }
     sig_src_int_ = 0;
@@ -273,7 +262,7 @@ void GstRuntime::StopUnixSignalSources_on_loop_thread() {
 
   if (sig_src_term_ != 0) {
     if (GSource* s =
-            g_main_context_find_source_by_id(context_, sig_src_term_)) {
+            g_main_context_find_source_by_id(NULL, sig_src_term_)) {
       g_source_destroy(s);
     }
     sig_src_term_ = 0;
@@ -284,7 +273,7 @@ void GstRuntime::StartUnixSignalSources() {
   if (!loop_thread_running_.load(std::memory_order_acquire)) return;
 
   g_main_context_invoke(
-      context_,
+      NULL,
       +[](gpointer ud) -> gboolean {
         static_cast<GstRuntime*>(ud)
             ->StartUnixSignalSources_on_loop_thread();
@@ -294,10 +283,8 @@ void GstRuntime::StartUnixSignalSources() {
 }
 
 void GstRuntime::StopUnixSignalSources() {
-  if (!context_) return;
-
   g_main_context_invoke(
-      context_,
+      NULL,
       +[](gpointer ud) -> gboolean {
         static_cast<GstRuntime*>(ud)
             ->StopUnixSignalSources_on_loop_thread();

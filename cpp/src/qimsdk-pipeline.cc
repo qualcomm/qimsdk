@@ -526,7 +526,7 @@ struct Pipeline::Impl {
       bus_source_ = gst_bus_create_watch(bus_);
       g_source_set_callback(
         bus_source_, reinterpret_cast<GSourceFunc>(bus_watch), this, nullptr);
-      g_source_attach(bus_source_, runtime_->MainContext());
+      g_source_attach(bus_source_, NULL);
     }
   }
 
