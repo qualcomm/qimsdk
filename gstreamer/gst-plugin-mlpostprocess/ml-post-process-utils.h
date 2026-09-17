@@ -94,6 +94,17 @@ gst_ml_predictions_list_append (GValue * list, GQuark mltype, GValue * results,
                                 const GstStructure * mlparam);
 
 /**
+ * gst_ml_params_copy_service_info:
+ * @structure: A #GstStructure which to be filled with service info.
+ * @mlparam: A #GstStructure from which to copy the service info.
+ *
+ * Helper function for transfering service fields from one ML structure to another.
+ */
+void
+gst_ml_params_copy_service_info (GstStructure * structure,
+                                 const GstStructure * mlparam);
+
+/**
  * gst_buffer_serialize_and_take_value:
  * @buffer: A #GstBuffer
  * @value: A #GValue of GST_TYPE_LIST
