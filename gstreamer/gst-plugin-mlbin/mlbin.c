@@ -211,17 +211,15 @@ gst_ml_bin_add_element (GstMLBin * mlbin, const gchar * factoryname,
 static gboolean
 gst_ml_bin_link_plugins (GstMLBin * mlbin)
 {
-  GstElement *mlpostprocess = NULL, *inqueue = NULL;
+  GstElement *mlpostprocess = NULL, *mlpreprocess = NULL;
   GstGhostPad *gpad = NULL;
   GstCaps *caps = NULL;
   gboolean success = FALSE;
 
   mlpostprocess = gst_bin_get_by_name (GST_BIN (mlbin), "mlpostprocess");
+  mlpreprocess = gst_bin_get_by_name (GST_BIN (mlbin), "mlpreprocess");
 
-  if (mlpostprocess == NULL)
-    goto cleanup;
-
-  if ((inqueue = gst_bin_get_by_name (GST_BIN (mlbin), "inqueue")) == NULL)
+  if (mlpostprocess == NULL || mlpreprocess == NULL)
     goto cleanup;
 
   gpad = GST_GHOST_PAD_CAST (GST_ELEMENT (mlbin)->srcpads->data);
@@ -242,10 +240,11 @@ gst_ml_bin_link_plugins (GstMLBin * mlbin)
 
     // Filter caps between the post-processing and metamux elements.
     g_clear_pointer (&caps, gst_caps_unref);
-    caps = gst_caps_new_simple ("text/x-raw", "format", G_TYPE_STRING,
-        "utf8", NULL);
 
-    filter = gst_ml_bin_add_element (mlbin, "capsfilter", "postprocess_filter");
+    caps = gst_caps_new_simple ("text/x-raw",
+        "format", G_TYPE_STRING, "utf8", NULL);
+
+    filter = gst_ml_bin_add_element (mlbin, "capsfilter", "mlfilter");
 
     if (!(success = (filter != NULL)))
       goto cleanup;
@@ -284,25 +283,26 @@ gst_ml_bin_link_plugins (GstMLBin * mlbin)
     GST_DEBUG_OBJECT (mlbin, "Linked: '%s' -> '%s'", GST_ELEMENT_NAME (tee),
         GST_ELEMENT_NAME (metamux));
 
-    // Establish linkage to the input queue of the pre-process element if present.
-    if (!(success = gst_element_link (tee, inqueue))) {
-      GST_ERROR_OBJECT (mlbin, "Failed to link 'mltee' and 'inqueue'!");
+    // Establish linkage to the pre-process element.
+    if (!(success = gst_element_link (tee, mlpreprocess))) {
+      GST_ERROR_OBJECT (mlbin, "Failed to link '%s' and '%s' elements!",
+          GST_ELEMENT_NAME (tee), GST_ELEMENT_NAME (mlpreprocess));
       goto cleanup;
     }
 
-    GST_DEBUG_OBJECT (mlbin, "Linked: '%s' -> '%s'",
-        GST_ELEMENT_NAME (tee), GST_ELEMENT_NAME (inqueue));
+    GST_DEBUG_OBJECT (mlbin, "Linked: '%s' -> '%s'", GST_ELEMENT_NAME (tee),
+        GST_ELEMENT_NAME (mlpreprocess));
   } else {
     // Link the ghost/proxy pads of the bin to the appropriate elements.
     success = gst_ml_bin_ghost_pad_set_target (mlbin, gpad, mlpostprocess, "src");
     gpad = GST_GHOST_PAD_CAST (GST_ELEMENT (mlbin)->sinkpads->data);
-    success &= gst_ml_bin_ghost_pad_set_target (mlbin, gpad, inqueue, "sink");
+    success &= gst_ml_bin_ghost_pad_set_target (mlbin, gpad, mlpreprocess, "sink");
   }
 
 cleanup:
+  g_clear_pointer (&mlpreprocess, gst_object_unref);
   g_clear_pointer (&mlpostprocess, gst_object_unref);
   g_clear_pointer (&caps, gst_caps_unref);
-  g_clear_pointer (&inqueue, gst_object_unref);
 
   return success;
 }
@@ -315,7 +315,7 @@ gst_ml_bin_unlink_plugins (GstMLBin * mlbin)
   gboolean success = TRUE;
 
   if ((tee = gst_bin_get_by_name (GST_BIN (mlbin), "mltee")) != NULL) {
-    GstElement *queue = NULL;
+    GstElement *mlpreprocess = NULL;
 
     // Unlink the tee element from the sink ghost/proxy pad of the bin.
     gpad = GST_GHOST_PAD_CAST (GST_ELEMENT (mlbin)->sinkpads->data);
@@ -324,15 +324,17 @@ gst_ml_bin_unlink_plugins (GstMLBin * mlbin)
     gst_bin_remove (GST_BIN (mlbin), tee);
     GST_DEBUG_OBJECT (mlbin, "Removed: '%s'", GST_ELEMENT_NAME (tee));
 
-    // Establish linkage between the input queue element and ghost pad.
-    if ((queue = gst_bin_get_by_name (GST_BIN (mlbin), "inqueue")) != NULL)
-      success &= gst_ml_bin_ghost_pad_set_target (mlbin, gpad, queue, "sink");
+    // Establish linkage between the pre-process element and ghost pad.
+    mlpreprocess = gst_bin_get_by_name (GST_BIN (mlbin), "mlpreprocess");
 
-    g_clear_pointer (&queue, gst_object_unref);
+    if (mlpreprocess != NULL)
+      success &= gst_ml_bin_ghost_pad_set_target (mlbin, gpad, mlpreprocess, "sink");
+
+    g_clear_pointer (&mlpreprocess, gst_object_unref);
   }
 
   if ((metamux = gst_bin_get_by_name (GST_BIN (mlbin), "metamux")) != NULL) {
-    GstElement *postproc = NULL, *filter = NULL;
+    GstElement *postprocess = NULL, *filter = NULL;
 
     // Unlink the metamux element from the src ghost/proxy pad of the bin.
     gpad = GST_GHOST_PAD_CAST (GST_ELEMENT (mlbin)->srcpads->data);
@@ -341,20 +343,18 @@ gst_ml_bin_unlink_plugins (GstMLBin * mlbin)
     gst_bin_remove (GST_BIN (mlbin), metamux);
     GST_DEBUG_OBJECT (mlbin, "Removed: '%s'", GST_ELEMENT_NAME (metamux));
 
-    filter = gst_bin_get_by_name (GST_BIN (mlbin), "postprocess_filter");
-
-    if (filter != NULL) {
+    if ((filter = gst_bin_get_by_name (GST_BIN (mlbin), "mlfilter")) != NULL) {
       gst_bin_remove (GST_BIN (mlbin), filter);
       GST_DEBUG_OBJECT (mlbin, "Removed: '%s'", GST_ELEMENT_NAME (filter));
     }
 
     // Establish linkage between the post-process element and ghost pad.
-    postproc = gst_bin_get_by_name (GST_BIN (mlbin), "mlpostprocess");
+    postprocess = gst_bin_get_by_name (GST_BIN (mlbin), "mlpostprocess");
 
-    if (postproc != NULL)
-      success &= gst_ml_bin_ghost_pad_set_target (mlbin, gpad, postproc, "src");
+    if (postprocess != NULL)
+      success &= gst_ml_bin_ghost_pad_set_target (mlbin, gpad, postprocess, "src");
 
-    g_clear_pointer (&postproc, gst_object_unref);
+    g_clear_pointer (&postprocess, gst_object_unref);
     g_clear_pointer (&filter, gst_object_unref);
   }
 
@@ -400,12 +400,8 @@ gst_ml_bin_constructed (GObject * object)
 {
   GstMLBin *mlbin = GST_ML_BIN (object);
   GstElement *mlinference = NULL, *inmlqueue = NULL, *outmlqueue = NULL;
-  GstElement *preprocess = NULL, *inqueue = NULL, *postprocess = NULL;
+  GstElement *preprocess = NULL, *postprocess = NULL;
   gboolean success = FALSE;
-
-  // A queue element between the 'mltee' and 'mlpreprocess'.
-  inqueue = gst_ml_bin_add_element (mlbin, "queue", "inqueue");
-  g_assert_nonnull (inqueue);
 
   // TODO: Expand to cover audio cases.
   preprocess = gst_ml_bin_add_element (mlbin, "qtimlvconverter", "mlpreprocess");
@@ -428,14 +424,14 @@ gst_ml_bin_constructed (GObject * object)
       gst_ml_bin_add_element (mlbin, "qtimlpostprocess", "mlpostprocess");
   g_assert_nonnull (postprocess);
 
-  success = gst_element_link_many (inqueue, preprocess, inmlqueue, mlinference,
+  success = gst_element_link_many (preprocess, inmlqueue, mlinference,
       outmlqueue, postprocess, NULL);
   g_assert_true (success);
 
-  GST_DEBUG_OBJECT (mlbin, "Linked: '%s' -> '%s' -> '%s' -> '%s' -> '%s' -> '%s'",
-      GST_ELEMENT_NAME (inqueue), GST_ELEMENT_NAME (preprocess),
-      GST_ELEMENT_NAME (inmlqueue), GST_ELEMENT_NAME (mlinference),
-      GST_ELEMENT_NAME (outmlqueue), GST_ELEMENT_NAME (postprocess));
+  GST_DEBUG_OBJECT (mlbin, "Linked: '%s' -> '%s' -> '%s' -> '%s' -> '%s'",
+      GST_ELEMENT_NAME (preprocess), GST_ELEMENT_NAME (inmlqueue),
+      GST_ELEMENT_NAME (mlinference), GST_ELEMENT_NAME (outmlqueue),
+      GST_ELEMENT_NAME (postprocess));
 }
 
 static void
