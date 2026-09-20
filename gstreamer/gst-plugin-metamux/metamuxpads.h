@@ -118,6 +118,9 @@ struct _GstMetaMuxDataPad {
   /// Segment.
   GstSegment   segment;
 
+  /// Flag indicating that there is no more work to be received for processing.
+  gboolean     is_idle;
+
   /// Variable for temporarily storing partial meta entry.
   GstMetaItem  *prtlmeta;
   /// Variable for temporarily storing incomplete string data(meta).
@@ -148,11 +151,11 @@ struct _GstMetaMuxSinkPad {
   /// Flag indicating that there is no more work for processing.
   gboolean     is_idle;
 
-  /// Queue for managing incoming video/audio buffers.
-  GstDataQueue *buffers;
+  /// Queue for managing incoming buffers and EOS event.
+  GstDataQueue *queue;
 
   /// The count of buffers the queue can hold.
-  guint        buffers_limit;
+  guint        qlimit;
 };
 
 struct _GstMetaMuxSinkPadClass {
@@ -176,10 +179,10 @@ struct _GstMetaMuxSrcPad {
   GstSegment   segment;
 
   /// Queue for output buffers.
-  GstDataQueue *buffers;
+  GstDataQueue *queue;
 
   /// The count of buffers the queue can hold.
-  guint        buffers_limit;
+  guint        qlimit;
 };
 
 struct _GstMetaMuxSrcPadClass {
