@@ -103,10 +103,9 @@
 namespace camera = qmmf;
 
 /* Default parameters */
-#define MAX_QUEUE_SIZE              300
-#define DELAY_TO_START_RECORDING    30
-#define RECORD_DURATION             30
-#define MP4MUX_DRAIN_MARGIN_SECONDS 60
+#define MAX_QUEUE_SIZE            300
+#define DELAY_TO_START_RECORDING  30
+#define RECORD_DURATION           30
 
 /* Fixed stream resolutions per spec */
 #define RDI_RING_BUFFER_WIDTH     4096
@@ -162,7 +161,6 @@ struct _GstStreamInf {
   GstElement *encoder;
   GstElement *filesink;
   GstElement *appsink;
-  gulong      new_sample_handler_id;
   GstPad     *qmmf_pad;
   GstCaps    *qmmf_caps;
   gint        width;
@@ -218,10 +216,6 @@ struct _GstAppContext {
   GQueue   *buffers_queue_cam2;
   gboolean  switch_to_live_cam2;
   guint     process_src_id_cam2;
-
-  GCond     queued_buffers_drained_signal;
-  gboolean  queued_buffers_drained_cam1;
-  gboolean  queued_buffers_drained_cam2;
 
   /* Camera ID (logical camera) */
   guint camera_id;
@@ -721,38 +715,6 @@ check_for_exit (GstAppContext *appctx)
   return e;
 }
 
-static void
-signal_queued_buffers_drained (GstAppContext *appctx, gint cam_id)
-{
-  if (!appctx)
-    return;
-
-  g_mutex_lock (&appctx->lock);
-  if (cam_id == 0)
-    appctx->queued_buffers_drained_cam1 = TRUE;
-  else
-    appctx->queued_buffers_drained_cam2 = TRUE;
-  g_mutex_unlock (&appctx->lock);
-  g_cond_signal (&appctx->queued_buffers_drained_signal);
-}
-
-static void
-wait_for_queued_buffers_drained (GstAppContext *appctx, gint cam_id)
-{
-  if (!appctx)
-    return;
-
-  g_mutex_lock (&appctx->lock);
-  while (!(cam_id == 0 ? appctx->queued_buffers_drained_cam1
-                       : appctx->queued_buffers_drained_cam2) &&
-         !appctx->exit) {
-    gint64 wait_time = g_get_monotonic_time () + G_GINT64_CONSTANT (1000000);
-    g_cond_wait_until (&appctx->queued_buffers_drained_signal, &appctx->lock,
-        wait_time);
-  }
-  g_mutex_unlock (&appctx->lock);
-}
-
 static gboolean
 wait_for_eos (GstAppContext *appctx)
 {
@@ -805,7 +767,6 @@ handle_interrupt_signal (gpointer userdata)
     clear_buffers_queue_cam2 (appctx);
 
   g_cond_signal (&appctx->eos_signal);
-  g_cond_signal (&appctx->queued_buffers_drained_signal);
 
   if (appctx->mloop && g_main_loop_is_running (appctx->mloop))
     g_main_loop_quit (appctx->mloop);
@@ -888,17 +849,12 @@ set_encoder_props (GstElement *encoder, const gchar *encoder_name)
 }
 
 static void
-set_mp4mux_robust_props (GstElement *mp4mux, GstAppContext *appctx)
+set_mp4mux_robust_props (GstElement *mp4mux)
 {
-  const guint64 reserved_duration =
-      ((guint64) appctx->delay_to_start_recording +
-       (guint64) appctx->record_duration +
-       MP4MUX_DRAIN_MARGIN_SECONDS) * GST_SECOND;
-
   g_object_set (G_OBJECT (mp4mux),
       "reserved-moov-update-period", (guint64) 1000000,
       "reserved-bytes-per-sec",      (guint)   10000,
-      "reserved-max-duration",       reserved_duration,
+      "reserved-max-duration",       (guint64) 8000000000ULL,
       NULL);
 }
 
@@ -1060,7 +1016,7 @@ create_encoder_stream (GstAppContext *appctx, GstStreamInf *stream,
 
   g_object_set (G_OBJECT (stream->capsfilter), "caps", stream->qmmf_caps, NULL);
   set_encoder_props (stream->encoder, appctx->encoder_name);
-  set_mp4mux_robust_props (stream->mp4mux, appctx);
+  set_mp4mux_robust_props (stream->mp4mux);
 
   /* Output file path */
   if (stream->output_path[0] != '\0') {
@@ -1178,11 +1134,11 @@ create_appsink_stream (GstAppContext *appctx, GstStreamInf *stream,
 
   /* Connect the correct callback based on which camera this stream belongs to */
   if (stream->logical_stream_type == CAM1_LOGICAL_STREAM_TYPE)
-    stream->new_sample_handler_id = g_signal_connect (stream->appsink,
-        "new-sample", G_CALLBACK (on_new_sample_cam1), appctx);
+    g_signal_connect (stream->appsink, "new-sample",
+        G_CALLBACK (on_new_sample_cam1), appctx);
   else
-    stream->new_sample_handler_id = g_signal_connect (stream->appsink,
-        "new-sample", G_CALLBACK (on_new_sample_cam2), appctx);
+    g_signal_connect (stream->appsink, "new-sample",
+        G_CALLBACK (on_new_sample_cam2), appctx);
 
   gst_bin_add_many (GST_BIN (appctx->main_pipeline),
       stream->capsfilter, stream->appsink, NULL);
@@ -1357,15 +1313,6 @@ link_stream (GstAppContext *appctx, GstStreamInf *stream)
 static void
 unlink_stream (GstAppContext *appctx, GstStreamInf *stream)
 {
-  if (stream->appsink) {
-    gst_app_sink_set_emit_signals (GST_APP_SINK (stream->appsink), FALSE);
-    if (stream->new_sample_handler_id != 0) {
-      g_signal_handler_disconnect (stream->appsink,
-          stream->new_sample_handler_id);
-      stream->new_sample_handler_id = 0;
-    }
-  }
-
   if (stream->qmmf_pad)
     gst_pad_set_active (stream->qmmf_pad, FALSE);
 
@@ -1698,7 +1645,6 @@ process_queued_buffers (gpointer user_data)
     gst_app_src_end_of_stream (src);
     g_print ("[INFO] CAM%d buffer queue empty, sending EOS\n", cam_id + 1);
     gst_object_unref (appsrc_elem);
-    signal_queued_buffers_drained (appctx, cam_id);
     g_free (ctx);
     return FALSE;
   }
@@ -1731,13 +1677,6 @@ start_pushing_buffers (GstAppContext *appctx, gint cam_id)
 
   g_print ("[INFO] Starting to push CAM%d queued buffers to appsrc pipeline\n",
       cam_id + 1);
-
-  g_mutex_lock (&appctx->lock);
-  if (cam_id == 0)
-    appctx->queued_buffers_drained_cam1 = FALSE;
-  else
-    appctx->queued_buffers_drained_cam2 = FALSE;
-  g_mutex_unlock (&appctx->lock);
 
   guint src_id = g_timeout_add (10, process_queued_buffers, ctx);
 
@@ -2414,12 +2353,10 @@ prebuffering_usecase_360 (GstAppContext *appctx)
   if (!is_rdi)
     start_pushing_buffers (appctx, 1);  /* CAM2 (IPE only) */
 
-  wait_for_queued_buffers_drained (appctx, 0);
+  /* Release ring buffer appsink streams */
   release_stream (appctx, str0_cam1);
-  if (!is_rdi) {
-    wait_for_queued_buffers_drained (appctx, 1);
+  if (!is_rdi)
     release_stream (appctx, str6_cam2);
-  }
 
   g_print ("[INFO] Live recording started for %u seconds\n",
       appctx->record_duration);
@@ -2556,7 +2493,6 @@ main (gint argc, gchar *argv[])
   g_mutex_init (&appctx->lock);
   g_cond_init  (&appctx->eos_signal);
   g_cond_init  (&appctx->live_pts_signal);
-  g_cond_init  (&appctx->queued_buffers_drained_signal);
 
   /* Defaults */
   appctx->stream_cnt                = 0;
@@ -2568,8 +2504,6 @@ main (gint argc, gchar *argv[])
   appctx->first_live_pts            = GST_CLOCK_TIME_NONE;
   appctx->switch_to_live            = FALSE;
   appctx->switch_to_live_cam2       = FALSE;
-  appctx->queued_buffers_drained_cam1 = FALSE;
-  appctx->queued_buffers_drained_cam2 = FALSE;
   appctx->record_duration           = RECORD_DURATION;
   appctx->recording_start_pts       = GST_CLOCK_TIME_NONE;
   appctx->recording_end_pts         = GST_CLOCK_TIME_NONE;
@@ -3066,7 +3000,6 @@ main (gint argc, gchar *argv[])
   g_mutex_clear (&appctx->lock);
   g_cond_clear  (&appctx->eos_signal);
   g_cond_clear  (&appctx->live_pts_signal);
-  g_cond_clear  (&appctx->queued_buffers_drained_signal);
 
   if (appctx->appsrc_pipeline_cam2)
     gst_object_unref (appctx->appsrc_pipeline_cam2);
