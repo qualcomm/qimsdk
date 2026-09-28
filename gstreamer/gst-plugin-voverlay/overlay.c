@@ -32,7 +32,7 @@ G_DEFINE_TYPE (GstVOverlay, gst_overlay, GST_TYPE_BASE_TRANSFORM);
   "{ NV12, NV21, YUY2, RGBA, BGRA, ARGB, ABGR, RGBx, BGRx, xRGB, xBGR, RGB, BGR, NV12_Q08C }"
 
 #define DEFAULT_MIN_BUFFERS         1
-#define DEFAULT_MAX_BUFFERS         50
+#define DEFAULT_MAX_BUFFERS         0
 
 #define MAX_LABEL_LENGTH            48
 #define LABEL_FONTSIZE              40
@@ -624,7 +624,7 @@ gst_overlay_handle_classification_entry (GstVOverlay * overlay,
   guint length = 0, color = 0xFFFFFFFF;
   gboolean success = TRUE;
 
-  if (GST_FLOAT_COLOR_ALPHA (label->color) == 0.0)
+  if (GST_COLOR_ALPHA (label->color) == 0)
     return success;
 
   gst_video_quadrilateral_to_rectangle (&(blit->source), &source);
@@ -690,7 +690,7 @@ gst_overlay_handle_landmarks_entry (GstVOverlay * overlay, cairo_t * context,
     GstVideoKeypoint *kp = &(g_array_index (keypoints, GstVideoKeypoint, idx));
     GstVideoPoint point = {0, };
 
-    if (GST_FLOAT_COLOR_ALPHA (kp->color) == 0.0)
+    if (GST_COLOR_ALPHA (kp->color) == 0)
       continue;
 
     point = (GstVideoPoint) {kp->x, kp->y};
@@ -718,7 +718,7 @@ gst_overlay_handle_landmarks_entry (GstVOverlay * overlay, cairo_t * context,
     l_kp = &(g_array_index (keypoints, GstVideoKeypoint, link->s_kp_idx));
     r_kp = &(g_array_index (keypoints, GstVideoKeypoint, link->d_kp_idx));
 
-    if (GST_FLOAT_COLOR_ALPHA (l_kp->color) == 0.0)
+    if (GST_COLOR_ALPHA (l_kp->color) == 0)
       continue;
 
     l_point = (GstVideoPoint) {l_kp->x, l_kp->y};
@@ -884,7 +884,7 @@ gst_overlay_handle_detection_entry (GstVOverlay * overlay, cairo_t * context,
   gdouble xscale = 0.0, yscale = 0.0, scale = 0.0, linewidth = 0.0;
   gboolean success = TRUE;
 
-  if (GST_FLOAT_COLOR_ALPHA (color) == 0.0)
+  if (GST_COLOR_ALPHA (color) == 0)
     return success;
 
   // Corners (a, b, c, d) of the detection box in absolute frame coordinates.
@@ -1534,7 +1534,7 @@ gst_overlay_draw_detection_label (GstVOverlay * overlay, GstVideoBlit * vblit,
 
     classlabel = &(g_array_index (m->labels, GstClassLabel, 0));
 
-    if (GST_FLOAT_COLOR_ALPHA (classlabel->color) == 0.0)
+    if (GST_COLOR_ALPHA (classlabel->color) == 0)
       continue;
 
     success &= gst_overlay_handle_classification_entry (overlay, context,
@@ -1553,7 +1553,7 @@ gst_overlay_draw_detection_label (GstVOverlay * overlay, GstVideoBlit * vblit,
     label.confidence = 100.0;
   }
 
-  if (GST_FLOAT_COLOR_ALPHA (label.color) == 0.0)
+  if (GST_COLOR_ALPHA (label.color) == 0)
     goto cleanup;
 
   success &=
@@ -1659,7 +1659,7 @@ gst_overlay_draw_classification_entries (GstVOverlay * overlay,
       label = &(g_array_index (classmeta->labels, GstClassLabel, num));
       blit = gst_video_blits_entry (composition->blits, *index + num);
 
-      if (GST_FLOAT_COLOR_ALPHA (label->color) == 0.0)
+      if (GST_COLOR_ALPHA (label->color) == 0)
         continue;
 
       success = gst_overlay_video_blit_initialize (overlay,
@@ -1670,7 +1670,6 @@ gst_overlay_draw_classification_entries (GstVOverlay * overlay,
       blit->destination.y = offset;
 
       success = gst_cairo_draw_setup (blit, &frame, &surface, &context);
-
       g_return_val_if_fail (success, FALSE);
 
       success &=
@@ -1940,7 +1939,7 @@ gst_overlay_draw_bbox_entries (GstVOverlay * overlay,
     GstOverlayBBox *bbox = &g_array_index (overlay->bboxes, GstOverlayBBox, num);
 
     // Skip this bounding box entry as it has been disabled or alpha is 0.
-    if (!bbox->enable || GST_FLOAT_COLOR_ALPHA (bbox->color) == 0.0)
+    if (!bbox->enable || GST_COLOR_ALPHA (bbox->color) == 0)
       continue;
 
     if (bbox->blit.buffer != NULL) {
@@ -1986,7 +1985,7 @@ gst_overlay_draw_timestamp_entries (GstVOverlay * overlay,
         &g_array_index (overlay->timestamps, GstOverlayTimestamp, num);
 
     // Skip this timstamp entry as it has been disabled or alpha is 0.
-    if (!timestamp->enable || GST_FLOAT_COLOR_ALPHA (timestamp->color) == 0.0)
+    if (!timestamp->enable || GST_COLOR_ALPHA (timestamp->color) == 0)
       continue;
 
     blit = gst_video_blits_entry (composition->blits, *index);
@@ -2024,7 +2023,7 @@ gst_overlay_draw_string_entries (GstVOverlay * overlay,
         &g_array_index (overlay->strings, GstOverlayString, num);
 
     // Skip this text entry as it has been disabled or alpha is 0.
-    if (!string->enable || GST_FLOAT_COLOR_ALPHA (string->color) == 0.0)
+    if (!string->enable || GST_COLOR_ALPHA (string->color) == 0)
       continue;
 
     if (string->blit.buffer != NULL) {
@@ -2068,7 +2067,7 @@ gst_overlay_draw_mask_entries (GstVOverlay * overlay,
     GstOverlayMask *mask = &g_array_index (overlay->masks, GstOverlayMask, num);
 
     // Skip this privacy mask entry as it has been disabled or alpha is 0.
-    if (!mask->enable || GST_FLOAT_COLOR_ALPHA (mask->color) == 0.0)
+    if (!mask->enable || GST_COLOR_ALPHA (mask->color) == 0)
       continue;
 
     if (mask->blit.buffer != NULL) {
@@ -2255,9 +2254,6 @@ gst_overlay_query (GstBaseTransform * base, GstPadDirection direction,
 {
   GstVOverlay *overlay = GST_OVERLAY (base);
   GstPad *otherpad = NULL;
-
-  GST_TRACE_OBJECT (overlay, "Received query: %" GST_PTR_FORMAT
-    " in direction %s", query, (direction == GST_PAD_SINK) ? "sink" : "src");
 
   otherpad = (direction == GST_PAD_SRC) ?
       GST_BASE_TRANSFORM_SINK_PAD (base) : GST_BASE_TRANSFORM_SRC_PAD (base);
