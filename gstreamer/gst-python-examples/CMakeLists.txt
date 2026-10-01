@@ -9,6 +9,7 @@ set(PYTHON_SCRIPTS
   gst-camera-three-stream-encode-file-detection-display-classification-rtsp.py
   gst-camera-two-stream-detection-and-classification-side-by-side.py
   gst-camera-two-stream-encode-file-detection-display.py
+  gst-camera-overlay.py
   gst-concurrent-videoplay-composition.py
   gst-daisychain-detection-pose.py
   gst-filesrc-2detection-classification-segmentation-side-by-side.py
