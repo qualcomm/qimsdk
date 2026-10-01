@@ -41,7 +41,6 @@ namespace camera = qmmf;
 #define GST_V4L2_IO_DMABUF 4
 #define GST_V4L2_IO_DMABUF_IMPORT 5
 
-#define FILE_MP4 "/etc/media/Video.mp4"
 
 enum _GstPreviewOutput
 {
@@ -64,6 +63,7 @@ struct _GstAppContext {
   GstElement *pipeline, *qmmfsrc;
   ::camera::CameraMetadata *meta;
   const char *file_ext;
+  gchar *output_dir;
   gboolean quit_requested;
   GMutex mutex;
   GCond cond_quit;
@@ -73,7 +73,7 @@ struct _GstAppContext {
 #define GST_APP_SUMMARY \
   "This application captures 5 burst snapshots\n"\
   "delayed by a 10s timer then quits the app\n"\
-  "in file path starting with /etc/media/frame_ \n"\
+  "in file path under $HOME/Downloads/qimsdk_samples/media/frame_ \n"\
   "preview is shown either on display or avc\n"\
   "capture is either in jpeg, yuv, raw/bayer\n" \
   "\nCommand:\n" \
@@ -513,8 +513,8 @@ new_sample (GstElement * element, gpointer userdata)
   timestamp = GST_BUFFER_OFFSET_END (buffer);
   g_print ("Camera timestamp: %" G_GUINT64_FORMAT "\n", timestamp);
 
-  filename = g_strdup_printf ("/etc/media/frame_%" G_GUINT64_FORMAT "%s", timestamp,
-      ctx->file_ext);
+  filename = g_strdup_printf ("%s/frame_%" G_GUINT64_FORMAT "%s",
+      ctx->output_dir, timestamp, ctx->file_ext);
 
   if (!g_file_set_contents (filename, (const gchar*) memmap.data, memmap.size,
           &error)) {
@@ -584,7 +584,7 @@ link_capture_output (GstCaps * stream_caps, GstElement * pipeline,
 
 static gboolean
 link_avc_output (GstCaps * stream_caps, GstElement * pipeline,
-    GstElement * qtiqmmfsrc)
+    GstElement * qtiqmmfsrc, const gchar * output_file)
 {
   GstElement *filesink, *encoder, *h264parse, *mp4mux,
       *filter_caps_elem;
@@ -610,7 +610,7 @@ link_avc_output (GstCaps * stream_caps, GstElement * pipeline,
   g_object_set (G_OBJECT (filter_caps_elem), "caps", stream_caps, NULL);
 
   // Set filesink location
-  g_object_set (G_OBJECT (filesink), "location", FILE_MP4, NULL);
+  g_object_set (G_OBJECT (filesink), "location", output_file, NULL);
 
   // Add elements to the pipeline and link them
   g_print ("Adding all elements to the pipeline...\n");
@@ -708,6 +708,9 @@ main (int argc, char * * argv)
   GMainLoop *loop = NULL;
   GstStateChangeReturn change_ret;
   GThread *mthread = NULL;
+  gchar *output_dir = NULL;
+  gchar *output_file = NULL;
+  const gchar *home = NULL;
 
   g_cond_init (&app_ctx.cond_quit);
   g_mutex_init (&app_ctx.mutex);
@@ -731,6 +734,22 @@ main (int argc, char * * argv)
     g_error_free (gerr);
     return -1;
   }
+
+  // Resolve output paths at runtime using the user's home directory.
+  // This is equivalent to the Python default:
+  // $HOME/Downloads/qimsdk_samples/media/capture_recording.mp4
+  home = g_getenv ("HOME");
+  if (!home || !*home)
+    home = g_get_home_dir ();
+  output_dir = g_build_filename (home, "Downloads", "qimsdk_samples",
+      "media", NULL);
+  output_file = g_build_filename (output_dir, "capture_recording.mp4", NULL);
+  if (g_mkdir_with_parents (output_dir, 0755) != 0) {
+    g_printerr ("failed to create output directory: %s\n", output_dir);
+    goto cleanup;
+  }
+  g_print ("Output directory: %s\n", output_dir);
+  g_print ("MP4 output file: %s\n", output_file);
 
   // Initialize GST library.
   gst_init (&argc, &argv);
@@ -834,7 +853,7 @@ main (int argc, char * * argv)
 
   switch (preview_output) {
     case GST_PREVIEW_OUTPUT_AVC:
-      success = link_avc_output (stream_caps, pipeline, qtiqmmfsrc);
+      success = link_avc_output (stream_caps, pipeline, qtiqmmfsrc, output_file);
       break;
     case GST_PREVIEW_OUTPUT_DISPLAY:
       success = link_wayland_output (stream_caps, pipeline, qtiqmmfsrc);
@@ -862,6 +881,7 @@ main (int argc, char * * argv)
   }
 
   app_ctx.loop = loop;
+  app_ctx.output_dir = output_dir;
   app_ctx.pipeline = pipeline;
   app_ctx.qmmfsrc = qtiqmmfsrc;
 
@@ -971,6 +991,8 @@ cleanup:
 
   if (pipeline)
     gst_object_unref (pipeline);
+  g_free (output_file);
+  g_free (output_dir);
 
   g_cond_clear (&app_ctx.cond_quit);
   g_mutex_clear (&app_ctx.mutex);

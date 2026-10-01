@@ -21,7 +21,14 @@ The application records, downscales and rotates and encodes a single camera
 stream and dump the output.
 """
 
-DEFAULT_OUTPUT_FILE = "/etc/media/test.mp4"
+HOME = os.getenv("HOME", os.path.expanduser("~"))
+DEFAULT_OUTPUT_FILE = os.path.join(
+    HOME,
+    "Downloads",
+    "qimsdk_samples",
+    "media",
+    "test.mp4"
+)
 
 eos_received = False
 def create_element(factory_name, name):
