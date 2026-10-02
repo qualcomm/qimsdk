@@ -998,6 +998,9 @@ def create_and_execute_pipeline(device: str = USB_CAMERA_DEVICE) -> None:  # Bui
     # Metadata overlay renderer.
     overlay = Element("qtivoverlay", "overlay")
 
+    # Queue for display branch decoupling/backpressure.
+    q_display = Element("queue", "q_display")
+
     # Video transform stage.
     display_transform = Element("qtivtransform", "display_transform")
 
@@ -1043,6 +1046,7 @@ def create_and_execute_pipeline(device: str = USB_CAMERA_DEVICE) -> None:  # Bui
         .add(count_sink)
         .add(mlmuxer)
         .add(overlay)
+        .add(q_display)
         .add(display_transform)
         .add_stream_filter("bgrafilter", bgrafilter)
         .add(roi_overlay)
@@ -1051,15 +1055,17 @@ def create_and_execute_pipeline(device: str = USB_CAMERA_DEVICE) -> None:  # Bui
         .link("source", "transform", "videofilter", "split")
         # Display branch: tee -> queue -> muxer
         .link("split", "q_video", "mlmuxer")
-        # ML branch: tee -> preprocess -> infer -> postprocess -> mlf -> post_split
+        # ML branch: tee -> preprocess -> infer -> postprocess -> mlf
         .link("split", "q_ml_1", "preprocessing", "q_ml_2", "inferencing",
-              "q_ml_3", "postprocessing", "mlf", "post_split")
+              "q_ml_3", "postprocessing", "mlf")
         # Metadata -> muxer branch
-        .link("post_split", "q_meta_to_mux", "mlmuxer")
+        .link("mlf", "q_meta_to_mux", "mlmuxer")
+        # Muxer -> overlay -> tee
+        .link("mlmuxer", "overlay", "post_split")
+        # Display branch: tee -> queue -> BGRA convert -> cairooverlay -> display
+        .link("post_split", "q_display", "display_transform", "bgrafilter", "roi_overlay", "display")
         # Metadata -> counting branch
         .link("post_split", "q_meta_to_count", "metaparser", "q_count_sink", "count_sink")
-        # Muxer -> overlay -> BGRA convert -> cairooverlay -> display
-        .link("mlmuxer", "overlay", "display_transform", "bgrafilter", "roi_overlay", "display")
     )
     print("[INFO] Starting YOLOv8 ROI cumulative object counting pipeline", flush=True)
     print(f"[INFO] Camera:  {device}", flush=True)

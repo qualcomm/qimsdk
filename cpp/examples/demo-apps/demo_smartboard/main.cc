@@ -1655,14 +1655,6 @@ static void on_sample(qti::Buffer buffer)
 // =============================================================================
 // Pipeline construction and run
 // =============================================================================
-static Element make_queue(const std::string& name) {
-    Element q("queue", name);
-    q.set("leaky", 2);
-    q.set("max-size-buffers", 2);
-    q.set("max-size-bytes", 0);
-    q.set("max-size-time", static_cast<std::uint64_t>(0));
-    return q;
-}
 
 //  Example pipeline:
 //
@@ -1673,9 +1665,9 @@ static Element make_queue(const std::string& name) {
 //      qtimetamux -> qtimetatransform(roi-palmd) -> tee name=split_after_palm
 //      split_after_palm. -> stage-2 hand landmarks:
 //                           qtimlvconverter -> qtimltflite -> qtimlpostprocess
-//                           -> [mlf:text] -> qtimetamux -> tee name=final_split
+//                           -> [mlf:text] -> qtimetamux -> qtivoverlay -> tee name=final_split
 //      final_split. -> display branch:
-//                      qtivoverlay -> qtivtransform -> [vf:BGRA] -> cairooverlay -> waylandsink
+//                      qtivtransform -> [vf:BGRA] -> cairooverlay -> waylandsink
 //      final_split. -> metadata branch:
 //                      qtimlmetaparser(json) -> appsink(meta_sink)
 //
@@ -1702,23 +1694,23 @@ void create_and_execute_pipeline()
 
     // Stage 1: palm detection
     // Queue for raw video path into palm metadata mux.
-    Element q_video_palm = make_queue("q_video_palm");
+    Element q_video_palm = Element("queue", "q_video_palm");
 
     // Queue before palm preprocessing.
-    Element q_palm_pre = make_queue("q_palm_pre");
+    Element q_palm_pre = Element("queue", "q_palm_pre");
     // Palm detector preprocessor.
     Element palm_preproc("qtimlvconverter", "palm_preproc");
     palm_preproc.set("mode", "image-batch-non-cumulative");
 
     // Queue before palm inference.
-    Element q_palm_infer = make_queue("q_palm_infer");
+    Element q_palm_infer = Element("queue", "q_palm_infer");
     // Palm detector inference.
     Element palm_inf("qtimltflite", "palm_inf");
     palm_inf.set("delegate", "gpu");
     palm_inf.set("model", model_base_path + "/models/palm_detection_full.tflite");
 
     // Queue before palm postprocess.
-    Element q_palm_post = make_queue("q_palm_post");
+    Element q_palm_post = Element("queue", "q_palm_post");
     // Palm detector postprocess.
     Element palm_post("qtimlpostprocess", "palm_post");
     palm_post.set("module", "palmd");
@@ -1728,7 +1720,7 @@ void create_and_execute_pipeline()
 
     auto palm_mlf = TextFilter();
     // Queue carrying palm metadata text.
-    Element q_palm_meta = make_queue("q_palm_meta");
+    Element q_palm_meta = Element("queue", "q_palm_meta");
 
     // Combines the palm-detection video/metadata streams so the ROI
     // transform below can crop the per-hand region for stage 2.
@@ -1743,23 +1735,23 @@ void create_and_execute_pipeline()
 
     // Stage 2: hand landmarks (21-point)
     // Queue for video path into final metadata mux.
-    Element q_video_final = make_queue("q_video_final");
+    Element q_video_final = Element("queue", "q_video_final");
 
     // Queue before hand-landmark preprocessing.
-    Element q_hand_pre = make_queue("q_hand_pre");
+    Element q_hand_pre = Element("queue", "q_hand_pre");
     // Hand-landmark preprocessor (ROI batch mode).
     Element hand_preproc("qtimlvconverter", "hand_preproc");
     hand_preproc.set("mode", "roi-batch-cumulative");
 
     // Queue before hand-landmark inference.
-    Element q_hand_infer = make_queue("q_hand_infer");
+    Element q_hand_infer = Element("queue", "q_hand_infer");
     // Hand-landmark inference.
     Element hand_inf("qtimltflite", "hand_inf");
     hand_inf.set("delegate", "xnnpack");
     hand_inf.set("model", model_base_path + "/models/hand_landmark_full.tflite");
 
     // Queue before hand-landmark postprocess.
-    Element q_hand_post = make_queue("q_hand_post");
+    Element q_hand_post = Element("queue", "q_hand_post");
     // Hand-landmark postprocess.
     Element hand_post("qtimlpostprocess", "hand_post");
     hand_post.set("module", "hlandmark");
@@ -1769,7 +1761,7 @@ void create_and_execute_pipeline()
 
     auto hand_mlf = TextFilter();
     // Queue carrying hand metadata text.
-    Element q_hand_meta = make_queue("q_hand_meta");
+    Element q_hand_meta = Element("queue", "q_hand_meta");
 
     // Muxes final video + hand metadata.
     Element metamux_final("qtimetamux", "metamux_final");
@@ -1778,7 +1770,7 @@ void create_and_execute_pipeline()
 
     // Display branch: overlay -> cairooverlay -> display
     // Queue for display branch.
-    Element q_display = make_queue("q_display");
+    Element q_display = Element("queue", "q_display");
     // Qualcomm metadata overlay renderer.
     Element overlay("qtivoverlay", "overlay");
     // Transform before cairooverlay.
@@ -1801,7 +1793,7 @@ void create_and_execute_pipeline()
 
     // Metadata branch: hand-landmark JSON -> gesture state machine
     // Queue before metadata parser.
-    Element q_meta_parse = make_queue("q_meta_parse");
+    Element q_meta_parse = Element("queue", "q_meta_parse");
     // Metadata parser (JSON output).
     Element meta_parser("qtimlmetaparser", "meta_parser");
     meta_parser.set("module", "json");
@@ -1865,8 +1857,8 @@ void create_and_execute_pipeline()
         .link("split_after_palm", "q_video_final", "metamux_final")
         .link("split_after_palm", "q_hand_pre", "hand_preproc", "q_hand_infer", "hand_inf",
               "q_hand_post", "hand_post", "hand_mlf", "q_hand_meta", "metamux_final")
-        .link("metamux_final", "final_split")
-        .link("final_split", "q_display", "overlay", "to_cairo", "cairofilter", "pen_canvas", "display")
+        .link("metamux_final", "overlay", "final_split")
+        .link("final_split", "q_display", "to_cairo", "cairofilter", "pen_canvas", "display")
         .link("final_split", "q_meta_parse", "meta_parser", "meta_sink");
 
     // Wire up callbacks:

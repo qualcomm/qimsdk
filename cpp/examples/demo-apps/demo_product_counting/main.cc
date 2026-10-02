@@ -966,10 +966,6 @@ static void on_cairo_draw_signal(void* /*overlay*/, void* draw_context,
 // =============================================================================
 // Pipeline construction
 // =============================================================================
-static Element make_queue(const std::string& name)
-{
-    return Element("queue", name);
-}
 
 //  Example pipeline:
 //
@@ -999,38 +995,38 @@ void create_and_execute_pipeline()
     Element split("tee", "split");
 
     // Display branch: video to the metadata muxer.
-    Element q_video        = make_queue("q_video");
+    Element q_video        = Element("queue", "q_video");
 
     // ML inference branch.
-    Element q_ml_1 = make_queue("q_ml_1");
+    Element q_ml_1 = Element("queue", "q_ml_1");
     // ML preprocessor/converter.
     Element preprocessing("qtimlvconverter", "preprocessing");
-    Element q_ml_2 = make_queue("q_ml_2");
+    Element q_ml_2 = Element("queue", "q_ml_2");
     // TFLite inference stage.
     Element inferencing("qtimltflite", "inferencing");
     inferencing.set("delegate", "external");
     inferencing.set("external-delegate-path", "libQnnTFLiteDelegate.so");
     inferencing.set("external-delegate-options", "QNNExternalDelegate,backend_type=htp;");
     inferencing.set("model", model_base_path + "/models/yolov8_det_quantized.tflite");
-    Element q_ml_3 = make_queue("q_ml_3");
+    Element q_ml_3 = Element("queue", "q_ml_3");
     // ML postprocess stage.
     Element postprocessing("qtimlpostprocess", "postprocessing");
     postprocessing.set("module", "yolov8");
     postprocessing.set("labels", model_base_path + "/labels/yolov8.json");
-    // mlf negotiates text/x-raw caps; must sit before post_split so both
-    // downstream branches (muxer and counter) receive the correct caps.
+    // mlf negotiates text/x-raw caps for downstream mux path.
     auto mlf = TextFilter();
 
-    // Splits detection metadata: one copy to the muxer, one to the counter.
+    // Split after overlay: one branch to display, one to parser/counter.
     Element post_split("tee", "post_split");
 
-    Element q_meta_to_mux   = make_queue("q_meta_to_mux");
-    Element q_meta_to_count = make_queue("q_meta_to_count");
+    Element q_meta_to_mux   = Element("queue", "q_meta_to_mux");
+    Element q_meta_to_count = Element("queue", "q_meta_to_count");
+    Element q_display       = Element("queue", "q_display");
 
     // Pipeline element.
     Element metaparser_elem("qtimlmetaparser", "metaparser");
     metaparser_elem.set("module", "json");
-    Element q_count_sink = make_queue("q_count_sink");
+    Element q_count_sink = Element("queue", "q_count_sink");
 
     // Counting AppSink: receives parsed JSON metadata.
     AppSink count_sink("count_sink");
@@ -1078,6 +1074,7 @@ void create_and_execute_pipeline()
         .add(post_split)
         .add(q_meta_to_mux)
         .add(q_meta_to_count)
+        .add(q_display)
         .add(metaparser_elem)
         .add(q_count_sink)
         .add(count_sink)
@@ -1091,15 +1088,17 @@ void create_and_execute_pipeline()
         .link("source", "transform", "videofilter", "split")
         // Display branch: tee -> queue -> muxer
         .link("split", "q_video", "mlmuxer")
-        // ML branch: tee -> preprocess -> infer -> postprocess -> mlf -> post_split
+        // ML branch: tee -> preprocess -> infer -> postprocess -> mlf
         .link("split", "q_ml_1", "preprocessing", "q_ml_2", "inferencing",
-              "q_ml_3", "postprocessing", "mlf", "post_split")
+              "q_ml_3", "postprocessing", "mlf")
         // Metadata -> muxer branch
-        .link("post_split", "q_meta_to_mux", "mlmuxer")
+        .link("mlf", "q_meta_to_mux", "mlmuxer")
+        // Muxer -> overlay -> tee
+        .link("mlmuxer", "overlay", "post_split")
+        // Display branch: tee -> queue -> BGRA convert -> cairooverlay -> display
+        .link("post_split", "q_display", "display_transform", "bgrafilter", "roi_overlay", "display")
         // Metadata -> counting branch
-        .link("post_split", "q_meta_to_count", "metaparser", "q_count_sink", "count_sink")
-        // Muxer -> overlay -> BGRA convert -> cairooverlay -> display
-        .link("mlmuxer", "overlay", "display_transform", "bgrafilter", "roi_overlay", "display");
+        .link("post_split", "q_meta_to_count", "metaparser", "q_count_sink", "count_sink");
 
     count_sink.set_buffer_consumer(on_sample);
 
