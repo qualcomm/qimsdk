@@ -626,8 +626,8 @@ def create_and_execute_pipeline() -> None:
     #      split_after_palm. -> q_video_final -> metamux_final
     #      split_after_palm. -> q_hand_pre -> hand_preproc -> q_hand_infer -> hand_inf -> q_hand_post
     #                       -> hand_post -> [hand_mlf] -> q_hand_meta -> metamux_final
-    #      metamux_final -> final_split
-    #      final_split. -> q_display -> qtivoverlay -> to_cairo -> [cairofilter] -> video_region_canvas
+    #      metamux_final -> qtivoverlay -> final_split
+    #      final_split. -> q_display -> to_cairo -> [cairofilter] -> video_region_canvas
     #                   -> to_display -> waylandsink
     #      final_split. -> q_meta_parse -> qtimlmetaparser -> meta_sink(appsink)
     #
@@ -890,8 +890,8 @@ def create_and_execute_pipeline() -> None:
         .link("split_after_palm", "q_video_final", "metamux_final")
         .link("split_after_palm", "q_hand_pre", "hand_preproc", "q_hand_infer", "hand_inf",
               "q_hand_post", "hand_post", "hand_mlf", "q_hand_meta", "metamux_final")
-        .link("metamux_final", "final_split")
-        .link("final_split", "q_display", "overlay", "to_cairo", "cairofilter", "video_region_canvas", "to_display", "display")
+        .link("metamux_final", "overlay", "final_split")
+        .link("final_split", "q_display", "to_cairo", "cairofilter", "video_region_canvas", "to_display", "display")
         .link("final_split", "q_meta_parse", "meta_parser", "meta_sink")
     )
 

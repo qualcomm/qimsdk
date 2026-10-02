@@ -1173,14 +1173,6 @@ def on_sample(buffer):  # Receives per-frame hand-landmark metadata and updates 
     except Exception as e:
         print(f"[WARNING] metadata callback failed: {e}", flush=True)
 
-def make_queue(name: str) -> Element:
-    q = Element("queue", name)
-    q.set("leaky", 2)
-    q.set("max-size-buffers", 2)
-    q.set("max-size-bytes", 0)
-    q.set("max-size-time", 0)
-    return q
-
 #  Example pipeline:
 #
 #    source -> transform -> [videofilter] -> split
@@ -1189,8 +1181,8 @@ def make_queue(name: str) -> Element:
 #             -> q_palm_meta -> metamux_palm -> palm_roi_transform -> split_after_palm
 #      split_after_palm. -> q_video_final -> metamux_final
 #      split_after_palm. -> hand_preproc -> hand_inf -> hand_post -> [hand_mlf]
-#                       -> q_hand_meta -> metamux_final -> final_split
-#      final_split. -> q_display -> qtivoverlay -> qtivtransform -> [cairofilter]
+#                       -> q_hand_meta -> metamux_final -> qtivoverlay -> final_split
+#      final_split. -> q_display -> qtivtransform -> [cairofilter]
 #                   -> cairooverlay -> waylandsink
 #      final_split. -> qtimlmetaparser -> appsink
 #
@@ -1222,14 +1214,14 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:  # Builds 
     # Palm detector preprocessing / inference / postprocess branch
     # -------------------------------------------------------------------------
     # Queue before palm preprocessing.
-    q_palm_pre = make_queue("q_palm_pre")
+    q_palm_pre = Element("queue", "q_palm_pre")
 
     # Palm detector preprocessor.
     palm_preproc = Element("qtimlvconverter", "palm_preproc")
     palm_preproc.set("mode", "image-batch-non-cumulative")
 
     # Queue before palm inference.
-    q_palm_infer = make_queue("q_palm_infer")
+    q_palm_infer = Element("queue", "q_palm_infer")
 
     # Palm detector inference.
     palm_inf = Element("qtimltflite", "palm_inf")
@@ -1237,7 +1229,7 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:  # Builds 
     palm_inf.set("model", model_base_path + "/models/palm_detection_full.tflite")
 
     # Queue before palm postprocess.
-    q_palm_post = make_queue("q_palm_post")
+    q_palm_post = Element("queue", "q_palm_post")
 
     # Palm detector postprocess.
     palm_post = Element("qtimlpostprocess", "palm_post")
@@ -1249,10 +1241,10 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:  # Builds 
     palm_mlf = TextFilter()
 
     # Queue carrying palm metadata text.
-    q_palm_meta = make_queue("q_palm_meta")
+    q_palm_meta = Element("queue", "q_palm_meta")
 
     # Queue for raw video path into palm metadata mux.
-    q_video_palm = make_queue("q_video_palm")
+    q_video_palm = Element("queue", "q_video_palm")
     # Muxes video + palm metadata.
     metamux_palm = Element("qtimetamux", "metamux_palm")
 
@@ -1267,14 +1259,14 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:  # Builds 
     # Hand landmark preprocessing / inference / postprocess branch
     # -------------------------------------------------------------------------
     # Queue before hand-landmark preprocessing.
-    q_hand_pre = make_queue("q_hand_pre")
+    q_hand_pre = Element("queue", "q_hand_pre")
 
     # Hand-landmark preprocessor (ROI batch mode).
     hand_preproc = Element("qtimlvconverter", "hand_preproc")
     hand_preproc.set("mode", "roi-batch-cumulative")
 
     # Queue before hand-landmark inference.
-    q_hand_infer = make_queue("q_hand_infer")
+    q_hand_infer = Element("queue", "q_hand_infer")
 
     # Hand-landmark inference.
     hand_inf = Element("qtimltflite", "hand_inf")
@@ -1282,7 +1274,7 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:  # Builds 
     hand_inf.set("model", model_base_path + "/models/hand_landmark_full.tflite")
 
     # Queue before hand-landmark postprocess.
-    q_hand_post = make_queue("q_hand_post")
+    q_hand_post = Element("queue", "q_hand_post")
 
     # Hand-landmark postprocess.
     hand_post = Element("qtimlpostprocess", "hand_post")
@@ -1294,10 +1286,10 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:  # Builds 
     hand_mlf = TextFilter()
 
     # Queue carrying hand metadata text.
-    q_hand_meta = make_queue("q_hand_meta")
+    q_hand_meta = Element("queue", "q_hand_meta")
 
     # Queue for video path into final metadata mux.
-    q_video_final = make_queue("q_video_final")
+    q_video_final = Element("queue", "q_video_final")
     # Muxes final video + hand metadata.
     metamux_final = Element("qtimetamux", "metamux_final")
 
@@ -1308,7 +1300,7 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:  # Builds 
     # Display branch: Qualcomm overlay first, persistent cairo ink second
     # -------------------------------------------------------------------------
     # Queue for display branch.
-    q_display = make_queue("q_display")
+    q_display = Element("queue", "q_display")
 
     # Qualcomm metadata overlay renderer.
     overlay = Element("qtivoverlay", "overlay")
@@ -1337,7 +1329,7 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:  # Builds 
     # Metadata branch: parse metadata JSON and feed the Python callback
     # -------------------------------------------------------------------------
     # Queue before metadata parser.
-    q_meta_parse = make_queue("q_meta_parse")
+    q_meta_parse = Element("queue", "q_meta_parse")
 
     # Metadata parser (JSON output).
     meta_parser = Element("qtimlmetaparser", "meta_parser")
@@ -1408,8 +1400,8 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:  # Builds 
         .link("split_after_palm", "q_video_final", "metamux_final")
         .link("split_after_palm", "q_hand_pre", "hand_preproc", "q_hand_infer", "hand_inf",
               "q_hand_post", "hand_post", "hand_mlf", "q_hand_meta", "metamux_final")
-        .link("metamux_final", "final_split")
-        .link("final_split", "q_display", "overlay", "to_cairo", "cairofilter", "pen_canvas", "display")
+        .link("metamux_final", "overlay", "final_split")
+        .link("final_split", "q_display", "to_cairo", "cairofilter", "pen_canvas", "display")
         .link("final_split", "q_meta_parse", "meta_parser", "meta_sink")
     )
 

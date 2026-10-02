@@ -51,8 +51,8 @@ args = parser.parse_args()
 #    v4l2src -> qtivtransform -> tee
 #      tee. -> stage-1 palm detection -> qtimetamux -> qtimetatransform
 #      qtimetatransform -> tee -> stage-2 hand landmarks -> qtimetamux
-#      qtimetamux -> tee
-#        -> qtivoverlay -> qtivtransform -> [videofilter:BGRA] -> cairooverlay -> waylandsink
+#      qtimetamux -> qtivoverlay -> tee
+#        -> qtivtransform -> [videofilter:BGRA] -> cairooverlay -> waylandsink
 #        -> qtimlmetaparser(json) -> appsink(metadata callback)
 #
 #  Wrist metadata drives steering physics while Cairo renders the split
@@ -794,14 +794,6 @@ def on_cairo_draw(cr, timestamp, duration):
     draw_steering_wheel(cr, pair)
     draw_wrist_line(cr, pair)
 
-def make_queue(name: str) -> Element:
-    q = Element("queue", name)
-    q.set("leaky", 2)
-    q.set("max-size-buffers", 2)
-    q.set("max-size-bytes", 0)
-    q.set("max-size-time", 0)
-    return q
-
 
 # =============================================================================
 # Pipeline construction and run
@@ -833,14 +825,14 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
     # -------------------------------------------------------------------------
     # Stage 1 — Palm detection branch
     # -------------------------------------------------------------------------
-    q_palm_pre = make_queue("q_palm_pre")
+    q_palm_pre = Element("queue", "q_palm_pre")
 
     # ML preprocessor/converter.
     palm_preproc = Element("qtimlvconverter", "palm_preproc")
     palm_preproc.set("mode", "image-batch-non-cumulative")
 
     # Queue for branch decoupling/backpressure.
-    q_palm_infer = make_queue("q_palm_infer")
+    q_palm_infer = Element("queue", "q_palm_infer")
 
     # TFLite inference stage.
     palm_inf = Element("qtimltflite", "palm_inf")
@@ -848,7 +840,7 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
     palm_inf.set("model", model_base_path + "/models/palm_detection_full.tflite")
 
     # Queue for branch decoupling/backpressure.
-    q_palm_post = make_queue("q_palm_post")
+    q_palm_post = Element("queue", "q_palm_post")
 
     # ML postprocess stage.
     palm_post = Element("qtimlpostprocess", "palm_post")
@@ -860,12 +852,12 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
     palm_mlf = TextFilter()
 
     # Queue for branch decoupling/backpressure.
-    q_palm_meta = make_queue("q_palm_meta")
+    q_palm_meta = Element("queue", "q_palm_meta")
 
     # -------------------------------------------------------------------------
     # Palm ROI mux + transform
     # -------------------------------------------------------------------------
-    q_video_palm = make_queue("q_video_palm")
+    q_video_palm = Element("queue", "q_video_palm")
 
     # Metadata/video muxer.
     metamux_palm = Element("qtimetamux", "metamux_palm")
@@ -880,14 +872,14 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
     # -------------------------------------------------------------------------
     # Stage 2 — Hand landmark branch
     # -------------------------------------------------------------------------
-    q_hand_pre = make_queue("q_hand_pre")
+    q_hand_pre = Element("queue", "q_hand_pre")
 
     # ML preprocessor/converter.
     hand_preproc = Element("qtimlvconverter", "hand_preproc")
     hand_preproc.set("mode", "roi-batch-cumulative")
 
     # Queue for branch decoupling/backpressure.
-    q_hand_infer = make_queue("q_hand_infer")
+    q_hand_infer = Element("queue", "q_hand_infer")
 
     # TFLite inference stage.
     hand_inf = Element("qtimltflite", "hand_inf")
@@ -895,7 +887,7 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
     hand_inf.set("model", model_base_path + "/models/hand_landmark_full.tflite")
 
     # Queue for branch decoupling/backpressure.
-    q_hand_post = make_queue("q_hand_post")
+    q_hand_post = Element("queue", "q_hand_post")
 
     # ML postprocess stage.
     hand_post = Element("qtimlpostprocess", "hand_post")
@@ -907,12 +899,12 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
     hand_mlf = TextFilter()
 
     # Queue for branch decoupling/backpressure.
-    q_hand_meta = make_queue("q_hand_meta")
+    q_hand_meta = Element("queue", "q_hand_meta")
 
     # -------------------------------------------------------------------------
     # Final metadata mux
     # -------------------------------------------------------------------------
-    q_video_final = make_queue("q_video_final")
+    q_video_final = Element("queue", "q_video_final")
 
     # Metadata/video muxer.
     metamux_final = Element("qtimetamux", "metamux_final")
@@ -923,7 +915,7 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
     # -------------------------------------------------------------------------
     # Display branch — cairooverlay draws the split-screen game UI
     # -------------------------------------------------------------------------
-    q_display = make_queue("q_display")
+    q_display = Element("queue", "q_display")
 
     # Metadata overlay renderer.
     overlay = Element("qtivoverlay", "overlay")
@@ -953,7 +945,7 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
     # -------------------------------------------------------------------------
     # Metadata branch — Python wrist parsing via appsink
     # -------------------------------------------------------------------------
-    q_meta_parse = make_queue("q_meta_parse")
+    q_meta_parse = Element("queue", "q_meta_parse")
 
     # Pipeline element.
     meta_parser = Element("qtimlmetaparser", "meta_parser")
@@ -1015,8 +1007,8 @@ def create_and_execute_pipeline(device: str = CAMERA_DEVICE) -> None:
         .link("split_after_palm", "q_video_final", "metamux_final")
         .link("split_after_palm", "q_hand_pre", "hand_preproc", "q_hand_infer", "hand_inf",
               "q_hand_post", "hand_post", "hand_mlf", "q_hand_meta", "metamux_final")
-        .link("metamux_final", "final_split")
-        .link("final_split", "q_display", "overlay", "to_cairo", "cairofilter", "wrist_draw", "display")
+        .link("metamux_final", "overlay", "final_split")
+        .link("final_split", "q_display", "to_cairo", "cairofilter", "wrist_draw", "display")
         .link("final_split", "q_meta_parse", "meta_parser", "meta_sink")
     )
 
