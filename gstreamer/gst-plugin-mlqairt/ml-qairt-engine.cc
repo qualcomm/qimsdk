@@ -9,6 +9,9 @@
 
 #include "ml-qairt-engine.h"
 
+#include <algorithm>
+#include <functional>
+#include <numeric>
 #include <string>
 #include <vector>
 #include <memory>
@@ -45,9 +48,11 @@ struct _GstMLQairtEngine
   // The single graph being executed (graph 0).
   std::shared_ptr<qairt::Graph> graph;
 
-  // Pre-built input and output tensors, in negotiated order.
+  // Pre-built input and output tensors in graph order.
   std::vector<std::shared_ptr<qairt::Tensor>> inputs;
   std::vector<std::shared_ptr<qairt::Tensor>> outputs;
+  // Indices of the graph outputs exposed downstream.
+  std::vector<guint> outindices;
 };
 
 GType
@@ -306,6 +311,16 @@ gst_ml_info_populate_tensor (GstMLInfo * info, guint idx, GstMLType type,
   return TRUE;
 }
 
+static guint
+gst_ml_qairt_tensor_get_size (std::shared_ptr<qairt::Tensor> &tensor)
+{
+  const std::vector<uint32_t> &dims = tensor->getDimensions ();
+  GstMLType mltype = gst_ml_type_from_data_type (tensor->getDataType ());
+
+  return std::accumulate (dims.begin (), dims.end (),
+      gst_ml_type_get_size (mltype), std::multiplies<guint> ());
+}
+
 static void
 gst_ml_frame_normalize (GstMLFrame * outframe, guint idx,
     qairt::DataType datatype, const qairt::QuantizeParams &qparams)
@@ -538,53 +553,71 @@ gst_ml_qairt_engine_build_output_tensors (GstMLQairtEngine * engine,
 {
   gboolean success = FALSE;
 
+  // Honor the optional user-specified output names, if any were given.
+  if (names != NULL) {
+    guint length = g_list_length (names);
+
+    if (length > GST_ML_MAX_TENSORS) {
+      GST_ERROR ("Requested %u outputs, maximum is %u!", length,
+          GST_ML_MAX_TENSORS);
+      return FALSE;
+    }
+
+    if (length != outtensors.size ()) {
+      GST_ERROR ("Requested %u outputs, but graph has %zu outputs. Output "
+          "tensor property supports reordering only.", length, outtensors.size ());
+      return FALSE;
+    }
+
+    for (guint idx = 0; idx < length; idx++) {
+      const gchar *name = (const gchar *) g_list_nth_data (names, idx);
+
+      auto it = std::find_if (outtensors.cbegin (), outtensors.cend (),
+          [name] (const qairt::SystemContextTensorInfo &tinfo)
+          { return tinfo.getName () == name; });
+
+      if (it == outtensors.cend ()) {
+        GST_ERROR ("Output tensor name '%s' not found in graph!", name);
+        return FALSE;
+      }
+
+      guint num = static_cast<guint> (std::distance (outtensors.cbegin (), it));
+
+      if (std::find (engine->outindices.cbegin (), engine->outindices.cend (),
+              num) != engine->outindices.cend ()) {
+        GST_ERROR ("Output tensor name '%s' is duplicated!", name);
+        return FALSE;
+      }
+
+      engine->outindices.push_back (num);
+    }
+  } else {
+    if (outtensors.size () > GST_ML_MAX_TENSORS) {
+      GST_ERROR ("Model has %zu outputs, maximum is %u!", outtensors.size (),
+          GST_ML_MAX_TENSORS);
+      return FALSE;
+    }
+
+    engine->outindices.resize (outtensors.size ());
+    std::iota (engine->outindices.begin (), engine->outindices.end (), 0);
+  }
+
   try {
-    // Honor the optional user-specified output names, if any were given.
-    if (names != NULL) {
-      guint length = g_list_length (names);
-
-      if (length > GST_ML_MAX_TENSORS) {
-        GST_ERROR ("Requested %u outputs, maximum is %u!", length,
-            GST_ML_MAX_TENSORS);
-        return FALSE;
-      }
-
-      for (guint idx = 0; idx < length; idx++) {
-        const gchar *name = (const gchar *) g_list_nth_data (names, idx);
-
-        auto it = std::find_if(outtensors.begin(), outtensors.end(),
-            [name] (const qairt::SystemContextTensorInfo &tinfo)
-            { return tinfo.getName () == name; } );
-
-        if (it == outtensors.end()) {
-          GST_ERROR ("Output tensor name '%s' not found in graph!", name);
-          return FALSE;
-        }
-
-        engine->outputs.push_back (gst_ml_qairt_make_tensor (engine, *it, FALSE));
-      }
-    } else {
-      if (outtensors.size () > GST_ML_MAX_TENSORS) {
-        GST_ERROR ("Model has %zu outputs, maximum is %u!", outtensors.size (),
-            GST_ML_MAX_TENSORS);
-        return FALSE;
-      }
-
-      for (guint idx = 0; idx < outtensors.size (); idx++) {
-        qairt::SystemContextTensorInfo &tinfo = outtensors[idx];
-        engine->outputs.push_back (gst_ml_qairt_make_tensor (engine, tinfo, FALSE));
-      }
+    for (guint idx = 0; idx < outtensors.size (); idx++) {
+      qairt::SystemContextTensorInfo &tinfo = outtensors[idx];
+      engine->outputs.push_back (gst_ml_qairt_make_tensor (engine, tinfo, FALSE));
     }
   } catch (const std::exception &e) {
     GST_ERROR ("Failed to build output tensors: %s", e.what ());
     return FALSE;
   }
 
-  for (guint idx = 0; idx < engine->outputs.size (); idx++) {
-    std::shared_ptr<qairt::Tensor> &tensor = engine->outputs[idx];
+  for (guint idx = 0; idx < engine->outindices.size (); idx++) {
+    guint num = engine->outindices[idx];
+    std::shared_ptr<qairt::Tensor> &tensor = engine->outputs[num];
     const std::vector<uint32_t> &dims = tensor->getDimensions ();
 
-    GST_DEBUG ("Output tensor[%u] name: %s", idx, tensor->getName ().c_str ());
+    GST_DEBUG ("Output tensor[%u] name: %s", num, tensor->getName ().c_str ());
 
     success = gst_ml_info_populate_tensor (engine->outinfo, idx,
         gst_ml_type_from_data_type (tensor->getDataType ()), dims.size (),
@@ -859,18 +892,21 @@ gst_ml_qairt_engine_execute (GstMLQairtEngine * engine, GstMLFrame * inframe,
       cb.setDataSize (gst_ml_info_tensor_size (&(inframe->info), idx));
     }
 
-    for (guint idx = 0; idx < engine->outputs.size (); idx++) {
-      qairt::ClientBuffer &cb = engine->outputs[idx]->getClientBuffer ();
+    for (guint idx = 0; idx < engine->outinfo->n_tensors; idx++) {
+      guint num = engine->outindices[idx];
+      std::shared_ptr<qairt::Tensor> &tensor = engine->outputs[num];
+      qairt::ClientBuffer &cb = tensor->getClientBuffer ();
 
       cb.setData (GST_ML_FRAME_BLOCK_DATA (outframe, idx));
-      cb.setDataSize (gst_ml_info_tensor_size (&(outframe->info), idx));
+      cb.setDataSize (gst_ml_qairt_tensor_get_size (tensor));
     }
 
     engine->graph->execute (engine->inputs, engine->outputs);
 
     // Convert the native output tensors to float and stamp the tensor names.
-    for (guint idx = 0; idx < engine->outputs.size (); idx++) {
-      std::shared_ptr<qairt::Tensor> &tensor = engine->outputs[idx];
+    for (guint idx = 0; idx < engine->outinfo->n_tensors; idx++) {
+      guint num = engine->outindices[idx];
+      std::shared_ptr<qairt::Tensor> &tensor = engine->outputs[num];
       qairt::DataType datatype = tensor->getDataType ();
       const qairt::QuantizeParams &qparams = tensor->getQuantizeParams ();
 
