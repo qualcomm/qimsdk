@@ -59,8 +59,9 @@ typedef struct _GstMLQairtSettings GstMLQairtSettings;
  *     cached context '.bin' binary.
  * @backend: Hardware backend used to execute the network.
  * @priority: Execution scheduling priority.
- * @outputs: Optional %NULL terminated list of output tensor names. When set,
- *     the engine generates outputs in the order defined by this list.
+ * @outputs: Optional %NULL terminated list of output tensor names used to
+ *     reorder downstream outputs. When set, the list must contain all model
+ *     outputs.
  *
  * Configuration passed to gst_ml_qairt_engine_new().
  */

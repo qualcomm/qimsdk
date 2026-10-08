@@ -38,7 +38,6 @@ enum
   PROP_MODEL,
   PROP_BACKEND,
   PROP_EXEC_PRIORITY,
-  PROP_LAYERS,
   PROP_TENSORS,
 };
 
@@ -519,7 +518,6 @@ gst_ml_qairt_set_property (GObject * object, guint prop_id,
     case PROP_EXEC_PRIORITY:
       qairt->settings.priority = g_value_get_enum (value);
       break;
-    case PROP_LAYERS:
     case PROP_TENSORS:
     {
       const gchar *name = NULL;
@@ -557,7 +555,6 @@ gst_ml_qairt_get_property (GObject * object, guint prop_id, GValue * value,
     case PROP_EXEC_PRIORITY:
       g_value_set_enum (value, qairt->settings.priority);
       break;
-    case PROP_LAYERS:
     case PROP_TENSORS:
     {
       GList *list = NULL;
@@ -630,17 +627,10 @@ gst_ml_qairt_class_init (GstMLQairtClass * klass)
           "network.",
           GST_TYPE_ML_QAIRT_EXEC_PRIORITY, DEFAULT_PROP_EXEC_PRIORITY,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-  g_object_class_install_property (gobject, PROP_LAYERS,
-     gst_param_spec_array ("layers", "Layers",
-          "List of output layers. Should be set if model has more than one output",
-          g_param_spec_string ("name", "Layer Name",
-              "Name of the output layer.", NULL,
-              G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS),
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   g_object_class_install_property (gobject, PROP_TENSORS,
      gst_param_spec_array ("tensors", "Tensors",
-          "List of output tensors. Alternative to output layer list. "
-          "The outputs will be generated in the order defined in this list.",
+          "List of output tensor names used to reorder downstream outputs. "
+          "When set, the list must contain all model outputs.",
           g_param_spec_string ("name", "Tensor Name",
               "Name of the output tensor.", NULL,
               G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS),
