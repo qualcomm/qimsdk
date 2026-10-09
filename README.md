@@ -1,4 +1,4 @@
-# Qualcomm IM SDK GStreamer Plugins
+# Qualcomm IM SDK GStreamer Plugins Test
 
 The QIM SDK encapsulates hardware complexity within a modular plugin architecture, freeing developers from the burden of managing low-level platform libraries or hardware-specific details that vary across Qualcomm chipsets and generations.
 
