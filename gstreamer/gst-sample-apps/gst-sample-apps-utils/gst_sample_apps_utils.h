@@ -388,21 +388,6 @@ typedef enum
 } GstVideoDisposition;
 
 /**
- * GstRotateVideoType:
- * @GST_ROTATE_TYPE_NONE: No video rotation.
- * @GST_ROTATE_TYPE_90CW: 90 degree video rotation.
- * @GST_ROTATE_TYPE_90CCW: 270 degree video rotation.
- * @GST_ROTATE_TYPE_180: 180 degree video rotation.
- * Options to select Rotate type.
- */
-typedef enum {
-  GST_ROTATE_TYPE_NONE,
-  GST_ROTATE_TYPE_90CW,
-  GST_ROTATE_TYPE_90CCW,
-  GST_ROTATE_TYPE_180
-} GstRotateVideoType;
-
-/**
  * GstInputStreamType:
  * @GST_INPUT_STREAM_H264: H264 input stream encoding
  * @GST_INPUT_STREAM_H265: H265 input stream encoding

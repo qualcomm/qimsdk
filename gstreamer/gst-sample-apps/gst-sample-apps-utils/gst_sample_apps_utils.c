@@ -230,15 +230,40 @@ gst_element_set_enum_property (GstElement * element, const gchar * propname,
     const gchar * valname)
 {
   GValue value = G_VALUE_INIT;
+  const GEnumValue *enumvalue = NULL;
   GParamSpec *propspecs = NULL;
+  GEnumClass *enumclass = NULL;
 
   propspecs =
       g_object_class_find_property (G_OBJECT_GET_CLASS (element), propname);
-  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
-  gst_value_deserialize (&value, valname);
 
+  if (propspecs == NULL) {
+    g_printerr ("Property '%s' not found on object type '%s'\n", propname,
+        G_OBJECT_TYPE_NAME (element));
+    return;
+  }
+
+  if (!G_IS_PARAM_SPEC_ENUM (propspecs)) {
+    g_printerr ("Property '%s' of object type '%s' is not an enum\n", propname,
+        G_OBJECT_TYPE_NAME (element));
+    return;
+  }
+
+  enumclass = G_ENUM_CLASS (g_type_class_ref (G_PARAM_SPEC_VALUE_TYPE (propspecs)));
+  enumvalue = g_enum_get_value_by_nick (enumclass, valname);
+
+  if (enumvalue == NULL) {
+    g_printerr ("Invalid value '%s' for property '%s'\n", valname, propname);
+    goto cleanup;
+  }
+
+  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
+  g_value_set_enum (&value, enumvalue->value);
   g_object_set_property (G_OBJECT (element), propname, &value);
   g_value_unset (&value);
+
+cleanup:
+  g_type_class_unref (enumclass);
 }
 
 /**
