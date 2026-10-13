@@ -756,25 +756,6 @@ gst_app_make_element (const gchar * factory, const gchar * name)
   return element;
 }
 
-/**
- * Sets an enum property on a GstElement
- */
-void
-gst_element_set_enum_property (GstElement * element, const gchar * propname,
-    const gchar * valname)
-{
-  GValue value = G_VALUE_INIT;
-  GParamSpec *propspecs = NULL;
-
-  propspecs =
-      g_object_class_find_property (G_OBJECT_GET_CLASS (element), propname);
-  g_value_init (&value, G_PARAM_SPEC_VALUE_TYPE (propspecs));
-  gst_value_deserialize (&value, valname);
-
-  g_object_set_property (G_OBJECT (element), propname, &value);
-  g_value_unset (&value);
-}
-
 /*
  * Sample release utility.
  */
