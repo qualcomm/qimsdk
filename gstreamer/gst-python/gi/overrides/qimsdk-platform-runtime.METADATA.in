@@ -1,0 +1,6 @@
+Metadata-Version: 2.1
+Name: qimsdk-platform-runtime
+Version: @QIMSDK_PLATFORM_RUNTIME_VERSION@
+Summary: Marker distribution representing the QIM SDK native GStreamer/GstQtiML runtime provided by the platform image
+Home-page: https://github.com/qualcomm/qimsdk
+License: BSD-3-Clause-Clear

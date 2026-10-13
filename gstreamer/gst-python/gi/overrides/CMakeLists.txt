@@ -35,3 +35,25 @@ install(
   FILES ${CMAKE_CURRENT_SOURCE_DIR}/GstQtiML.py
   DESTINATION ${PYTHON_SITEPACKAGES_DIR}/gi/overrides
 )
+
+find_file(QIMSDK_GSTQTIML_TYPELIB "GstQtiML-1.0.typelib"
+  PATH_SUFFIXES "lib/girepository-1.0" "usr/lib/girepository-1.0"
+)
+
+if(TARGET GstQtiML-1.0 OR QIMSDK_GSTQTIML_TYPELIB)
+  set(QIMSDK_PLATFORM_RUNTIME_DISTINFO
+    "${CMAKE_CURRENT_BINARY_DIR}/qimsdk_platform_runtime-${QIMSDK_PLATFORM_RUNTIME_VERSION}.dist-info")
+
+  configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/qimsdk-platform-runtime.METADATA.in
+    ${QIMSDK_PLATFORM_RUNTIME_DISTINFO}/METADATA
+    @ONLY
+  )
+
+  file(WRITE ${QIMSDK_PLATFORM_RUNTIME_DISTINFO}/INSTALLER "cmake\n")
+
+  install(
+    DIRECTORY ${QIMSDK_PLATFORM_RUNTIME_DISTINFO}
+    DESTINATION ${PYTHON_SITEPACKAGES_DIR}
+  )
+endif()

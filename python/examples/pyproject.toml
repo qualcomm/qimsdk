@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qimsdk-app-builder-examples"
+version = "0.1.0"
+description = "Runnable example applications for the Qualcomm IM SDK App Builder"
+readme = "README.md"
+license = "BSD-3-Clause-Clear"
+requires-python = ">=3.9"
+authors = [
+    { name = "Qualcomm Technologies, Inc." },
+]
+keywords = ["gstreamer", "qualcomm", "qimsdk", "examples", "demo"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "qimsdk-app-builder==0.1.0",
+    "numpy",
+    "opencv-python",
+    "pycairo",
+]
+
+[project.urls]
+Homepage = "https://github.com/qualcomm/qimsdk"
+Documentation = "https://imsdkdocs.qualcomm.com"
+
+[tool.setuptools]
+packages = []
+script-files = [
+    "demo-apps/qimsdk_demo_car_game.py",
+    "demo-apps/qimsdk_demo_fourfinger.py",
+    "demo-apps/qimsdk_demo_product_counting.py",
+    "demo-apps/qimsdk_demo_smartboard.py",
+    "reference-apps/qimsdk_ref_appsrc_and_appsink.py",
+    "reference-apps/qimsdk_ref_camera_and_capture.py",
+    "reference-apps/qimsdk_ref_camera_encoder.py",
+    "reference-apps/qimsdk_ref_camera_impl.py",
+    "reference-apps/qimsdk_ref_camera.py",
+    "reference-apps/qimsdk_ref_camera_yolov8_mlbin.py",
+    "reference-apps/qimsdk_ref_camera_yolov8.py",
+    "reference-apps/qimsdk_ref_external_postprocess_classification_resnet101.py",
+    "reference-apps/qimsdk_ref_external_postprocess_depth_estimation_midasv2.py",
+    "reference-apps/qimsdk_ref_external_postprocess_detection_yolov5.py",
+    "reference-apps/qimsdk_ref_external_postprocess_detection_yolov8.py",
+    "reference-apps/qimsdk_ref_external_postprocess_gesture_recognition.py",
+    "reference-apps/qimsdk_ref_external_postprocess_mlbin_yolov8.py",
+    "reference-apps/qimsdk_ref_external_postprocess_pose_estimation_hrnet.py",
+    "reference-apps/qimsdk_ref_external_postprocess_pose_estimation_posenet.py",
+    "reference-apps/qimsdk_ref_external_postprocess_segmentation_deeplab.py",
+    "reference-apps/qimsdk_ref_external_preprocess_detection_mlbin_yolov8.py",
+    "reference-apps/qimsdk_ref_external_preprocess_detection_yolov8.py",
+    "reference-apps/qimsdk_ref_external_preprocess_lightweight_face_detect.py",
+    "reference-apps/qimsdk_ref_external_preprocess_palm_detect.py",
+    "reference-apps/qimsdk_ref_filesrc_audio_classification_yamnet.py",
+    "reference-apps/qimsdk_ref_gesture_recognition.py",
+    "reference-apps/qimsdk_ref_mlbin_ppe.py",
+    "reference-apps/qimsdk_ref_mlbin_yolov8.py",
+    "reference-apps/qimsdk_ref_qtdemux_decode_display.py",
+    "reference-apps/qimsdk_ref_tensor_dump.py",
+    "reference-apps/qimsdk_ref_tsdemux_decode_display.py",
+    "reference-apps/qimsdk_ref_usb_camera_impl.py",
+    "reference-apps/qimsdk_ref_usb_camera.py",
+    "reference-apps/qimsdk_ref_videotestsrc_streamfilter_display.py",
+    "reference-apps/qimsdk_ref_videotestsrc_videofilter_display.py",
+    "reference-apps/qimsdk_ref_yml.py",
+    "reference-apps/qimsdk_ref_yolov8_composer_overlay.py",
+    "reference-apps/qimsdk_ref_yolov8_metamux_overlay.py",
+]
