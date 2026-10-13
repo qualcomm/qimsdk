@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qimsdk-app-builder"
+dynamic = ["version"]
+description = "Qualcomm IM SDK App Builder"
+readme = "README.md"
+license = "BSD-3-Clause-Clear"
+requires-python = ">=3.9"
+authors = [
+    { name = "Qualcomm Technologies, Inc." },
+]
+keywords = ["gstreamer", "qualcomm", "qimsdk", "ml", "pipeline"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "PyGObject>=3.42",
+    "PyYAML>=5.1",
+    "qimsdk-platform-runtime",
+]
+
+[project.urls]
+Homepage = "https://github.com/qualcomm/qimsdk"
+Documentation = "https://imsdkdocs.qualcomm.com"
+
+[tool.setuptools]
+packages = ["qimsdk"]
+
+[tool.setuptools.dynamic]
+version = { attr = "qimsdk._version.__version__" }
+
+[tool.setuptools.package-data]
+qimsdk = ["py.typed"]
