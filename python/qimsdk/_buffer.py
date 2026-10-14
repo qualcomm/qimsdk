@@ -46,6 +46,22 @@ class Buffer:
         finally:
             self._buf.unmap(info)
 
+    def to_bytes(self) -> bytes | None:
+        """Copies the buffer payload into Python-owned bytes.
+
+        Returns:
+            bytes | None: Payload data, or None if the buffer cannot be mapped.
+        """
+        if not self.valid():
+            return None
+        ok, info = self._buf.map(self._Gst.MapFlags.READ)
+        if not ok:
+            return None
+        try:
+            return bytes(info.data)
+        finally:
+            self._buf.unmap(info)
+
     def size(self) -> int:
         """Returns the current buffer size in bytes.
 
