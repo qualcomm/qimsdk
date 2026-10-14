@@ -58,6 +58,9 @@ gst_video_landmarks_meta_transform (GstBuffer * transbuffer, GstMeta * meta,
       keypoints, links);
 
   if (NULL == dmeta) {
+    if (links != NULL)
+      g_array_free (links, TRUE);
+
     g_array_free (keypoints, TRUE);
     return FALSE;
   }

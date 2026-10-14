@@ -445,6 +445,12 @@ gst_stream_demux_transfer_metas (GstStreamDemux * demux, GstBuffer * inbuffer,
       newmeta = gst_buffer_add_video_region_of_interest_meta_id (outbuffer,
           roimeta->roi_type, roimeta->x, roimeta->y, roimeta->w, roimeta->h);
 
+      if (newmeta == NULL) {
+        GST_WARNING_OBJECT (demux, "Failed to transfer meta %s of stream %u!",
+            g_type_name (meta->info->api), stream_id);
+        continue;
+      }
+
       newmeta->id = roimeta->id & ~GST_MUX_STREAM_ID_MASK;
       newmeta->parent_id = roimeta->parent_id & ~GST_MUX_STREAM_ID_MASK;
 
@@ -452,6 +458,7 @@ gst_stream_demux_transfer_metas (GstStreamDemux * demux, GstBuffer * inbuffer,
           gst_list_copy_structure, NULL);
     } else if (meta->info->api == GST_VIDEO_LANDMARKS_META_API_TYPE) {
       GstVideoLandmarksMeta *lmeta = NULL, *newmeta = NULL;
+      GArray *keypoints = NULL, *links = NULL;
 
       lmeta = GST_VIDEO_LANDMARKS_META_CAST (meta);
       stream_id = GST_META_ID_GET_STREAM (lmeta->id);
@@ -463,9 +470,24 @@ gst_stream_demux_transfer_metas (GstStreamDemux * demux, GstBuffer * inbuffer,
         continue;
       }
 
+      // The meta takes ownership of the arrays, so hand it copies rather than
+      // the input buffer meta's own, which stays alive via the parent meta.
+      keypoints = g_array_copy (lmeta->keypoints);
+      links = (lmeta->links != NULL) ? g_array_copy (lmeta->links) : NULL;
+
       newmeta = gst_buffer_add_video_landmarks_meta (outbuffer,
-          lmeta->confidence, g_array_ref (lmeta->keypoints),
-          (lmeta->links != NULL) ? g_array_ref (lmeta->links) : NULL);
+          lmeta->confidence, keypoints, links);
+
+      if (newmeta == NULL) {
+        GST_WARNING_OBJECT (demux, "Failed to transfer meta %s of stream %u!",
+            g_type_name (meta->info->api), stream_id);
+
+        if (links != NULL)
+          g_array_free (links, TRUE);
+
+        g_array_free (keypoints, TRUE);
+        continue;
+      }
 
       newmeta->id = lmeta->id & ~GST_MUX_STREAM_ID_MASK;
       newmeta->parent_id = lmeta->parent_id & ~GST_MUX_STREAM_ID_MASK;
@@ -486,9 +508,16 @@ gst_stream_demux_transfer_metas (GstStreamDemux * demux, GstBuffer * inbuffer,
       }
 
       newmeta = gst_buffer_add_video_segmentation_meta (outbuffer,
-          g_array_ref (smeta->labelmask),
-          (smeta->colormask != NULL) ? g_array_ref (smeta->colormask) : NULL,
+          g_array_copy (smeta->labelmask),
+          (smeta->colormask != NULL) ? g_array_copy (smeta->colormask) : NULL,
           smeta->n_columns, smeta->n_rows);
+
+      // On failure the arrays are already freed by the call above.
+      if (newmeta == NULL) {
+        GST_WARNING_OBJECT (demux, "Failed to transfer meta %s of stream %u!",
+            g_type_name (meta->info->api), stream_id);
+        continue;
+      }
 
       newmeta->id = smeta->id & ~GST_MUX_STREAM_ID_MASK;
       newmeta->parent_id = smeta->parent_id & ~GST_MUX_STREAM_ID_MASK;
@@ -509,9 +538,16 @@ gst_stream_demux_transfer_metas (GstStreamDemux * demux, GstBuffer * inbuffer,
       }
 
       newmeta = gst_buffer_add_video_depth_meta (outbuffer,
-          g_array_ref (dmeta->depthvals),
-          (dmeta->colormask != NULL) ? g_array_ref (dmeta->colormask) : NULL,
+          g_array_copy (dmeta->depthvals),
+          (dmeta->colormask != NULL) ? g_array_copy (dmeta->colormask) : NULL,
           dmeta->n_columns, dmeta->n_rows);
+
+      // On failure the arrays are already freed by the call above.
+      if (newmeta == NULL) {
+        GST_WARNING_OBJECT (demux, "Failed to transfer meta %s of stream %u!",
+            g_type_name (meta->info->api), stream_id);
+        continue;
+      }
 
       newmeta->id = dmeta->id & ~GST_MUX_STREAM_ID_MASK;
       newmeta->parent_id = dmeta->parent_id & ~GST_MUX_STREAM_ID_MASK;
@@ -520,6 +556,8 @@ gst_stream_demux_transfer_metas (GstStreamDemux * demux, GstBuffer * inbuffer,
           gst_structure_copy (dmeta->xtraparams) : NULL;
     } else if (meta->info->api == GST_VIDEO_CLASSIFICATION_META_API_TYPE) {
       GstVideoClassificationMeta *cmeta = NULL, *newmeta = NULL;
+      GArray *labels = NULL;
+      guint idx = 0;
 
       cmeta = GST_VIDEO_CLASSIFICATION_META_CAST (meta);
       stream_id = GST_META_ID_GET_STREAM (cmeta->id);
@@ -531,8 +569,31 @@ gst_stream_demux_transfer_metas (GstStreamDemux * demux, GstBuffer * inbuffer,
         continue;
       }
 
-      newmeta = gst_buffer_add_video_classification_meta (outbuffer,
-          g_array_ref (cmeta->labels));
+      labels = g_array_copy (cmeta->labels);
+
+      // The GArray copy above naturally doesn't copy the data in pointers.
+      // Iterate over the labels and deep copy any extra params.
+      for (idx = 0; idx < labels->len; idx++) {
+        GstClassLabel *label = &(g_array_index (labels, GstClassLabel, idx));
+
+        if (label->xtraparams == NULL)
+          continue;
+
+        label->xtraparams = gst_structure_copy (label->xtraparams);
+      }
+
+      // The copy doesn't inherit the clear function of the source array.
+      g_array_set_clear_func (labels, (GDestroyNotify) gst_class_label_reset);
+
+      newmeta = gst_buffer_add_video_classification_meta (outbuffer, labels);
+
+      if (newmeta == NULL) {
+        GST_WARNING_OBJECT (demux, "Failed to transfer meta %s of stream %u!",
+            g_type_name (meta->info->api), stream_id);
+
+        g_array_free (labels, TRUE);
+        continue;
+      }
 
       newmeta->id = cmeta->id & ~GST_MUX_STREAM_ID_MASK;
       newmeta->parent_id = cmeta->parent_id & ~GST_MUX_STREAM_ID_MASK;
@@ -551,6 +612,12 @@ gst_stream_demux_transfer_metas (GstStreamDemux * demux, GstBuffer * inbuffer,
 
       newmeta = gst_buffer_add_text_meta (outbuffer, tmeta->contents,
           tmeta->confidence, tmeta->color);
+
+      if (newmeta == NULL) {
+        GST_WARNING_OBJECT (demux, "Failed to transfer meta %s of stream %u!",
+            g_type_name (meta->info->api), stream_id);
+        continue;
+      }
 
       newmeta->id = tmeta->id & ~GST_MUX_STREAM_ID_MASK;
       newmeta->parent_id = tmeta->parent_id & ~GST_MUX_STREAM_ID_MASK;

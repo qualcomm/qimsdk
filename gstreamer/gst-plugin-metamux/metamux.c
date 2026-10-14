@@ -550,6 +550,10 @@ gst_metamux_process_segmentation_metadata (GstMetaMux * muxer,
     value = gst_value_array_get_value (masks, idx);
     entry = GST_STRUCTURE (g_value_get_boxed (value));
 
+    // Reset, otherwise a mask decoded on a previous iteration would be
+    // handed to a second meta and freed twice with the buffer.
+    colormask = NULL;
+
     // Get the labels mask.
     data = g_base64_decode (gst_structure_get_string (entry, "labels"), &size);
 
@@ -623,6 +627,10 @@ gst_metamux_process_depth_metadata (GstMetaMux * muxer, GstBuffer * buffer,
   for (idx = 0; idx < length; idx++) {
     value = gst_value_array_get_value (maps, idx);
     entry = GST_STRUCTURE (g_value_get_boxed (value));
+
+    // Reset, otherwise a mask decoded on a previous iteration would be
+    // handed to a second meta and freed twice with the buffer.
+    colormask = NULL;
 
     // Get the depth values.
     data = g_base64_decode (gst_structure_get_string (entry, "values"), &size);
