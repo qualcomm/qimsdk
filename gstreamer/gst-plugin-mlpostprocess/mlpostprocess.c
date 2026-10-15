@@ -235,16 +235,19 @@ static inline void
 gst_ml_classifications_serialize (GstMLClassifications * predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
-  guint idx = 0, sequence_idx = 0, id = 0;
+  guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   for (idx = 0; idx < gst_ml_classifications_size (predictions); idx++) {
     GstMLClassification *entry = gst_ml_classifications_entry (predictions, idx);
     GstStructure *structure = gst_ml_classification_to_structure (entry);
 
-    id = GST_META_ID (stage_id, sequence_idx, idx);
+    id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -279,12 +282,15 @@ gst_ml_detections_serialize (GstMLDetections * predictions, guint stage_id,
     GstStructure * mlparam, GValue * list)
 {
   GstStructure *structure = NULL;
-  guint idx = 0, sequence_idx = 0, id = 0;
+  guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
   gdouble matrix[3][3] = {};
   gboolean correction = FALSE;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
 
@@ -295,7 +301,7 @@ gst_ml_detections_serialize (GstMLDetections * predictions, guint stage_id,
       gst_ml_detection_affine_transform (entry, matrix);
 
     structure = gst_ml_detection_to_structure (entry);
-    id = GST_META_ID (stage_id, sequence_idx, idx);
+    id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -346,12 +352,15 @@ gst_ml_poses_serialize (GstMLPoses * predictions, guint stage_id,
     GstStructure * mlparam, GValue * list)
 {
   GstStructure *structure = NULL;
-  guint idx = 0, sequence_idx = 0, id = 0;
+  guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
   gdouble matrix[3][3] = {};
   gboolean correction = FALSE;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
 
@@ -362,7 +371,7 @@ gst_ml_poses_serialize (GstMLPoses * predictions, guint stage_id,
       gst_ml_pose_affine_transform (entry, matrix);
 
     structure = gst_ml_pose_to_structure (entry);
-    id = GST_META_ID (stage_id, sequence_idx, idx);
+    id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -424,16 +433,19 @@ gst_ml_segmentations_serialize (GstMLSegmentations * predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
   GstStructure *structure = NULL;
-  guint idx = 0, sequence_idx = 0, id = 0;
+  guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   for (idx = 0; idx < gst_ml_segmentations_size (predictions); idx++) {
     GstMLSegmentation *entry = gst_ml_segmentations_entry (predictions, idx);
 
     structure = gst_ml_segmentation_to_structure (entry);
-    id = GST_META_ID (stage_id, sequence_idx, idx);
+    id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -472,16 +484,19 @@ gst_ml_depth_maps_serialize (GstMLDepthMaps * predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
   GstStructure *structure = NULL;
-  guint idx = 0, sequence_idx = 0, id = 0;
+  guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   for (idx = 0; idx < gst_ml_depth_maps_size (predictions); idx++) {
     GstMLDepthMap *entry = gst_ml_depth_maps_entry (predictions, idx);
 
     structure = gst_ml_depth_map_to_structure (entry);
-    id = GST_META_ID (stage_id, sequence_idx, idx);
+    id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -520,16 +535,19 @@ gst_ml_embeddings_serialize (GstMLEmbeddings * predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
   GstStructure *structure = NULL;
-  guint idx = 0, sequence_idx = 0, id = 0;
+  guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   for (idx = 0; idx < gst_ml_embeddings_size (predictions); idx++) {
     GstMLEmbedding *entry = gst_ml_embeddings_entry (predictions, idx);
 
     structure = gst_ml_embedding_to_structure (entry);
-    id = GST_META_ID (stage_id, sequence_idx, idx);
+    id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -836,6 +854,9 @@ gst_ml_post_process_tensors (GstMLPostProcess * postprocess,
   for (idx = 0; (idx < n_batch) && success; ++idx) {
     GstStructure *mlparam = g_ptr_array_index (postprocess->mlparams, idx);
 
+    if (mlparam == NULL)
+      continue;
+
     success = postprocess->process (postprocess, idx, mlframe, mlparam, &outmlframe);
 
     // Update each tensor data pointer for next iteration.
@@ -875,6 +896,9 @@ gst_ml_post_process_video (GstMLPostProcess * postprocess,
   for (idx = 0; (idx < n_batch) && success; ++idx) {
     GstStructure *mlparam = g_ptr_array_index (postprocess->mlparams, idx);
 
+    if (mlparam == NULL)
+      continue;
+
     success = postprocess->process (postprocess, idx, mlframe, mlparam, &vframe);
 
     // Update each tensor data pointer for next iteration.
@@ -904,6 +928,9 @@ gst_ml_post_process_text (GstMLPostProcess * postprocess,
   // Iterate all batches and execute the process
   for (idx = 0; (idx < n_batch) && success; ++idx) {
     GstStructure *mlparam = g_ptr_array_index (postprocess->mlparams, idx);
+
+    if (mlparam == NULL)
+      continue;
 
     g_value_init (&array, GST_TYPE_ARRAY);
 
@@ -1109,25 +1136,22 @@ gst_ml_post_process_prepare_output_buffer (GstBaseTransform * base,
   n_batch = GST_ML_INFO_TENSOR_DIM (postprocess->mlinfo, 0, 0);
 
   for (idx = 0; idx < n_batch; ++idx) {
-    GstProtectionMeta *pmeta = gst_buffer_get_protection_meta_id (inbuffer,
+    GstProtectionMeta *pmeta = NULL;
+    GstStructure *structure = NULL;
+
+    pmeta = gst_buffer_get_protection_meta_id (inbuffer,
         gst_batch_channel_name (idx));
 
-    g_ptr_array_add (postprocess->mlparams, pmeta->info);
+    g_ptr_array_add (postprocess->mlparams, pmeta != NULL ? pmeta->info : NULL);
 
-    if (pool == NULL || !GST_IS_ML_POOL (pool))
+    if (pmeta == NULL || pool == NULL || !GST_IS_ML_POOL (pool))
       continue;
 
     // Propagate ML protection meta downstream if output is a tensor.
-    pmeta = gst_buffer_add_protection_meta (*outbuffer,
-        gst_structure_copy (pmeta->info));
+    structure = gst_structure_new_empty (gst_structure_get_name (pmeta->info));
+    gst_ml_params_copy_service_info (structure, pmeta->info);
 
-    // TODO: We should only add the mandatory fields instead of removing some.
-    gst_structure_remove_field (pmeta->info, "input-region-x");
-    gst_structure_remove_field (pmeta->info, "input-region-y");
-    gst_structure_remove_field (pmeta->info, "input-region-width");
-    gst_structure_remove_field (pmeta->info, "input-region-height");
-    gst_structure_remove_field (pmeta->info, "input-tensor-width");
-    gst_structure_remove_field (pmeta->info, "input-tensor-height");
+    gst_buffer_add_protection_meta (*outbuffer, structure);
   }
 
   return GST_FLOW_OK;

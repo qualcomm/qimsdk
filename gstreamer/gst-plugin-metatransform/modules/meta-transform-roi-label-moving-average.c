@@ -138,9 +138,12 @@ gst_meta_module_process (gpointer instance, GstBuffer * buffer)
     key = GUINT_TO_POINTER (tracking_id);
     records = g_hash_table_lookup (submodule->roi_label_records, key);
 
-    // No records for this ROI meta, create a records queue.
+    // No records for this ROI meta, create a records queue. The records own
+    // deep copies of the labels, hence the clear function.
     if (records == NULL) {
       records = g_array_new (FALSE, TRUE, sizeof (GstClassLabel));
+      g_array_set_clear_func (records, (GDestroyNotify) gst_class_label_reset);
+
       g_hash_table_insert (submodule->roi_label_records, key, records);
     }
 
@@ -158,7 +161,16 @@ gst_meta_module_process (gpointer instance, GstBuffer * buffer)
       GST_TRACE ("Current label %s, confidence %.2f, color %X",
           g_quark_to_string (label->name), label->confidence, label->color);
 
-      records = g_array_append_vals (records, label, 1);
+      // Append a deep copy, the label in the meta is owned by the buffer and
+      // its xtraparams are released as soon as that buffer is freed.
+      {
+        GstClassLabel record = *label;
+
+        if (record.xtraparams != NULL)
+          record.xtraparams = gst_structure_copy (record.xtraparams);
+
+        records = g_array_append_vals (records, &record, 1);
+      }
 
       // Records exceed maximum depth, discard old entires.
       while (records->len > submodule->maxrecords)
@@ -166,6 +178,7 @@ gst_meta_module_process (gpointer instance, GstBuffer * buffer)
     } else {
       labels = g_array_sized_new (FALSE, TRUE, sizeof (GstClassLabel), 1);
       g_array_set_size (labels, 1);
+      g_array_set_clear_func (labels, (GDestroyNotify) gst_class_label_reset);
 
       label = &(g_array_index (labels, GstClassLabel, 0));
     }

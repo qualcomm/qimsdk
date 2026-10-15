@@ -437,6 +437,9 @@ gst_region_of_interest_is_valid (GstVideoRegionOfInterestMeta * roimeta,
 {
   guint idx = 0, stage_id = 0;
 
+  if (roi_stage_ids->len == 0)
+    return TRUE;
+
   for (idx = 0; idx < roi_stage_ids->len; idx++) {
     stage_id = g_array_index (roi_stage_ids, guint, idx);
 
@@ -447,7 +450,7 @@ gst_region_of_interest_is_valid (GstVideoRegionOfInterestMeta * roimeta,
   return FALSE;
 }
 
-static gboolean
+static inline gboolean
 gst_region_of_interest_contains_affine_matrix (
     GstVideoRegionOfInterestMeta * roimeta)
 {
@@ -477,40 +480,23 @@ gst_region_of_interest_contains_affine_matrix (
 }
 
 static inline guint
-gst_buffer_get_region_of_interest_meta_index (GstBuffer * buffer,
+gst_buffer_get_region_of_interest_n_meta (GstBuffer * buffer,
     const gint roi_id, const GArray * roi_stage_ids)
 {
   GstVideoRegionOfInterestMeta *roimeta = NULL;
   gpointer state = NULL;
-  guint index = 0;
-
-  while ((roimeta = GST_BUFFER_ITERATE_ROI_METAS (buffer, state)) != NULL) {
-    if (roi_id == roimeta->id)
-      break;
-
-    if (gst_region_of_interest_is_valid (roimeta, roi_stage_ids))
-      index++;
-  }
-
-  return index;
-}
-
-static inline guint
-gst_buffer_get_region_of_interest_n_meta (GstBuffer * buffer,
-    const GArray * roi_stage_ids)
-{
-  GstVideoRegionOfInterestMeta *roimeta = NULL;
-  gpointer state = NULL;
   guint n_metas = 0;
+  gboolean skip = (roi_id == -1) ? FALSE : TRUE;
 
   while ((roimeta = GST_BUFFER_ITERATE_ROI_METAS (buffer, state)) != NULL) {
-    if (roi_stage_ids->len != 0) {
-      // Check if the ROI has a valid stage ID.
-      n_metas += gst_region_of_interest_is_valid (roimeta, roi_stage_ids) ? 1 : 0;
-    } else {
-      // The stage IDs array is empty, there are no restriction for teh ROIs.
+    // Skip counting until we find the mathing ROI meta ID, we start counting
+    // from it till the end. When passed ROI ID is -1 then we count all ROI metas.
+    if (skip && (roi_id == roimeta->id))
+      skip = FALSE;
+
+    // If this ROI is not marked for skip check then if it is valid.
+    if (!skip && gst_region_of_interest_is_valid (roimeta, roi_stage_ids))
       n_metas++;
-    }
   }
 
   return n_metas;
@@ -566,9 +552,9 @@ gst_buffer_new_from_parent_memory (GstBuffer * buffer, guint index, guint depth)
 
   // Transfer ROIs associated with the stream ID for this memory block.
   while ((roimeta = GST_BUFFER_ITERATE_ROI_METAS (buffer, state)) != NULL) {
-    guint id = roimeta->id;
+    gint id = roimeta->id;
 
-    if (!(id & (stream_id << GST_MUX_STREAM_ID_OFFSET)))
+    if (GST_META_ID_GET_STREAM (id) != stream_id)
       continue;
 
     roimeta = gst_buffer_add_video_region_of_interest_meta_id (newbuffer,
@@ -874,7 +860,7 @@ gst_ml_video_converter_retrieve_protection_meta (GstMLVideoConverter * mlconvert
   if (GST_VIDEO_INFO_MULTIVIEW_MODE (mlconverter->ininfo) ==
           GST_VIDEO_MULTIVIEW_MODE_SEPARATED) {
     gst_structure_set (pmeta->info,
-        "stream-id", G_TYPE_INT, GST_BUFFER_OFFSET (inbuffer),
+        "stream-id", G_TYPE_UINT, GST_BUFFER_OFFSET (inbuffer),
         "stream-timestamp", G_TYPE_UINT64, GST_BUFFER_DTS (inbuffer), NULL);
   }
 
@@ -1080,20 +1066,11 @@ gst_ml_video_converter_update_blit_params (GstMLVideoConverter * mlconverter,
 
   if GST_CONVERSION_MODE_IS_ROI (mlconverter->mode) {
     n_regions = gst_buffer_get_region_of_interest_n_meta (inbuffer,
-        mlconverter->roi_stage_ids);
-  }
-
-  GST_TRACE_OBJECT (mlconverter, "Number of Source/Destination regions "
-      "(Initial): [%u]", n_regions);
-
-  // Decrease the regions if some of them were previously processed.
-  if (mlconverter->next_roi_id != -1) {
-    n_regions -= gst_buffer_get_region_of_interest_meta_index (inbuffer,
         mlconverter->next_roi_id, mlconverter->roi_stage_ids);
   }
 
   GST_TRACE_OBJECT (mlconverter, "Number of Source/Destination regions "
-      "(Intermediary): [%u]", n_regions);
+      "(Initial): [%u]", n_regions);
 
   // Calculate the number of remaining positions.
   n_available_positions = (depth * (n_batch - mlconverter->batch_idx)) +
@@ -1118,7 +1095,7 @@ gst_ml_video_converter_update_blit_params (GstMLVideoConverter * mlconverter,
       mlconverter->seq_idx++;
 
     // Calculate the index for current blit object to be filled.
-    idx = (n_batch * depth) - (n_available_positions + num);
+    idx = (n_batch * depth) - (n_available_positions - num);
     vblit = gst_video_blits_entry (composition->blits, idx);
 
     vblit->buffer = gst_buffer_ref (inbuffer);
@@ -1260,8 +1237,6 @@ gst_ml_video_converter_setup_composition (GstMLVideoConverter * mlconverter,
   while (n_positions != 0 && (inbuffer = g_queue_pop_head (mlconverter->bufqueue))) {
     GST_TRACE_OBJECT (mlconverter, "Processing %" GST_PTR_FORMAT, inbuffer);
 
-    // Get current memory index and number of memory blocks in the buffer.
-    mem_idx = (mlconverter->next_mem_idx != -1) ? mlconverter->next_mem_idx : 0;
     n_memory = gst_buffer_n_memory (inbuffer);
 
     // If previous sequence was completed, set the trackers for the new sequence.
@@ -1276,14 +1251,19 @@ gst_ml_video_converter_setup_composition (GstMLVideoConverter * mlconverter,
       } else { // GST_CONVERSION_MODE_IS_ROI (mlconverter->mode)
         // TODO Add handling for depth and ROI modes.
         mlconverter->n_seq_entries = gst_buffer_get_region_of_interest_n_meta (
-            inbuffer,  mlconverter->roi_stage_ids);
+            inbuffer, -1, mlconverter->roi_stage_ids);
       }
 
       // Limit to the batch size if operating in any of the non cumulative modes.
       // In non-cumulative modes we fill up to the batch size.
       if (GST_CONVERSION_MODE_IS_NON_CUMULATIVE (mlconverter->mode))
         mlconverter->n_seq_entries = MIN (n_batch, mlconverter->n_seq_entries);
+
+      mlconverter->next_mem_idx = mlconverter->next_roi_id = -1;
     }
+
+    // Get current memory index and number of memory blocks in the buffer.
+    mem_idx = (mlconverter->next_mem_idx != -1) ? mlconverter->next_mem_idx : 0;
 
     // Initially assign the fetched input buffer to the working buffer pointer.
     buffer = inbuffer;
@@ -1293,7 +1273,7 @@ gst_ml_video_converter_setup_composition (GstMLVideoConverter * mlconverter,
         // Input is muxed stream separate each memory block into child buffer.
         buffer = gst_buffer_new_from_parent_memory (inbuffer, mem_idx, depth);
 
-        n_roi_meta = gst_buffer_get_region_of_interest_n_meta (buffer,
+        n_roi_meta = gst_buffer_get_region_of_interest_n_meta (buffer, -1,
             mlconverter->roi_stage_ids);
 
         if (GST_CONVERSION_MODE_IS_ROI (mlconverter->mode) && (n_roi_meta == 0)) {
@@ -1303,8 +1283,8 @@ gst_ml_video_converter_setup_composition (GstMLVideoConverter * mlconverter,
           continue;
         }
 
-        GST_TRACE_OBJECT (mlconverter, "Using muxed memory block at '%d' - %"
-            GST_PTR_FORMAT, mem_idx, buffer);
+        GST_TRACE_OBJECT (mlconverter, "Using muxed memory block at '%d' with "
+            "%u ROI metas - %" GST_PTR_FORMAT, mem_idx, n_roi_meta, buffer);
       }
 
       n_filled_positions =
@@ -1331,6 +1311,30 @@ gst_ml_video_converter_setup_composition (GstMLVideoConverter * mlconverter,
     // Save the memory index if not all memory blocks were processed.
     if (GST_CONVERSION_MODE_IS_CUMULATIVE (mlconverter->mode))
       mlconverter->next_mem_idx = (mem_idx < n_memory) ? mem_idx : -1;
+
+    // If input is muxed buffer, we are operating in ROI mode and all ROIs from
+    // previous memory were processed then set the ID to 1st ROI in new block.
+    while ((mlconverter->mode == GST_ML_CONVERSION_MODE_ROI_CUMULATIVE) &&
+        (mlconverter->next_roi_id == -1) && (mlconverter->next_mem_idx != -1)) {
+      GstVideoRegionOfInterestMeta *roimeta = NULL;
+      gpointer state = NULL;
+      gint stream_id = -1;
+
+      stream_id = gst_mux_buffer_get_memory_stream_id (inbuffer,
+          mlconverter->next_mem_idx);
+
+      while ((mlconverter->next_roi_id == -1) &&
+            (roimeta = GST_BUFFER_ITERATE_ROI_METAS (inbuffer, state)) != NULL) {
+        if (GST_META_ID_GET_STREAM (roimeta->id) == stream_id)
+          mlconverter->next_roi_id = roimeta->id;
+      }
+
+      if (mlconverter->next_roi_id == -1)
+        mlconverter->next_mem_idx++;
+
+      if (mlconverter->next_mem_idx >= n_memory)
+        mlconverter->next_mem_idx = -1;
+    }
 
     GST_TRACE_OBJECT (mlconverter, "Stashed memory index [%d]",
         mlconverter->next_mem_idx);
@@ -1367,6 +1371,7 @@ gst_ml_video_converter_prepare_buffer_queues (GstMLVideoConverter * mlconverter,
 {
   GList *l = NULL;
   guint n_batch = 0, depth = 0, n_regions = 0, n_memory = 0;
+  gint next_roi_id = -1;
 
   // Expected tensor batch and depth size.
   n_batch = GST_ML_INFO_TENSOR_DIM_N (mlconverter->tensorlayout,
@@ -1404,9 +1409,14 @@ gst_ml_video_converter_prepare_buffer_queues (GstMLVideoConverter * mlconverter,
 
   // TODO Add handling for depth and ROI_CUMULATIVE
   if (mlconverter->mode == GST_ML_CONVERSION_MODE_ROI_CUMULATIVE) {
+    // Next ROI ID is associated with current buffer only if queue is empty.
+    // Otherwise the Next ROI ID is actually for the pending buffer in the queue.
+    next_roi_id = g_queue_is_empty (mlconverter->bufqueue) ?
+        mlconverter->next_roi_id : -1;
+
     // Accumulative ROI batch mode, base decisions on the number of ROI metas.
     n_regions = gst_buffer_get_region_of_interest_n_meta (inbuffer,
-        mlconverter->roi_stage_ids);
+        next_roi_id, mlconverter->roi_stage_ids);
 
     // Buffer does not contain ROI metas, process buffers in the internal queue
     // and set buffer as queued_buf to the base class for subsequent processing.
@@ -1415,18 +1425,15 @@ gst_ml_video_converter_prepare_buffer_queues (GstMLVideoConverter * mlconverter,
       return TRUE;
     }
 
-    // Calculate the total number of ROI metas.
+    // Calculate the total number of ROI metas in the queue.
     for (l = g_queue_peek_head_link (mlconverter->bufqueue); l != NULL; l = l->next) {
       GstBuffer *buffer = GST_BUFFER (l->data);
 
-      n_regions += gst_buffer_get_region_of_interest_n_meta (buffer,
-          mlconverter->roi_stage_ids);
-    }
+      // Next ROI ID is associated with head buffer of the queue.
+      next_roi_id = (l->prev == NULL) ? mlconverter->next_roi_id : -1;
 
-    // Decrease the ROI count if some of the ROIs were previously processed.
-    if (mlconverter->next_roi_id != -1) {
-      n_regions -= gst_buffer_get_region_of_interest_meta_index (inbuffer,
-          mlconverter->next_roi_id, mlconverter->roi_stage_ids);
+      n_regions += gst_buffer_get_region_of_interest_n_meta (buffer,
+          next_roi_id, mlconverter->roi_stage_ids);
     }
 
     if (n_regions < n_batch) {
@@ -2518,29 +2525,41 @@ gst_ml_video_converter_prepare_output_buffer (GstBaseTransform * base,
 
     if (GST_VIDEO_INFO_MULTIVIEW_MODE (mlconverter->ininfo) ==
             GST_VIDEO_MULTIVIEW_MODE_SEPARATED) {
+      GList *metalist = NULL, *list = NULL;
       GstMeta *meta = NULL;
       gpointer state = NULL;
-      guint idx = 0;
+      guint idx = 0, n_entries = 0, stream_id = 0;
 
       // Muxed streams, attach protection meta for each of muxed streams.
       while ((meta = gst_buffer_iterate_meta_filtered (inbuffer, &state,
                   GST_PROTECTION_META_API_TYPE))) {
         GstProtectionMeta *pmeta = GST_PROTECTION_META_CAST (meta);
+        const gchar *name = gst_structure_get_name (pmeta->info);
+
+        if (sscanf (name, "mux-stream-%2u", &stream_id) == 1)
+          metalist = g_list_prepend (metalist, pmeta);
+      }
+
+      n_entries = g_list_length (metalist);
+
+      for (idx = 0, list = metalist; list != NULL; list = list->next, idx++) {
+        GstProtectionMeta *pmeta = GST_PROTECTION_META_CAST (list->data);
         GstClockTime timestamp = GST_CLOCK_TIME_NONE;
-        guint stream_id = 0;
 
         sscanf (gst_structure_get_name (pmeta->info), "mux-stream-%2u", &stream_id);
         gst_structure_get_uint64 (pmeta->info, "timestamp", &timestamp);
 
-        structure = gst_structure_new (gst_batch_channel_name (idx++),
+        structure = gst_structure_new (gst_batch_channel_name (idx),
             "timestamp", G_TYPE_UINT64, GST_BUFFER_TIMESTAMP (inbuffer),
-            "sequence-index", G_TYPE_UINT, 1,
-            "sequence-num-entries", G_TYPE_UINT,  1,
-            "stream-id", G_TYPE_INT, stream_id,
+            "sequence-index", G_TYPE_UINT, (idx + 1),
+            "sequence-num-entries", G_TYPE_UINT,  n_entries,
+            "stream-id", G_TYPE_UINT, stream_id,
             "stream-timestamp", G_TYPE_UINT64, timestamp, NULL);
 
         gst_buffer_add_protection_meta (*outbuffer, structure);
       }
+
+      g_list_free (metalist);
     } else {
       // Non-muxed stream, attach a single protection meta
       structure = gst_structure_new (gst_batch_channel_name (0),

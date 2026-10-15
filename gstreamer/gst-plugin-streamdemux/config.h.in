@@ -1,0 +1,11 @@
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
+#define PACKAGE         "gst-plugins-qcom"
+#define PACKAGE_VERSION "@PROJECT_VERSION@"
+#define PACKAGE_LICENSE "BSD"
+#define PACKAGE_SUMMARY "Qualcomm open-source GStreamer Plug-in for splitting a muxed " \
+    "stream buffer back into its per-stream buffers"
+#define PACKAGE_ORIGIN  "Unknown package origin"

@@ -46,6 +46,8 @@
 
 #include <errno.h>
 
+#define DEFAULT_MIN_BUFFERS  2
+
 #define gst_socket_sink_parent_class parent_class
 G_DEFINE_TYPE (GstFdSocketSink, gst_socket_sink, GST_TYPE_BASE_SINK);
 
@@ -936,6 +938,21 @@ gst_socket_sink_query (GstBaseSink * bsink, GstQuery * query)
       }
 
       structure = gst_caps_get_structure (caps, 0);
+
+      if (gst_structure_has_name (structure, "video/x-raw")) {
+        GstVideoInfo info = {0,};
+        guint size = 0;
+
+        if (!gst_video_info_from_caps (&info, caps)) {
+          GST_ERROR_OBJECT (sink, "Failed to get video info from caps!");
+          retval = FALSE;
+          break;
+        }
+
+        // Get the size from video info.
+        size = GST_VIDEO_INFO_SIZE (&info);
+        gst_query_add_allocation_pool (query, NULL, size, DEFAULT_MIN_BUFFERS, 0);
+      }
 
       if (gst_structure_has_name (structure, "video/x-raw") ||
           gst_structure_has_name (structure, "neural-network/tensors"))

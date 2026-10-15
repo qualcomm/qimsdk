@@ -13,6 +13,23 @@
 G_BEGIN_DECLS
 
 /**
+ * GstMLQairtBackend:
+ * @GST_ML_QAIRT_BACKEND_CPU: CPU backend is used for all operations.
+ * @GST_ML_QAIRT_BACKEND_GPU: Adreno Graphics Processing Unit.
+ * @GST_ML_QAIRT_BACKEND_HTP: Hexagon Tensor Processor (HexNN v3).
+ *
+ * Hardware backend used to execute the network.
+ */
+typedef enum {
+  GST_ML_QAIRT_BACKEND_CPU,
+  GST_ML_QAIRT_BACKEND_GPU,
+  GST_ML_QAIRT_BACKEND_HTP,
+} GstMLQairtBackend;
+
+GST_API GType gst_ml_qairt_backend_get_type (void);
+#define GST_TYPE_ML_QAIRT_BACKEND (gst_ml_qairt_backend_get_type())
+
+/**
  * GstMLQairtExecPriority:
  * @GST_ML_QAIRT_EXEC_PRIORITY_NORMAL: Normal priority.
  * @GST_ML_QAIRT_EXEC_PRIORITY_LOW: Lower priority.
@@ -40,7 +57,7 @@ typedef struct _GstMLQairtSettings GstMLQairtSettings;
  * GstMLQairtSettings:
  * @modelfile: Path to the model. Either a QAIRT/SNPE '.dlc' container or a
  *     cached context '.bin' binary.
- * @backend: Name of the QAIRT backend shared library (e.g. libQairtHtp.so).
+ * @backend: Hardware backend used to execute the network.
  * @priority: Execution scheduling priority.
  * @outputs: Optional %NULL terminated list of output tensor names. When set,
  *     the engine generates outputs in the order defined by this list.
@@ -49,7 +66,7 @@ typedef struct _GstMLQairtSettings GstMLQairtSettings;
  */
 struct _GstMLQairtSettings {
   gchar                   *modelfile;
-  gchar                   *backend;
+  GstMLQairtBackend       backend;
   GstMLQairtExecPriority  priority;
   GList                   *outputs;
 };

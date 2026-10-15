@@ -97,9 +97,15 @@ gst_data_queue_free_item (gpointer userdata)
 {
   GstDataQueueItem *item = userdata;
 
-  if (item->object != NULL)
-    gst_buffer_unref (GST_BUFFER (item->object));
+  if (item->object == NULL)
+    goto exit;
 
+  if (GST_IS_BUFFER (item->object))
+    gst_buffer_unref (GST_BUFFER (item->object));
+  else if (GST_IS_EVENT (item->object))
+    gst_event_unref (GST_EVENT (item->object));
+
+exit:
   g_slice_free (GstDataQueueItem, item);
 }
 
@@ -163,7 +169,7 @@ gst_metamux_is_meta_available (GstMetaMux * muxer, GstClockTime timestamp)
 {
   GList *list = NULL;
   GstMetaItem *item = NULL;
-  gboolean available = TRUE, skip = FALSE;
+  gboolean available = TRUE;
 
   // Iterate ovr the data pads and check if data available on all of them.
   for (list = muxer->metapads; list != NULL; list = g_list_next (list)) {
@@ -171,10 +177,9 @@ gst_metamux_is_meta_available (GstMetaMux * muxer, GstClockTime timestamp)
     GstClockTimeDiff delta = GST_CLOCK_TIME_NONE;
 
     GST_OBJECT_LOCK (dpad);
-    skip = GST_PAD_IS_EOS (dpad) || GST_PAD_IS_FLUSHING (dpad);
 
     // Pads which are in EOS or FLUSHING state are not included in the checks.
-    if (skip && g_queue_is_empty (dpad->queue)) {
+    if (dpad->is_idle && g_queue_is_empty (dpad->queue)) {
       GST_OBJECT_UNLOCK (dpad);
       continue;
     }
@@ -228,18 +233,14 @@ gst_metamux_flush_metadata_queues (GstMetaMux * muxer)
   for (list = muxer->metapads; list != NULL; list = g_list_next (list)) {
     GstMetaMuxDataPad *dpad = GST_METAMUX_DATA_PAD (list->data);
 
-    while (!g_queue_is_empty (dpad->queue))
-      gst_metadata_item_free (g_queue_pop_head (dpad->queue));
-
+    g_queue_clear_full (dpad->queue, (GDestroyNotify) gst_metadata_item_free);
     g_clear_pointer (&(dpad)->strcache, g_free);
     g_clear_pointer (&(dpad)->prtlmeta, gst_metadata_item_free);
     g_clear_pointer (&(dpad)->lastmeta, gst_metadata_item_free);
   }
 
   g_cond_signal (&(muxer)->wakeup);
-
   GST_METAMUX_UNLOCK (muxer);
-  return;
 }
 
 static void
@@ -549,6 +550,10 @@ gst_metamux_process_segmentation_metadata (GstMetaMux * muxer,
     value = gst_value_array_get_value (masks, idx);
     entry = GST_STRUCTURE (g_value_get_boxed (value));
 
+    // Reset, otherwise a mask decoded on a previous iteration would be
+    // handed to a second meta and freed twice with the buffer.
+    colormask = NULL;
+
     // Get the labels mask.
     data = g_base64_decode (gst_structure_get_string (entry, "labels"), &size);
 
@@ -622,6 +627,10 @@ gst_metamux_process_depth_metadata (GstMetaMux * muxer, GstBuffer * buffer,
   for (idx = 0; idx < length; idx++) {
     value = gst_value_array_get_value (maps, idx);
     entry = GST_STRUCTURE (g_value_get_boxed (value));
+
+    // Reset, otherwise a mask decoded on a previous iteration would be
+    // handed to a second meta and freed twice with the buffer.
+    colormask = NULL;
 
     // Get the depth values.
     data = g_base64_decode (gst_structure_get_string (entry, "values"), &size);
@@ -905,10 +914,13 @@ gst_metamux_process_meta_entries (GstMetaMux * muxer, GstBuffer * buffer,
         gst_metamux_process_embeddings_metadata (muxer, buffer, structure);
     }
 
-    // Overwrite previous last meta entry with the new currently processed one.
-    if (item != dpad->lastmeta) {
+    // In SYNC mode overwrite previous last meta item with the new processed
+    // item or do nothing if item is the same. If mode is ASYNC, free item.
+    if (item != dpad->lastmeta && muxer->mode == GST_METAMUX_MODE_SYNC) {
       g_clear_pointer (&(dpad->lastmeta), gst_metadata_item_free);
       dpad->lastmeta = item;
+    } else if (muxer->mode == GST_METAMUX_MODE_ASYNC) {
+      gst_metadata_item_free (item);
     }
   }
 
@@ -925,13 +937,22 @@ gst_metamux_worker_task (gpointer userdata)
   gint64 timeout = GST_CLOCK_TIME_NONE;
   gboolean success = FALSE;
 
-  if (!gst_data_queue_peek (muxer->sinkpad->buffers, &item))
+  if (!gst_data_queue_peek (muxer->sinkpad->queue, &item))
     return;
 
-  // Take the buffer from the queue item and null the object pointer.
-  buffer = GST_BUFFER (item->object);
-  item->object = NULL;
+  // If a EOS event is queued, wait for src pad idle state before sending it.
+  if (G_UNLIKELY (GST_IS_EVENT (item->object))) {
+    GstEvent *event = GST_EVENT (g_steal_pointer (&item->object));
 
+    GST_METAMUX_PAD_WAIT_IDLE (muxer->srcpad);
+    GST_DEBUG_OBJECT (muxer, "Pushing %" GST_PTR_FORMAT, event);
+    gst_pad_push_event (GST_PAD (muxer->srcpad), event);
+
+    goto cleanup;
+  }
+
+  // Take the buffer from the queue item and null the object pointer.
+  buffer = GST_BUFFER (g_steal_pointer (&item->object));
   GST_TRACE_OBJECT (muxer, "Processing %" GST_PTR_FORMAT, buffer);
 
   GST_METAMUX_LOCK (muxer);
@@ -1014,16 +1035,18 @@ gst_metamux_worker_task (gpointer userdata)
   muxer->srcpad->segment.position = GST_BUFFER_TIMESTAMP (buffer);
   GST_METAMUX_SRC_UNLOCK (muxer->srcpad);
 
+  // Set the buffer to NULL as the queue item took onwership.
+  buffer = NULL;
+
   // Push the buffer into the queue or free it on failure.
-  if (!gst_data_queue_push (muxer->srcpad->buffers, item))
+  if (!gst_data_queue_push (muxer->srcpad->queue, item))
     item->destroy (item);
 
 cleanup:
-  if (!success)
-    gst_buffer_unref (buffer);
+  g_clear_pointer (&buffer, gst_buffer_unref);
 
   // Buffer was sent to srcpad, remove and free the sinkpad item from the queue.
-  if (gst_data_queue_pop (muxer->sinkpad->buffers, &item))
+  if (gst_data_queue_pop (muxer->sinkpad->queue, &item))
     item->destroy (item);
 }
 
@@ -1528,9 +1551,6 @@ gst_metamux_main_sink_pad_event (GstPad * pad, GstObject * parent, GstEvent * ev
 {
   GstMetaMux *muxer = GST_METAMUX (parent);
 
-  GST_TRACE_OBJECT (muxer, "Received %s event: %" GST_PTR_FORMAT,
-      GST_EVENT_TYPE_NAME (event), event);
-
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CAPS:
     {
@@ -1549,8 +1569,7 @@ gst_metamux_main_sink_pad_event (GstPad * pad, GstObject * parent, GstEvent * ev
       GstSegment segment;
 
       gst_event_copy_segment (event, &segment);
-
-      GST_DEBUG_OBJECT (pad, "Got segment: %" GST_SEGMENT_FORMAT, &segment);
+      GST_DEBUG_OBJECT (pad, "Received: %" GST_SEGMENT_FORMAT, &segment);
 
       GST_METAMUX_SRC_LOCK (srcpad);
 
@@ -1580,24 +1599,38 @@ gst_metamux_main_sink_pad_event (GstPad * pad, GstObject * parent, GstEvent * ev
       return gst_pad_push_event (GST_PAD (srcpad), event);
     }
     case GST_EVENT_FLUSH_START:
-      gst_data_queue_set_flushing (GST_METAMUX_SINK_PAD (pad)->buffers, TRUE);
-      gst_data_queue_flush (GST_METAMUX_SINK_PAD (pad)->buffers);
+      GST_DEBUG_OBJECT (muxer, "Received: %" GST_PTR_FORMAT, event);
+
+      gst_data_queue_set_flushing (GST_METAMUX_SINK_PAD (pad)->queue, TRUE);
+      gst_data_queue_flush (GST_METAMUX_SINK_PAD (pad)->queue);
 
       gst_metamux_stop_worker_task (muxer);
-      gst_metamux_flush_metadata_queues (muxer);
 
       return gst_pad_push_event (pad, event);
     case GST_EVENT_FLUSH_STOP:
-      gst_data_queue_set_flushing (GST_METAMUX_SINK_PAD (pad)->buffers, FALSE);
+      GST_DEBUG_OBJECT (muxer, "Received: %" GST_PTR_FORMAT, event);
+
+      gst_data_queue_set_flushing (GST_METAMUX_SINK_PAD (pad)->queue, FALSE);
       gst_metamux_start_worker_task (muxer);
 
       return gst_pad_push_event (pad, event);
     case GST_EVENT_EOS:
-      GST_METAMUX_PAD_WAIT_IDLE (GST_METAMUX_SINK_PAD (pad));
-      GST_METAMUX_PAD_WAIT_IDLE (muxer->srcpad);
+      {
+        GstDataQueueItem *item = NULL;
 
-      gst_metamux_flush_metadata_queues (muxer);
-      return gst_pad_push_event (GST_PAD (muxer->srcpad), event);
+        GST_DEBUG_OBJECT (muxer, "Received: %" GST_PTR_FORMAT, event);
+
+        item = g_slice_new0 (GstDataQueueItem);
+        item->object = GST_MINI_OBJECT (event);
+        item->visible = FALSE;
+        item->destroy = gst_data_queue_free_item;
+
+        // Push the event into the queue so it is processed after last buffer.
+        if (!gst_data_queue_push (GST_METAMUX_SINK_PAD (pad)->queue, item))
+          item->destroy (item);
+
+        return TRUE;
+      }
     case GST_EVENT_CUSTOM_DOWNSTREAM:
     {
       const GstStructure *structure = gst_event_get_structure (event);
@@ -1627,9 +1660,6 @@ gst_metamux_main_sink_pad_query (GstPad * pad, GstObject * parent,
     GstQuery * query)
 {
   GstMetaMux *muxer = GST_METAMUX (parent);
-
-  GST_TRACE_OBJECT (pad, "Received %s query: %" GST_PTR_FORMAT,
-      GST_QUERY_TYPE_NAME (query), query);
 
   switch (GST_QUERY_TYPE (query)) {
     case GST_QUERY_CAPS:
@@ -1698,7 +1728,7 @@ gst_metamux_main_sink_pad_chain (GstPad * pad, GstObject * parent,
   item->destroy = gst_data_queue_free_item;
 
   // Push the buffer into the queue or free it on failure.
-  if (!gst_data_queue_push (sinkpad->buffers, item))
+  if (!gst_data_queue_push (sinkpad->queue, item))
     item->destroy (item);
 
   return GST_FLOW_OK;
@@ -1708,8 +1738,8 @@ static gboolean
 gst_metamux_data_sink_pad_event (GstPad * pad, GstObject * parent,
     GstEvent * event)
 {
-  GST_TRACE_OBJECT (pad, "Received %s event: %" GST_PTR_FORMAT,
-      GST_EVENT_TYPE_NAME (event), event);
+  GstMetaMux *muxer = GST_METAMUX (parent);
+  GstMetaMuxDataPad *dpad = GST_METAMUX_DATA_PAD (pad);
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CAPS:
@@ -1748,22 +1778,53 @@ gst_metamux_data_sink_pad_event (GstPad * pad, GstObject * parent,
 
       return TRUE;
     }
-    case GST_EVENT_FLUSH_START:
     case GST_EVENT_EOS:
-    {
-      GstMetaMux *muxer = GST_METAMUX (parent);
+      GST_DEBUG_OBJECT (pad, "Received: %" GST_PTR_FORMAT, event);
 
       GST_METAMUX_LOCK (muxer);
-      g_cond_signal (&(muxer)->wakeup);
+
+      // Clear all partial results and notify the worker task.
+      g_clear_pointer (&dpad->strcache, g_free);
+      g_clear_pointer (&dpad->prtlmeta, gst_metadata_item_free);
+
+      dpad->is_idle = TRUE;
+
+      g_cond_signal (&muxer->wakeup);
       GST_METAMUX_UNLOCK (muxer);
 
       gst_event_unref (event);
       return TRUE;
-    }
+    case GST_EVENT_FLUSH_START:
+      GST_DEBUG_OBJECT (pad, "Received: %" GST_PTR_FORMAT, event);
+
+      GST_METAMUX_LOCK (muxer);
+
+      // Flushing flag has been already set, clear and notify the worker task.
+      g_queue_clear_full (dpad->queue, (GDestroyNotify) gst_metadata_item_free);
+      g_clear_pointer (&dpad->strcache, g_free);
+      g_clear_pointer (&dpad->prtlmeta, gst_metadata_item_free);
+      g_clear_pointer (&dpad->lastmeta, gst_metadata_item_free);
+
+      dpad->is_idle = TRUE;
+
+      g_cond_signal (&muxer->wakeup);
+      GST_METAMUX_UNLOCK (muxer);
+
+      gst_event_unref (event);
+      return TRUE;
     case GST_EVENT_FLUSH_STOP:
+      GST_DEBUG_OBJECT (pad, "Received: %" GST_PTR_FORMAT, event);
+
+      GST_METAMUX_LOCK (muxer);
+      dpad->is_idle = FALSE;
+      GST_METAMUX_UNLOCK (muxer);
+
+      gst_event_unref (event);
+      return TRUE;
     case GST_EVENT_SEGMENT:
     case GST_EVENT_GAP:
     case GST_EVENT_STREAM_START:
+      GST_TRACE_OBJECT (pad, "Drop: %" GST_PTR_FORMAT, event);
       // Drop the event, those events are forwarded by the main sink pad.
       gst_event_unref (event);
       return TRUE;
@@ -1905,15 +1966,15 @@ gst_metamux_change_state (GstElement * element, GstStateChange transition)
 
   switch (transition) {
     case GST_STATE_CHANGE_READY_TO_PAUSED:
-      gst_data_queue_set_flushing (muxer->sinkpad->buffers, FALSE);
+      gst_data_queue_set_flushing (muxer->sinkpad->queue, FALSE);
       gst_metamux_start_worker_task (muxer);
       break;
     case GST_STATE_CHANGE_PAUSED_TO_READY:
       // FLush buffers otherwise the chain function may get blocked if the queue
       // is full and this will lead to a deadlock with the pad deactivation
       // calls during change_state() below as we will be holding STREAM_LOCK.
-      gst_data_queue_set_flushing (muxer->sinkpad->buffers, TRUE);
-      gst_data_queue_flush (muxer->sinkpad->buffers);
+      gst_data_queue_set_flushing (muxer->sinkpad->queue, TRUE);
+      gst_data_queue_flush (muxer->sinkpad->queue);
       break;
     default:
       break;
@@ -1947,9 +2008,9 @@ gst_metamux_set_property (GObject * object, guint prop_id,
       muxer->latency = g_value_get_uint64 (value);
       break;
     case PROP_QUEUE_SIZE:
-      muxer->queue_size = g_value_get_uint (value);
-      muxer->sinkpad->buffers_limit = muxer->queue_size;
-      muxer->srcpad->buffers_limit = muxer->queue_size;
+      muxer->qsize = g_value_get_uint (value);
+      muxer->sinkpad->qlimit = muxer->qsize;
+      muxer->srcpad->qlimit = muxer->qsize;
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1971,7 +2032,7 @@ gst_metamux_get_property (GObject * object, guint prop_id,
       g_value_set_uint64 (value, muxer->latency);
       break;
     case PROP_QUEUE_SIZE:
-      g_value_set_uint (value, muxer->queue_size);
+      g_value_set_uint (value, muxer->qsize);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -2067,7 +2128,7 @@ gst_metamux_init (GstMetaMux * muxer)
 
   muxer->mode = DEFAULT_PROP_MODE;
   muxer->latency = DEFAULT_PROP_LATENCY;
-  muxer->queue_size = DEFAULT_PROP_QUEUE_SIZE;
+  muxer->qsize = DEFAULT_PROP_QUEUE_SIZE;
 
   template = gst_static_pad_template_get (&gst_metamux_media_sink_template);
   muxer->sinkpad = g_object_new (GST_TYPE_METAMUX_SINK_PAD, "name", "sink",
@@ -2084,7 +2145,7 @@ gst_metamux_init (GstMetaMux * muxer)
   GST_OBJECT_FLAG_SET (muxer->sinkpad, GST_PAD_FLAG_PROXY_ALLOCATION);
 
   gst_element_add_pad (GST_ELEMENT (muxer), GST_PAD (muxer->sinkpad));
-  muxer->sinkpad->buffers_limit = muxer->queue_size;
+  muxer->sinkpad->qlimit = muxer->qsize;
 
   template = gst_static_pad_template_get (&gst_metamux_src_template);
   muxer->srcpad = g_object_new (GST_TYPE_METAMUX_SRC_PAD, "name", "src",
@@ -2098,7 +2159,7 @@ gst_metamux_init (GstMetaMux * muxer)
   gst_pad_set_activatemode_function (GST_PAD (muxer->srcpad),
       GST_DEBUG_FUNCPTR (gst_metamux_src_pad_activate_mode));
   gst_element_add_pad (GST_ELEMENT (muxer), GST_PAD (muxer->srcpad));
-  muxer->srcpad->buffers_limit = muxer->queue_size;
+  muxer->srcpad->qlimit = muxer->qsize;
 }
 
 static gboolean

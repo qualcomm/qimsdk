@@ -1148,7 +1148,7 @@ switchstream_file_init (GstUnifiedSwitchStream *ustream)
   else
     ;
 
-  if ((pinfo->superbuf_base != 0) && sinfo->superbuf)
+  if (sinfo->superbuf)
     g_object_set (fbin->camera_pad, "super-buffer-mode", TRUE, NULL);
 
   caps = gst_caps_new_simple ("video/x-raw",

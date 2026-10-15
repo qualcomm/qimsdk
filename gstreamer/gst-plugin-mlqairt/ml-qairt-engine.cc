@@ -47,6 +47,8 @@
 
 /// QAIRT system library, loaded at runtime via the loader search path.
 #define GST_ML_QAIRT_SYSTEM_LIB "libQairtSystem.so"
+//TODO: Better way to fetch major version?
+#define QAIRT_MAJOR_VERSION 2
 
 /// Per-output tensor descriptor holding the dequantization parameters and the
 /// QAIRT tensor used to bind the output buffer at execution time.
@@ -98,6 +100,29 @@ gst_ml_qairt_engine_debug_category (void)
     g_once_init_leave (&catonce, catdone);
   }
   return (GstDebugCategory *) catonce;
+}
+
+GType
+gst_ml_qairt_backend_get_type (void)
+{
+  static GType gtype = 0;
+  static const GEnumValue variants[] = {
+    { GST_ML_QAIRT_BACKEND_CPU,
+        "Run the processing on the CPU", "cpu"
+    },
+    { GST_ML_QAIRT_BACKEND_GPU,
+        "Run the processing on the GPU", "gpu"
+    },
+    { GST_ML_QAIRT_BACKEND_HTP,
+        "Run the processing on the Hexagon Tensor Processor", "htp"
+    },
+    {0, NULL, NULL},
+  };
+
+  if (!gtype)
+    gtype = g_enum_register_static ("GstMLQairtBackend", variants);
+
+  return gtype;
 }
 
 GType
@@ -166,6 +191,46 @@ qairt_to_ml_type (qairt::DataType type)
   }
 
   return GST_ML_TYPE_UNKNOWN;
+}
+
+// Map the backend enum to the QAIRT backend shared library name. QAIRT selects
+// the backend by which library the Api loads (there is no runtime enum).
+static const gchar *
+gst_ml_qairt_backend_to_backend_lib (GstMLQairtBackend backend)
+{
+  switch (backend) {
+    case GST_ML_QAIRT_BACKEND_GPU:
+      return "libQairtGpu.so";
+    case GST_ML_QAIRT_BACKEND_HTP:
+      return "libQairtHtp.so";
+    case GST_ML_QAIRT_BACKEND_CPU:
+    default:
+      return "libQairtCpu.so";
+  }
+}
+
+template <typename T>
+static std::shared_ptr<T>
+gst_ml_qairt_load_library (std::string library)
+{
+  try {
+    GST_DEBUG ("Loading library '%s'", library.c_str ());
+    return std::make_shared<T> (library.c_str ());
+  } catch (const std::exception &e) {
+    GST_DEBUG ("Failed to load library '%s' (%s)", library.c_str (),
+        e.what ());
+    library += "." + std::to_string (QAIRT_MAJOR_VERSION);
+
+    try {
+      GST_DEBUG ("Loading versioned library '%s'", library.c_str ());
+      return std::make_shared<T> (library.c_str ());
+    } catch (const std::exception &e) {
+      GST_DEBUG ("Failed to load library '%s' (%s)", library.c_str (),
+          e.what ());
+    }
+  }
+
+  return nullptr;
 }
 
 static qairt::Priority
@@ -366,8 +431,10 @@ gst_ml_qairt_engine_new (GstMLQairtSettings * settings)
   g_return_val_if_fail (settings != NULL, NULL);
   GST_ML_RETURN_VAL_IF_FAIL (settings->modelfile != NULL, NULL,
       "No model file name!");
-  GST_ML_RETURN_VAL_IF_FAIL (settings->backend != NULL, NULL,
-      "No backend library path!");
+  GST_ML_RETURN_VAL_IF_FAIL (
+      g_file_test (settings->modelfile, G_FILE_TEST_IS_REGULAR), NULL,
+      "Model file '%s' does not exist or is not a regular file!",
+      settings->modelfile);
 
   engine = new GstMLQairtEngine;
   g_return_val_if_fail (engine != NULL, NULL);
@@ -376,13 +443,17 @@ gst_ml_qairt_engine_new (GstMLQairtSettings * settings)
   engine->outinfo = gst_ml_info_new ();
 
   try {
-    // Load the backend and system libraries.
-    GST_DEBUG ("Loading QAIRT backend '%s'", settings->backend);
-    engine->api = std::make_shared<qairt::Api> (settings->backend);
-    engine->sysapi =
-        std::make_shared<qairt::SystemApi> (GST_ML_QAIRT_SYSTEM_LIB);
+    const gchar *backendlib =
+        gst_ml_qairt_backend_to_backend_lib (settings->backend);
 
-    GST_DEBUG ("Loaded QAIRT backend '%s'!", settings->backend);
+    engine->api = gst_ml_qairt_load_library<qairt::Api> (backendlib);
+    GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (engine->api != nullptr, NULL,
+        gst_ml_qairt_engine_free (engine), "Failed to load QAIRT backend!");
+
+    engine->sysapi =
+        gst_ml_qairt_load_library<qairt::SystemApi> (GST_ML_QAIRT_SYSTEM_LIB);
+    GST_ML_RETURN_VAL_IF_FAIL_WITH_CLEAN (engine->sysapi != nullptr, NULL,
+        gst_ml_qairt_engine_free (engine), "Failed to load QAIRT system!");
 
     // Set up logging routed to the GStreamer debug system category.
     engine->log = engine->api->makeShared<qairt::Log> (

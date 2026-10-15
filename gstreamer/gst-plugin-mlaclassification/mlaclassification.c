@@ -388,7 +388,7 @@ gst_ml_audio_classification_fill_text_output (
   gchar *string = NULL, *name = NULL;
   GstMapInfo memmap = {};
   GValue list = G_VALUE_INIT, labels = G_VALUE_INIT, value = G_VALUE_INIT;
-  guint idx = 0, num = 0, sequence_idx = 0, n_entries = 0, id=0;
+  guint idx = 0, num = 0, sequence_idx = 0, n_entries = 0, id = 0;
   gsize length = 0;
 
   g_value_init (&list, GST_TYPE_LIST);
@@ -409,7 +409,7 @@ gst_ml_audio_classification_fill_text_output (
     for (num = 0; num < n_entries; num++) {
       entry = gst_ml_classifications_entry (classifications, num);
 
-      id = GST_META_ID (classification->stage_id, sequence_idx, num);
+      id = GST_META_ID (0, classification->stage_id, sequence_idx, num);
 
       GST_TRACE_OBJECT (classification, "ID: %u, label: %s, confidence: %.1f%%",
           id, g_quark_to_string (entry->name), entry->confidence);

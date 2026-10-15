@@ -571,10 +571,13 @@ gst_ml_classifications_serialize (std::vector<T>& predictions, guint stage_id,
     GstStructure * mlparam, GValue * list)
 {
   GstMLClassification classification = {};
-  guint sequence_idx = 0;
+  guint sequence_idx = 0, stream_id = 0;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   for (size_t idx = 0; idx < predictions.size(); idx++) {
     auto& entry = predictions[idx];
@@ -587,7 +590,7 @@ gst_ml_classifications_serialize (std::vector<T>& predictions, guint stage_id,
     GST_TRACE ("Label %s Confidence %f", entry.name.c_str(), entry.confidence);
     GstStructure *structure = gst_ml_classification_to_structure (&classification);
 
-    guint32 id = GST_META_ID (stage_id, sequence_idx, idx);
+    guint32 id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -619,10 +622,13 @@ gst_ml_detections_serialize (std::vector<ObjectDetection>& predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
   GstMLDetection detection = {};
-  guint sequence_idx = 0;
+  guint sequence_idx = 0, stream_id = 0;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   gdouble matrix[3][3] = {};
   auto correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
@@ -646,7 +652,7 @@ gst_ml_detections_serialize (std::vector<ObjectDetection>& predictions,
       gst_structure_take_value (structure, "landmarks", &array);
     }
 
-    guint32 id = GST_META_ID (stage_id, sequence_idx, idx);
+    guint32 id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -693,10 +699,13 @@ gst_ml_poses_serialize (std::vector<PoseEstimation>& predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
   GstMLPose pose = {};
-  guint sequence_idx = 0;
+  guint sequence_idx = 0, stream_id = 0;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   gdouble matrix[3][3] = {};
   auto correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
@@ -724,7 +733,7 @@ gst_ml_poses_serialize (std::vector<PoseEstimation>& predictions,
 
     gst_structure_take_value (structure, "connections", &array);
 
-    guint32 id = GST_META_ID (stage_id, sequence_idx, idx);
+    guint32 id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -773,11 +782,14 @@ gst_ml_segmentations_serialize (std::vector<Segmentation>& predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
   GstMLSegmentation segmentation = {};
-  guint sequence_idx = 0, size = 0;
+  guint sequence_idx = 0, stream_id = 0, size = 0;
   gchar *string = NULL;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   for (size_t idx = 0; idx < predictions.size(); idx++) {
     auto& entry = predictions[idx];
@@ -813,7 +825,7 @@ gst_ml_segmentations_serialize (std::vector<Segmentation>& predictions,
     g_value_take_string (&value, string);
     gst_structure_take_value (structure, "colors", &value);
 
-    guint32 id = GST_META_ID (stage_id, sequence_idx, idx);
+    guint32 id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
@@ -847,11 +859,14 @@ gst_ml_depth_maps_serialize (std::vector<DepthMap>& predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
   GstMLDepthMap depthmap = {};
-  guint sequence_idx = 0, size = 0;
+  guint sequence_idx = 0, stream_id = 0, size = 0;
   gchar *string = NULL;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+
+  if (gst_structure_has_field (mlparam, "stream-id"))
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
   for (size_t idx = 0; idx < predictions.size(); idx++) {
     auto& entry = predictions[idx];
@@ -877,7 +892,7 @@ gst_ml_depth_maps_serialize (std::vector<DepthMap>& predictions,
     g_value_take_string (&value, string);
     gst_structure_take_value (structure, "colors", &value);
 
-    guint32 id = GST_META_ID (stage_id, sequence_idx, idx);
+    guint32 id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
     gst_value_array_append_and_take_ml_structure (list, id, structure);
   }
 }
