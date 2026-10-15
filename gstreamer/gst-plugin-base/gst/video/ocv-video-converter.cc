@@ -7,8 +7,13 @@
 
 #include <unistd.h>
 #include <dlfcn.h>
+#include <cstdint>
 
 #include <opencv4/opencv2/opencv.hpp>
+
+#if defined(HAVE_OPENCV_FASTCV)
+#include <opencv4/opencv2/fastcv.hpp>
+#endif // defined(HAVE_OPENCV_FASTCV)
 
 // Version-specific format conversions
 #define GST_OCV_COLOR_RGB2YUV_UYVY 143 // cv::COLOR_RGB2YUV_UYVY = 143
@@ -1289,7 +1294,33 @@ gst_ocv_video_converter_resize (GstOcvVideoConverter * convert,
     cv::Mat dst_mat (d_plane->height, d_plane->width, d_plane->type,
         d_plane->data, d_plane->stride);
 
+#if defined(HAVE_OPENCV_FASTCV)
+    // cv::fastcv::resizeDown only supports CV_8UC1/CV_8UC2 (YUV/GRAY) planes,
+    // a pure downscale with ratio below 20x per dimension, and 16-byte
+    // aligned buffers. Fall back to cv::resize whenever any of those don't
+    // hold, instead of letting its internal CV_Assert checks throw.
+    gboolean fastcv_eligible = !GST_OCV_OBJ_IS_RGB (d_obj) &&
+        (d_plane->width <= s_plane->width) &&
+        (d_plane->height <= s_plane->height) &&
+        (d_plane->width * 20 > s_plane->width) &&
+        (d_plane->height * 20 > s_plane->height) &&
+        ((reinterpret_cast<uintptr_t> (s_plane->data) % 16) == 0) &&
+        ((reinterpret_cast<uintptr_t> (d_plane->data) % 16) == 0);
+
+    if (fastcv_eligible) {
+      try {
+        cv::fastcv::resizeDown (src_mat, dst_mat, dst_mat.size(), 0, 0);
+      } catch (const cv::Exception& e) {
+        GST_WARNING ("FastCV resizeDown failed, falling back to cv::resize, "
+            "error: %s", e.what());
+        cv::resize (src_mat, dst_mat, dst_mat.size(), 0, 0);
+      }
+    } else {
+      cv::resize (src_mat, dst_mat, dst_mat.size(), 0, 0);
+    }
+#else
     cv::resize (src_mat, dst_mat, dst_mat.size(), 0, 0);
+#endif // defined(HAVE_OPENCV_FASTCV)
 
     GST_LOG ("Resized plane No. %u - Src dims: %d (width) x %d (height) @ %d "
         "(stride); Dst dims: %d (width) x %d (height) @ %d (stride)", idx,
