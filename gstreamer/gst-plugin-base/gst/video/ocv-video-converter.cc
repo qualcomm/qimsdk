@@ -1776,6 +1776,135 @@ gst_ocv_video_converter_yuv_to_gray (GstOcvObject * s_obj, GstOcvObject * d_obj,
 }
 
 static inline gboolean
+gst_ocv_object_rgb_to_nv12 (GstOcvObject * s_obj, GstOcvObject * d_obj)
+{
+  const GstOcvPlane *s_rgb = &s_obj->planes[0];
+  const GstOcvPlane *d_luma = &d_obj->planes[0];
+  const GstOcvPlane *d_chroma = &d_obj->planes[1];
+  guint8 *source[2] = {NULL, NULL}, *luma[2] = {NULL, NULL}, *uv = NULL;
+  guint num = 0, step = 3, ridx = 0, gidx = 1, bidx = 2;
+
+  // Step for iteration between pixel bytes depends on the number of components.
+  if (s_obj->format == GST_VIDEO_FORMAT_RGBA ||
+      s_obj->format == GST_VIDEO_FORMAT_BGRA)
+    step = 4;
+
+  // Correct the index of the red color inside the source object if RB swapped.
+  if (s_obj->format == GST_VIDEO_FORMAT_BGR ||
+      s_obj->format == GST_VIDEO_FORMAT_BGRA)
+    ridx = 2;
+
+  // Correct the index of the blue color inside the source object if RB swapped.
+  bidx = 2 - ridx;
+
+  // Process 2x2 blocks: luma per pixel, chroma from the block average.
+  // All conversions are using BT.601 coefficients in 8-bit fixed point.
+  for (guint y = 0; y < d_luma->height; y += 2) {
+    // Number of the next line, avoid overflow.
+    num = MIN (y + 1, d_luma->height - 1);
+
+    source[0] = (guint8 *) s_rgb->data + y * s_rgb->stride;
+    source[1] = (guint8 *) s_rgb->data + num * s_rgb->stride;
+
+    luma[0] = (guint8 *) d_luma->data + y * d_luma->stride;
+    luma[1] = (guint8 *) d_luma->data + num * d_luma->stride;
+
+    uv = (guint8 *) d_chroma->data + (y / 2) * d_chroma->stride;
+
+    for (guint x = 0; x < d_luma->width; x += 2) {
+      const guint cols[2] = { x, MIN (x + 1, d_luma->width - 1) };
+      gint sum[3] = {0, 0, 0};
+
+      for (guint row = 0; row < 2; row++) {
+        for (guint col = 0; col < 2; col++) {
+          const guint8 *pixel = source[row] + (cols[col] * step);
+
+          luma[row][cols[col]] =
+              (77 * pixel[ridx] + 150 * pixel[gidx] + 29 * pixel[bidx]) >> 8;
+
+          sum[ridx] += pixel[ridx];
+          sum[gidx] += pixel[gidx];
+          sum[bidx] += pixel[bidx];
+        }
+      }
+
+      gint u = 128 + ((-43 * sum[ridx] - 85 * sum[gidx] + 128 * sum[bidx]) >> 10);
+      gint v = 128 + ((128 * sum[ridx] - 107 * sum[gidx] - 21 * sum[bidx]) >> 10);
+
+      uv[x] = (d_obj->format != GST_VIDEO_FORMAT_NV12) ? v : u;
+      uv[x + 1] = (d_obj->format != GST_VIDEO_FORMAT_NV12) ? u : v;
+    }
+  }
+
+  return TRUE;
+}
+
+#if defined(HAVE_OPENCV_FASTCV) && (CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 13))
+static inline gboolean
+gst_ocv_object_fastcv_rgb_to_nv12 (GstOcvObject * s_obj, GstOcvObject * d_obj)
+{
+  const GstOcvPlane *s_rgb = &s_obj->planes[0];
+  const GstOcvPlane *d_luma = &d_obj->planes[0];
+  const GstOcvPlane *d_chroma = &d_obj->planes[1];
+
+  try {
+    cv::Mat nv12, rgb;
+
+    cv::Mat source (
+        s_rgb->height, s_rgb->width, s_rgb->type, s_rgb->data, s_rgb->stride);
+
+    // FastCV expects contiguous RGB888, convert or compact the source if needed.
+    switch (s_obj->format) {
+      case GST_VIDEO_FORMAT_BGR:
+        cv::cvtColor (source, rgb, cv::COLOR_BGR2RGB);
+        break;
+      case GST_VIDEO_FORMAT_RGBA:
+        cv::cvtColor (source, rgb, cv::COLOR_RGBA2RGB);
+        break;
+      case GST_VIDEO_FORMAT_BGRA:
+        cv::cvtColor (source, rgb, cv::COLOR_BGRA2RGB);
+        break;
+      default:
+        // fastcvColorWrapper asserts src.isContinuous(); clone if strided.
+        rgb = source.isContinuous() ? source : source.clone();
+        break;
+    }
+    cv::fastcv::cvtColor (rgb, nv12, cv::fastcv::COLOR_RGB2YUV_NV12);
+
+    // The output is contiguous: height rows of luma followed by height / 2
+    // rows of interleaved chroma, wrap both as views into the output buffer.
+    cv::Mat nv12_luma (d_luma->height, d_luma->width, d_luma->type, nv12.data);
+    cv::Mat nv12_chroma (d_chroma->height, d_chroma->width, d_chroma->type,
+        nv12.data + (d_luma->height * d_luma->width));
+
+    cv::Mat luma (d_luma->height, d_luma->width, d_luma->type,
+        d_luma->data, d_luma->stride);
+    cv::Mat chroma (d_chroma->height, d_chroma->width, d_chroma->type,
+        d_chroma->data, d_chroma->stride);
+
+    nv12_luma.copyTo (luma);
+
+    // The source is always normalized to RGB above, which is reversed
+    // relative to the B,G,R order FastCV's primitive expects. With reversed
+    // input, FastCV's raw chroma output lands in Cr,Cb order (i.e. already
+    // matches NV21 natively), so NV12 needs the swap instead of NV21.
+    if (d_obj->format == GST_VIDEO_FORMAT_NV12) {
+      // Swap the Cb and Cr components.
+      const int swap[] = { 0, 1, 1, 0 };
+      cv::mixChannels (&nv12_chroma, 1, &chroma, 1, swap, 2);
+    } else {
+      nv12_chroma.copyTo (chroma);
+    }
+  } catch (const cv::Exception& e) {
+    GST_ERROR ("Conversion failed, error: %s", e.what());
+    return FALSE;
+  }
+
+  return TRUE;
+}
+#endif // defined(HAVE_OPENCV_FASTCV) && (CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 13))
+
+static inline gboolean
 gst_ocv_video_converter_rgb_to_yuv (GstOcvObject * s_obj, GstOcvObject * d_obj,
     gint conversion_mode)
 {
@@ -1789,83 +1918,11 @@ gst_ocv_video_converter_rgb_to_yuv (GstOcvObject * s_obj, GstOcvObject * d_obj,
     case GST_OCV_COLOR_BGRA_to_NV12:
     case GST_OCV_COLOR_BGRA_to_NV21:
     {
-      const gfloat kr = 0.299, kg = 0.587, kb = 0.114;
-      guint y_idx, x_idx = 0;
-
-      for (y_idx = 0; y_idx < d_obj->planes[0].height; y_idx++) {
-        guint8 *y_row = (guint8 *) d_obj->planes[0].data +
-            y_idx * d_obj->planes[0].stride;
-        guint8 *uv_row = (guint8 *) d_obj->planes[1].data +
-            (y_idx / 2) * d_obj->planes[1].stride;
-
-        for (x_idx = 0; x_idx < d_obj->planes[0].width; x_idx++) {
-          gint rgb_idx = 0;
-          guint32 u_sum = 0, v_sum = 0;
-          guint8 red = 0, green = 0, blue = 0, step = 3;
-
-          if (s_obj->format == GST_VIDEO_FORMAT_RGBA ||
-              s_obj->format == GST_VIDEO_FORMAT_BGRA)
-            step = 4;
-
-          rgb_idx = (y_idx * s_obj->planes[0].stride) + x_idx * step;
-
-          if (s_obj->format == GST_VIDEO_FORMAT_RGB ||
-              s_obj->format == GST_VIDEO_FORMAT_RGBA) {
-            red = ((guint8 *) s_obj->planes[0].data)[rgb_idx];
-            green = ((guint8 *) s_obj->planes[0].data)[rgb_idx + 1];
-            blue = ((guint8 *) s_obj->planes[0].data)[rgb_idx + 2];
-          } else {
-            red = ((guint8 *) s_obj->planes[0].data)[rgb_idx + 2];
-            green = ((guint8 *) s_obj->planes[0].data)[rgb_idx + 1];
-            blue = ((guint8 *) s_obj->planes[0].data)[rgb_idx];
-          }
-
-          guint8 luma = (red * kr) + (green * kg) + (blue * kb);
-          y_row[x_idx] = luma;
-
-          if (y_idx % 2 == 1 || x_idx % 2 == 1)
-            continue;
-
-          for (gint delta_y = 0; delta_y < 2; delta_y++) {
-            for (gint delta_x = 0; delta_x < 2; delta_x++) {
-              gint rgb_idx = 0;
-              guint8 red = 0, green = 0, blue = 0;
-
-              rgb_idx = ((y_idx + delta_y) * s_obj->planes[0].stride) +
-                  (x_idx + delta_x) * step;
-
-              if (s_obj->format == GST_VIDEO_FORMAT_RGB ||
-                  s_obj->format == GST_VIDEO_FORMAT_RGBA) {
-                red = ((guint8 *) s_obj->planes[0].data)[rgb_idx];
-                green = ((guint8 *) s_obj->planes[0].data)[rgb_idx + 1];
-                blue = ((guint8 *) s_obj->planes[0].data)[rgb_idx + 2];
-              } else {
-                red = ((guint8 *) s_obj->planes[0].data)[rgb_idx + 2];
-                green = ((guint8 *) s_obj->planes[0].data)[rgb_idx + 1];
-                blue = ((guint8 *) s_obj->planes[0].data)[rgb_idx];
-              }
-
-              guint32 cb = 128 + (red * (-(kr / (1.0 - kb)) / 2)) +
-                  (green * (-(kg / (1.0 - kb)) / 2)) + (blue * 0.5);
-              guint32 cr = 128 + (red * 0.5) + (green * (-(kg / (1.0 - kr)) / 2)) +
-                  (blue * (-(kb / (1.0 - kr)) / 2));
-
-              u_sum += cb;
-              v_sum += cr;
-            }
-          }
-
-          if (d_obj->format == GST_VIDEO_FORMAT_NV12) {
-            uv_row[x_idx] = (guint8) (u_sum / 4);
-            uv_row[x_idx + 1] = (guint8) (v_sum / 4);
-          } else {
-            uv_row[x_idx] = (guint8) (v_sum / 4);
-            uv_row[x_idx + 1] = (guint8) (u_sum / 4);
-          }
-        }
-      }
-
-      return TRUE;
+#if defined(HAVE_OPENCV_FASTCV) && (CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 13))
+      return gst_ocv_object_fastcv_rgb_to_nv12 (s_obj, d_obj);
+#else
+      return gst_ocv_object_rgb_to_nv12 (s_obj, d_obj);
+#endif // defined(HAVE_OPENCV_FASTCV) && (CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 13))
     }
 #if CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 9)
     case cv::COLOR_RGB2YUV_YUY2:
