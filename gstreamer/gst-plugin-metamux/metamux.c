@@ -906,10 +906,13 @@ gst_metamux_process_meta_entries (GstMetaMux * muxer, GstBuffer * buffer,
         gst_metamux_process_embeddings_metadata (muxer, buffer, structure);
     }
 
-    // Overwrite previous last meta entry with the new currently processed one.
+    // In SYNC mode overwrite previous last meta item with the new processed
+    // item or do nothing if item is the same. If mode is ASYNC, free item.
     if (item != dpad->lastmeta && muxer->mode == GST_METAMUX_MODE_SYNC) {
       g_clear_pointer (&(dpad->lastmeta), gst_metadata_item_free);
       dpad->lastmeta = item;
+    } else if (muxer->mode == GST_METAMUX_MODE_ASYNC) {
+      gst_metadata_item_free (item);
     }
   }
 
