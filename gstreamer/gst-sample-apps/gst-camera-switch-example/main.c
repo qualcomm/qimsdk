@@ -4,344 +4,276 @@
  */
 
 /*
- * Application:
- * GStreamer Switch cameras in Playing state
+ * GStreamer dual-camera switch example.
  *
- * Description:
- * This application uses the two cameras of the device and switch them
- * without changing the state of the pipeline. The switching is done in
- * Playing state every 5 seconds.
+ * Both qtiqmmfsrc instances remain active. Camera switching is performed
+ * by changing the alpha property of the qtivcomposer input pads.
  *
- * Usage:
- * gst-camera-switch-example
- *
- * Help:
- * gst-camera-switch-example --help
- *
- * Parameters:
- * -d - Enable display
- *
+ * Output modes:
+ *   -d 1 : display only (default)
+ *   -d 0 : preview and encode to MP4
  */
 
 #include <glib-unix.h>
-#include <pthread.h>
-#include <stdio.h>
 #include <errno.h>
+#include <signal.h>
+#include <stdio.h>
 #include <sys/stat.h>
-#include <stdbool.h>
 
 #include <gst/gst.h>
 
 #include <gst_sample_apps_utils.h>
 
-#define GST_APP_SUMMARY "This application uses the two cameras of the " \
-  "device and switch them without changing the state of the pipeline. \n" \
-  "The switching is done in Playing state every 5 seconds. \n" \
-  "\nCommand:\n" \
-  "For Display Stream \n" \
-  "  gst-camera-switch-example -d \n" \
-  "For Encode Stream(Default option) \n" \
-  "  gst-camera-switch-example \n" \
-  "\nOutput:\n" \
-  "  Upon execution, application will generates output as preview OR " \
-  "encoded mp4 file."
+#define GST_APP_SUMMARY \
+  "Switch two cameras using qtivcomposer.\n" \
+  "-d 1: display only (default)\n" \
+  "-d 0: preview and encode\n"
 
 #define DEFAULT_WIDTH 1280
 #define DEFAULT_HEIGHT 720
+#define DEFAULT_FPS_NUM 30
+#define DEFAULT_FPS_DEN 1
+#define SWITCH_INTERVAL_SECONDS 5
+#define OUTPUT_FILE_NAME "mux.mp4"
 
-// Contains app context information
-struct GstCameraSwitchCtxStruct {
+typedef struct {
   GstElement *pipeline;
-  GList *plugins;
-  GMainLoop *mloop;
-  GstElement *current_camsrc;
-  GstElement *capsfilter;
+  GstElement *camsrc0;
+  GstElement *camsrc1;
+  GstElement *capsfilter0;
+  GstElement *capsfilter1;
+  GstElement *queue0;
+  GstElement *queue1;
+  GstElement *composer;
   GstElement *waylandsink;
-  gboolean is_camera0;
-  GMutex lock;
-  gboolean exit;
-  guint use_display;
+  GstElement *tee;
+  GstElement *output_capsfilter;
+  GstElement *preview_queue;
+  GstElement *record_queue;
+  GstElement *encoder;
+  GstElement *h264parse;
+  GstElement *mp4mux;
+  GstElement *filesink;
+  GstPad *composer_sink0;
+  GstPad *composer_sink1;
+  GMainLoop *main_loop;
   guint camera0_id;
   guint camera1_id;
-};
-typedef struct GstCameraSwitchCtxStruct GstCameraSwitchCtx;
+  guint use_display;
+  guint camera0_width;
+  guint camera0_height;
+  guint camera1_width;
+  guint camera1_height;
+  guint output_width;
+  guint output_height;
+  gboolean camera0_active;
+  guint switch_source_id;
+  guint signal_source_id;
+  gboolean shutting_down;
+} GstCameraSwitchCtx;
 
-/**
- * Build Property for pad.
- *
- * @param property Property Name.
- * @param values Value of Property.
- * @param num count of Property Values.
- */
 static void
-build_pad_property (GValue * property, gint values[], gint num)
+build_pad_property (GValue *property, gint values[], gint count)
 {
-  GValue val = G_VALUE_INIT;
-  g_value_init (&val, G_TYPE_INT);
+  GValue value = G_VALUE_INIT;
+  g_value_init (&value, G_TYPE_INT);
 
-  for (gint idx = 0; idx < num; idx++) {
-    g_value_set_int (&val, values[idx]);
-    gst_value_array_append_value (property, &val);
+  for (gint index = 0; index < count; index++) {
+    g_value_set_int (&value, values[index]);
+    gst_value_array_append_value (property, &value);
   }
 
-  g_value_unset (&val);
+  g_value_unset (&value);
 }
 
-/**
- * In case of ASYNC state change it will properly wait for state change
- *
- * @param element gst element object.
- */
 static gboolean
-wait_for_state_change (GstElement *element) {
-  GstStateChangeReturn ret = GST_STATE_CHANGE_FAILURE;
-  g_print ("Element is PREROLLING ...\n");
+configure_composer_pad (GstPad *pad, gint x, gint y, gint width, gint height,
+    gdouble alpha)
+{
+  GValue position = G_VALUE_INIT;
+  GValue dimensions = G_VALUE_INIT;
+  gint position_values[] = { x, y };
+  gint dimension_values[] = { width, height };
 
-  ret = gst_element_get_state (element, NULL, NULL, GST_CLOCK_TIME_NONE);
-
-  if (ret == GST_STATE_CHANGE_FAILURE) {
-    g_printerr ("Element failed to PREROLL!\n");
+  if (pad == NULL) {
     return FALSE;
   }
+
+  g_value_init (&position, GST_TYPE_ARRAY);
+  g_value_init (&dimensions, GST_TYPE_ARRAY);
+  build_pad_property (&position, position_values, 2);
+  build_pad_property (&dimensions, dimension_values, 2);
+
+  g_object_set_property (G_OBJECT (pad), "position", &position);
+  g_object_set_property (G_OBJECT (pad), "dimensions", &dimensions);
+  g_object_set (G_OBJECT (pad), "alpha", alpha, NULL);
+
+  g_value_unset (&position);
+  g_value_unset (&dimensions);
   return TRUE;
 }
 
-/**
- * Switch Camera involves 3 main steps
- * 1. Create next camera elements and Sync state to curtent pipeline state
- * 2. Unlink the current camera stream
- * 3. Link the next camera stream
- *
- * @param cameraswitchctx Application Context Object.
- */
-static gboolean
-switch_camera (GstCameraSwitchCtx *cameraswitchctx)
+static GstElement *
+create_capsfilter (const gchar *name, guint width, guint height)
 {
-  GstElement *new_camsrc = NULL;
-  GstElement *current_camsrc = cameraswitchctx->current_camsrc;
+  GstElement *capsfilter;
+  GstCaps *caps;
 
-  g_print ("\n\nSwitch_camera...\n");
-
-  if (!cameraswitchctx->is_camera0) {
-    new_camsrc = gst_element_factory_make ("qtiqmmfsrc", "camsrc_0");
-    g_object_set (G_OBJECT (new_camsrc), "camera", cameraswitchctx->camera0_id,
-        NULL);
-  } else {
-    new_camsrc = gst_element_factory_make ("qtiqmmfsrc", "camsrc_1");
-    g_object_set (G_OBJECT (new_camsrc), "camera", cameraswitchctx->camera1_id,
-        NULL);
+  capsfilter = gst_element_factory_make ("capsfilter", name);
+  if (capsfilter == NULL) {
+    return NULL;
   }
 
-  // Adding qmmfsrc
-  gst_bin_add (GST_BIN (cameraswitchctx->pipeline), new_camsrc);
-
-  // Unlink the current camera stream
-  g_print ("Unlinking current camera stream...\n");
-
-  gst_element_unlink (current_camsrc, cameraswitchctx->capsfilter);
-  g_print ("Unlinked current camera stream successfully \n");
-
-  // Link the next camera stream
-  g_print ("Linking next camera stream...\n");
-  if (!gst_element_link (new_camsrc, cameraswitchctx->capsfilter)) {
-    g_printerr ("Error: Link cannot be done!\n");
-    return FALSE;
-  }
-  g_print ("Linked next camera stream successfully \n");
-
-  // Sync the elements state to the curtent pipeline state
-  gst_element_sync_state_with_parent (new_camsrc);
-
-  // Set NULL state to the unlinked elemets
-  gst_element_set_state (current_camsrc, GST_STATE_NULL);
-
-  // Wait for state change to complete
-  if (!wait_for_state_change (current_camsrc)) {
-    g_printerr ("Error: Set state failed for element!\n");
-    return FALSE;
-  }
-
-  gst_bin_remove (GST_BIN (cameraswitchctx->pipeline), current_camsrc);
-
-  cameraswitchctx->is_camera0 = !cameraswitchctx->is_camera0;
-  cameraswitchctx->current_camsrc = new_camsrc;
-
-  return TRUE;
-}
-
-/**
- * Create thread function to switch the camera
- * 1. Call switch_camera function
- * 2. Check if user wants to exit the application
- *
- * @param user_data Application Context Object.
- */
-static void *
-thread_fn (gpointer user_data)
-{
-  GstCameraSwitchCtx *cameraswitchctx = (GstCameraSwitchCtx *) user_data;
-
-  while (true) {
-    sleep (5);
-    g_mutex_lock (&cameraswitchctx->lock);
-    if (cameraswitchctx->exit) {
-      g_mutex_unlock (&cameraswitchctx->lock);
-      return NULL;
-    }
-    g_mutex_unlock (&cameraswitchctx->lock);
-
-    if (!switch_camera (cameraswitchctx)) {
-      g_printerr ("Failed to switch camera...Exiting.\n");
-      return NULL;
-    }
-  }
-
-  return NULL;
-}
-
-/**
- * Create GST pipeline involves 3 main steps
- * 1. Create all elements/GST Plugins
- * 2. Set Paramters for each plugin and connect pad signal
- * 3. Link plugins to create GST pipeline
- *
- * @param cameraswitchctx Application Context Object.
- */
-static gboolean
-create_pipe (GstCameraSwitchCtx *cameraswitchctx)
-{
-  GstCaps *filtercaps;
-  GstElement *camsrc = NULL;
-  GstElement *capsfilter = NULL;
-  GstElement *qtivcomposer = NULL;
-  GstElement *waylandsink = NULL;
-  GstElement *encoder = NULL;
-  GstElement *filesink = NULL;
-  GstElement *h264parse = NULL;
-  GstElement *mp4mux = NULL;
-  GstPad *composer_sink= NULL;
-
-  // Create qmmfsrc element
-  camsrc = gst_element_factory_make ("qtiqmmfsrc", "camsrc");
-  capsfilter = gst_element_factory_make ("capsfilter", "capsfilter");
-
-  // Check if all elements are created successfully
-  if (!camsrc || !capsfilter) {
-    g_printerr ("One element could not be created of found. Exiting.\n");
-    return FALSE;
-  }
-
-  // Set qmmfsrc 0 properties
-  g_object_set (G_OBJECT (camsrc), "camera", cameraswitchctx->camera0_id, NULL);
-
-  // Set capsfilter properties
-  g_object_set (G_OBJECT (capsfilter), "name", "capsfilter", NULL);
-
-  // Set caps
-  filtercaps = gst_caps_new_simple ("video/x-raw",
+  caps = gst_caps_new_simple ("video/x-raw",
       "format", G_TYPE_STRING, "NV12",
-      "width", G_TYPE_INT, DEFAULT_WIDTH,
-      "height", G_TYPE_INT, DEFAULT_HEIGHT,
-      "framerate", GST_TYPE_FRACTION, 30, 1,
+      "width", G_TYPE_INT, width,
+      "height", G_TYPE_INT, height,
+      "framerate", GST_TYPE_FRACTION, DEFAULT_FPS_NUM, DEFAULT_FPS_DEN,
       NULL);
+  g_object_set (capsfilter, "caps", caps, NULL);
+  gst_caps_unref (caps);
+  return capsfilter;
+}
 
-  g_object_set (G_OBJECT (capsfilter), "caps", filtercaps, NULL);
-  gst_caps_unref (filtercaps);
+static gboolean
+request_composer_pads (GstCameraSwitchCtx *ctx)
+{
+  ctx->composer_sink0 = gst_element_request_pad_simple (ctx->composer,
+      "sink_%u");
+  ctx->composer_sink1 = gst_element_request_pad_simple (ctx->composer,
+      "sink_%u");
 
-  // create qtivcomposer element to combine 2 i/p streams as in single display
-  qtivcomposer = gst_element_factory_make ("qtivcomposer", "qtivcomposer");
+  if (ctx->composer_sink0 == NULL || ctx->composer_sink1 == NULL) {
+    g_printerr ("Failed to request qtivcomposer input pads.\n");
+    return FALSE;
+  }
 
-  cameraswitchctx->current_camsrc = camsrc;
-  cameraswitchctx->capsfilter = capsfilter;
-  cameraswitchctx->is_camera0 = true;
+  g_print ("Requested composer pads: %s and %s\n",
+      GST_PAD_NAME (ctx->composer_sink0), GST_PAD_NAME (ctx->composer_sink1));
+  return TRUE;
+}
 
-  if (cameraswitchctx->use_display) {
-    waylandsink = gst_element_factory_make ("waylandsink", "waylandsink");
-    // Check if all elements are created successfully
-    if (!waylandsink) {
-      g_printerr ("waylandsink could not be created of found. Exiting.\n");
+static gboolean
+link_camera_to_composer (GstElement *queue, GstPad *composer_pad)
+{
+  GstPad *queue_src;
+  GstPadLinkReturn result;
+
+  queue_src = gst_element_get_static_pad (queue, "src");
+  if (queue_src == NULL) {
+    return FALSE;
+  }
+
+  result = gst_pad_link (queue_src, composer_pad);
+  gst_object_unref (queue_src);
+
+  if (result != GST_PAD_LINK_OK) {
+    g_printerr ("Failed to link camera queue to composer: %s\n",
+        gst_pad_link_get_name (result));
+    return FALSE;
+  }
+  return TRUE;
+}
+
+static gboolean
+create_pipe (GstCameraSwitchCtx *ctx)
+{
+  GstElement *elements[16];
+  guint element_count = 0;
+  gchar *media_dir = NULL;
+  gchar *output_path = NULL;
+  const gchar *home_dir;
+
+  ctx->camsrc0 = gst_element_factory_make ("qtiqmmfsrc", "camsrc_0");
+  ctx->camsrc1 = gst_element_factory_make ("qtiqmmfsrc", "camsrc_1");
+  ctx->capsfilter0 = create_capsfilter ("capsfilter_0", ctx->camera0_width, ctx->camera0_height);
+  ctx->capsfilter1 = create_capsfilter ("capsfilter_1", ctx->camera1_width, ctx->camera1_height);
+  ctx->queue0 = gst_element_factory_make ("queue", "camera_queue_0");
+  ctx->queue1 = gst_element_factory_make ("queue", "camera_queue_1");
+  ctx->composer = gst_element_factory_make ("qtivcomposer", "qtivcomposer");
+  ctx->waylandsink = gst_element_factory_make ("waylandsink", "waylandsink");
+
+  if (ctx->use_display == 0) {
+    ctx->tee = gst_element_factory_make ("tee", "output_tee");
+    ctx->output_capsfilter = create_capsfilter ("output_capsfilter", ctx->output_width, ctx->output_height);
+    ctx->preview_queue = gst_element_factory_make ("queue", "preview_queue");
+    ctx->record_queue = gst_element_factory_make ("queue", "record_queue");
+    ctx->encoder = gst_element_factory_make ("v4l2h264enc", "v4l2h264enc");
+    ctx->h264parse = gst_element_factory_make ("h264parse", "h264parse");
+    ctx->mp4mux = gst_element_factory_make ("mp4mux", "mp4mux");
+    ctx->filesink = gst_element_factory_make ("filesink", "filesink");
+  }
+
+  elements[element_count++] = ctx->camsrc0;
+  elements[element_count++] = ctx->camsrc1;
+  elements[element_count++] = ctx->capsfilter0;
+  elements[element_count++] = ctx->capsfilter1;
+  elements[element_count++] = ctx->queue0;
+  elements[element_count++] = ctx->queue1;
+  elements[element_count++] = ctx->composer;
+  elements[element_count++] = ctx->waylandsink;
+
+  if (ctx->use_display == 0) {
+    elements[element_count++] = ctx->tee;
+    elements[element_count++] = ctx->output_capsfilter;
+    elements[element_count++] = ctx->preview_queue;
+    elements[element_count++] = ctx->record_queue;
+    elements[element_count++] = ctx->encoder;
+    elements[element_count++] = ctx->h264parse;
+    elements[element_count++] = ctx->mp4mux;
+    elements[element_count++] = ctx->filesink;
+  }
+
+  for (guint index = 0; index < element_count; index++) {
+    if (elements[index] == NULL) {
+      g_printerr ("Failed to create required GStreamer element.\n");
       return FALSE;
     }
-    cameraswitchctx->waylandsink = waylandsink;
-    // Set waylandsink properties
-    g_object_set (G_OBJECT (waylandsink), "name", "waylandsink", NULL);
-    g_object_set (G_OBJECT (waylandsink), "enable-last-sample", false, NULL);
+  }
 
-    // Add qmmfsrc to the pipeline
-    gst_bin_add_many (GST_BIN (cameraswitchctx->pipeline), camsrc, capsfilter,
-        qtivcomposer, waylandsink, NULL);
+  g_object_set (ctx->camsrc0, "camera", ctx->camera0_id, NULL);
+  g_object_set (ctx->camsrc1, "camera", ctx->camera1_id, NULL);
+  g_object_set (ctx->waylandsink, "enable-last-sample", FALSE, NULL);
 
-    // Link the elements
-    if (!gst_element_link_many (camsrc, capsfilter, qtivcomposer, waylandsink, NULL)) {
-      g_printerr ("Error: Link cannot be done!\n");
+  gst_bin_add_many (GST_BIN (ctx->pipeline),
+      ctx->camsrc0, ctx->capsfilter0, ctx->queue0,
+      ctx->camsrc1, ctx->capsfilter1, ctx->queue1,
+      ctx->composer, ctx->waylandsink, NULL);
+
+  if (!gst_element_link_many (ctx->camsrc0, ctx->capsfilter0, ctx->queue0,
+          NULL) ||
+      !gst_element_link_many (ctx->camsrc1, ctx->capsfilter1, ctx->queue1,
+          NULL)) {
+    g_printerr ("Failed to link camera input branches.\n");
+    return FALSE;
+  }
+
+  if (!request_composer_pads (ctx) ||
+      !link_camera_to_composer (ctx->queue0, ctx->composer_sink0) ||
+      !link_camera_to_composer (ctx->queue1, ctx->composer_sink1)) {
+    return FALSE;
+  }
+
+  configure_composer_pad (ctx->composer_sink0, 0, 0,
+      ctx->output_width, ctx->output_height, 1.0);
+  configure_composer_pad (ctx->composer_sink1, 0, 0,
+      ctx->output_width, ctx->output_height, 0.0);
+  ctx->camera0_active = TRUE;
+
+  if (ctx->use_display != 0) {
+    if (!gst_element_link (ctx->composer, ctx->waylandsink)) {
+      g_printerr ("Failed to link display branch.\n");
       return FALSE;
     }
-
-    // As we have camera stream to compose create pad/ports for qtivcomposer
-    composer_sink = gst_element_get_static_pad (qtivcomposer, "sink_0");
-
-    if (composer_sink == NULL) {
-      g_printerr ("\n sink pads are not available");
-      gst_bin_remove_many (GST_BIN (cameraswitchctx->pipeline), camsrc, capsfilter,
-          qtivcomposer, waylandsink, NULL);
-      return FALSE;
-   }
-
-    // Create and set the position and dimensions for qtivcomposer
-    GValue pos1 = G_VALUE_INIT, dim1 = G_VALUE_INIT;
-    g_value_init (&pos1, GST_TYPE_ARRAY);
-    g_value_init (&dim1, GST_TYPE_ARRAY);
-
-    // check the composition type and set the position and dimensions for sink1
-    gint pos1_vals[] = { 0, 0 };
-    gint dim1_vals[] = { 600, 400 };
-
-    build_pad_property (&pos1, pos1_vals, 2);
-    build_pad_property (&dim1, dim1_vals, 2);
-
-    g_object_set_property (G_OBJECT (composer_sink), "position", &pos1);
-    g_object_set_property (G_OBJECT (composer_sink), "dimensions", &dim1);
-
-    // unref the sink pads after use
-    gst_object_unref (composer_sink);
-
-    g_value_unset (&pos1);
-    g_value_unset (&dim1);
-
   } else {
-    encoder = gst_element_factory_make ("v4l2h264enc", "v4l2h264enc");
-    filesink = gst_element_factory_make ("filesink", "filesink");
-    h264parse = gst_element_factory_make ("h264parse", "h264parse");
-    mp4mux = gst_element_factory_make ("mp4mux", "mp4mux");
-
-    // Check if all elements are created successfully
-    if (!encoder || !filesink || !h264parse || !mp4mux) {
-      g_printerr ("Encoder's elements could not be created of found. Exiting.\n");
-      return FALSE;
-    }
-
-    // Set encoder properties
-    gst_element_set_enum_property (encoder, "capture-io-mode", "dmabuf");
-    gst_element_set_enum_property (encoder, "output-io-mode", "dmabuf-import");
-
-    g_object_set (G_OBJECT (h264parse), "name", "h264parse", NULL);
-    g_object_set (G_OBJECT (mp4mux), "name", "mp4mux", NULL);
-    gchar *media_dir = NULL;
-    gchar *output_path = NULL;
-    const gchar *home_dir = g_get_home_dir ();
-
+    home_dir = g_get_home_dir ();
     if (home_dir == NULL || home_dir[0] == '\0') {
-      g_printerr ("Failed to resolve the HOME directory.\n");
+      g_printerr ("Failed to resolve HOME directory.\n");
       return FALSE;
     }
 
     media_dir = g_build_filename (home_dir, "Downloads", "qimsdk_samples",
         "media", NULL);
-    if (media_dir == NULL) {
-      g_printerr ("Failed to allocate the default media directory path.\n");
-      return FALSE;
-    }
-
     if (g_mkdir_with_parents (media_dir, 0755) != 0) {
       g_printerr ("Failed to create media directory '%s': %s\n", media_dir,
           g_strerror (errno));
@@ -349,204 +281,227 @@ create_pipe (GstCameraSwitchCtx *cameraswitchctx)
       return FALSE;
     }
 
-    output_path = g_build_filename (media_dir, "mux.mp4", NULL);
+    output_path = g_build_filename (media_dir, OUTPUT_FILE_NAME, NULL);
     g_free (media_dir);
-    if (output_path == NULL) {
-      g_printerr ("Failed to allocate the default output file path.\n");
+    g_object_set (ctx->filesink, "location", output_path,
+        "enable-last-sample", FALSE, NULL);
+    g_free (output_path);
+
+    gst_bin_add_many (GST_BIN (ctx->pipeline), ctx->tee, ctx->output_capsfilter, ctx->preview_queue,
+        ctx->record_queue, ctx->encoder, ctx->h264parse, ctx->mp4mux,
+        ctx->filesink, NULL);
+
+    gst_element_set_enum_property (ctx->encoder, "capture-io-mode", "dmabuf");
+    gst_element_set_enum_property (ctx->encoder, "output-io-mode",
+        "dmabuf-import");
+
+    if (!gst_element_link_many (ctx->composer, ctx->output_capsfilter, ctx->tee, NULL) ||
+        !gst_element_link (ctx->preview_queue, ctx->waylandsink) ||
+        !gst_element_link_many (ctx->record_queue, ctx->encoder,
+            ctx->h264parse, ctx->mp4mux, ctx->filesink, NULL)) {
+      g_printerr ("Failed to link preview and recording branches.\n");
       return FALSE;
     }
 
-    g_object_set (G_OBJECT (filesink), "name", "filesink", NULL);
-    g_object_set (G_OBJECT (filesink), "location", output_path, NULL);
-    g_free (output_path);
-    g_object_set (G_OBJECT (filesink), "enable-last-sample", false, NULL);
+    {
+      GstPad *tee_preview_src;
+      GstPad *tee_record_src;
+      GstPad *preview_sink;
+      GstPad *record_sink;
 
-    // Add qmmfsrc to the pipeline
-    gst_bin_add_many (GST_BIN (cameraswitchctx->pipeline), camsrc, capsfilter,
-        encoder, h264parse, mp4mux, filesink, NULL);
+      tee_preview_src = gst_element_request_pad_simple (ctx->tee, "src_%u");
+      tee_record_src = gst_element_request_pad_simple (ctx->tee, "src_%u");
+      preview_sink = gst_element_get_static_pad (ctx->preview_queue, "sink");
+      record_sink = gst_element_get_static_pad (ctx->record_queue, "sink");
 
-    // Link the elements
-    if (!gst_element_link_many (camsrc, capsfilter, encoder, h264parse, mp4mux,
-            filesink, NULL)) {
-      g_printerr ("Error: Link cannot be done!\n");
-      return FALSE;
+      if (tee_preview_src == NULL || tee_record_src == NULL ||
+          preview_sink == NULL || record_sink == NULL ||
+          gst_pad_link (tee_preview_src, preview_sink) != GST_PAD_LINK_OK ||
+          gst_pad_link (tee_record_src, record_sink) != GST_PAD_LINK_OK) {
+        g_printerr ("Failed to link tee branches.\n");
+        if (tee_preview_src != NULL) gst_object_unref (tee_preview_src);
+        if (tee_record_src != NULL) gst_object_unref (tee_record_src);
+        if (preview_sink != NULL) gst_object_unref (preview_sink);
+        if (record_sink != NULL) gst_object_unref (record_sink);
+        return FALSE;
+      }
+
+      gst_object_unref (tee_preview_src);
+      gst_object_unref (tee_record_src);
+      gst_object_unref (preview_sink);
+      gst_object_unref (record_sink);
     }
   }
-
-  g_print ("All elements are linked successfully\n");
 
   return TRUE;
 }
 
-gint
-main (gint argc, gchar * argv[])
+static gboolean
+switch_camera_cb (gpointer user_data)
 {
-  GOptionContext *ctx = NULL;
-  GstElement *pipeline = NULL;
-  GMainLoop *mloop = NULL;
-  GstBus *bus = NULL;
-  guint intrpt_watch_id = 0;
-  gboolean ret = FALSE;
-  GstCameraSwitchCtx cameraswitchctx = {};
-  cameraswitchctx.exit = false;
-  cameraswitchctx.use_display = 1;
-  cameraswitchctx.camera0_id = 0;
-  cameraswitchctx.camera1_id = 1;
-  g_mutex_init (&cameraswitchctx.lock);
+  GstCameraSwitchCtx *ctx = user_data;
+  gdouble alpha0 = ctx->camera0_active ? 0.0 : 1.0;
+  gdouble alpha1 = ctx->camera0_active ? 1.0 : 0.0;
+  guint camera_id = ctx->camera0_active ? ctx->camera1_id : ctx->camera0_id;
 
-  // Initialize GST library.
-  gst_init (&argc, &argv);
+  g_object_set (ctx->composer_sink0, "alpha", alpha0, NULL);
+  g_object_set (ctx->composer_sink1, "alpha", alpha1, NULL);
+  ctx->camera0_active = !ctx->camera0_active;
 
-  GOptionEntry entries[] = {
-      { "display", 'd', 0, G_OPTION_ARG_INT,
-        &cameraswitchctx.use_display,
-        "Enable display",
-        "Parameter for enable display output"
-      },
-      { "camera0_id", 'm', 0, G_OPTION_ARG_INT,
-        &cameraswitchctx.camera0_id,
-        "ID of camera0",
-        NULL,
-      },
-      { "camera1_id", 's', 0, G_OPTION_ARG_INT,
-        &cameraswitchctx.camera1_id,
-        "ID of camera1",
-        NULL,
-      },
-      { NULL }
-  };
+  g_print ("Switched camera %u\n", camera_id);
+  return G_SOURCE_CONTINUE;
+}
 
-  // Parse command line entries.
-  if ((ctx = g_option_context_new (GST_APP_SUMMARY)) != NULL) {
-    gboolean success = FALSE;
-    GError *error = NULL;
+static gboolean
+signal_cb (gpointer user_data)
+{
+  GstCameraSwitchCtx *ctx = user_data;
+  if (!ctx->shutting_down) {
+    ctx->shutting_down = TRUE;
+    g_main_loop_quit (ctx->main_loop);
+  }
+  return G_SOURCE_REMOVE;
+}
 
-    g_option_context_add_main_entries (ctx, entries, NULL);
-    g_option_context_add_group (ctx, gst_init_get_option_group ());
+static gboolean
+bus_cb (GstBus *bus, GstMessage *message, gpointer user_data)
+{
+  GstCameraSwitchCtx *ctx = user_data;
+  GError *error = NULL;
+  gchar *debug = NULL;
+  (void) bus;
 
-    success = g_option_context_parse (ctx, &argc, &argv, &error);
-    g_option_context_free (ctx);
-
-    if (!success && (error != NULL)) {
-      g_printerr ("Failed to parse command line options: %s!\n",
-          GST_STR_NULL (error->message));
+  switch (GST_MESSAGE_TYPE (message)) {
+    case GST_MESSAGE_ERROR:
+      gst_message_parse_error (message, &error, &debug);
+      g_printerr ("GStreamer error: %s\n", error->message);
+      if (debug != NULL) g_printerr ("Debug: %s\n", debug);
       g_clear_error (&error);
-      return -1;
-    } else if (!success && (NULL == error)) {
-      g_printerr ("Initializing: Unknown error!\n");
-      return -1;
-    }
-  } else {
-    g_printerr ("Failed to create options context!\n");
-    return -1;
+      g_free (debug);
+      g_main_loop_quit (ctx->main_loop);
+      break;
+    case GST_MESSAGE_EOS:
+      g_main_loop_quit (ctx->main_loop);
+      break;
+    default:
+      break;
+  }
+  return G_SOURCE_CONTINUE;
+}
+
+static void
+release_request_pad (GstCameraSwitchCtx *ctx, GstPad **pad)
+{
+  if (*pad != NULL) {
+    gst_element_release_request_pad (ctx->composer, *pad);
+    gst_object_unref (*pad);
+    *pad = NULL;
+  }
+}
+
+int
+main (int argc, char *argv[])
+{
+  GOptionContext *option_context;
+  GOptionEntry options[] = {
+    { "display", 'd', 0, G_OPTION_ARG_INT, NULL,
+      "1=display only, 0=preview and encode", "0 or 1" },
+    { "camera0_id", 'm', 0, G_OPTION_ARG_INT, NULL,
+      "Camera 0 ID", "ID" },
+    { "camera1_id", 's', 0, G_OPTION_ARG_INT, NULL,
+      "Camera 1 ID", "ID" },
+    { "camera0-width", 0, 0, G_OPTION_ARG_INT, NULL,
+      "Camera 0 width", "WIDTH" },
+    { "camera0-height", 0, 0, G_OPTION_ARG_INT, NULL,
+      "Camera 0 height", "HEIGHT" },
+    { "camera1-width", 0, 0, G_OPTION_ARG_INT, NULL,
+      "Camera 1 width", "WIDTH" },
+    { "camera1-height", 0, 0, G_OPTION_ARG_INT, NULL,
+      "Camera 1 height", "HEIGHT" },
+    { "output-width", 0, 0, G_OPTION_ARG_INT, NULL,
+      "Composed output width", "WIDTH" },
+    { "output-height", 0, 0, G_OPTION_ARG_INT, NULL,
+      "Composed output height", "HEIGHT" },
+    { NULL }
+  };
+  GstCameraSwitchCtx ctx = { 0 };
+  GstBus *bus;
+  GError *error = NULL;
+  GstStateChangeReturn state_result;
+
+  options[0].arg_data = &ctx.use_display;
+  options[1].arg_data = &ctx.camera0_id;
+  options[2].arg_data = &ctx.camera1_id;
+  options[3].arg_data = &ctx.camera0_width;
+  options[4].arg_data = &ctx.camera0_height;
+  options[5].arg_data = &ctx.camera1_width;
+  options[6].arg_data = &ctx.camera1_height;
+  options[7].arg_data = &ctx.output_width;
+  options[8].arg_data = &ctx.output_height;
+  ctx.use_display = 1;
+  ctx.camera0_id = 0;
+  ctx.camera1_id = 1;
+  ctx.camera0_width = DEFAULT_WIDTH;
+  ctx.camera0_height = DEFAULT_HEIGHT;
+  ctx.camera1_width = DEFAULT_WIDTH;
+  ctx.camera1_height = DEFAULT_HEIGHT;
+  ctx.output_width = DEFAULT_WIDTH;
+  ctx.output_height = DEFAULT_HEIGHT;
+
+  gst_init (&argc, &argv);
+  option_context = g_option_context_new (GST_APP_SUMMARY);
+  g_option_context_add_main_entries (option_context, options, NULL);
+  g_option_context_add_group (option_context, gst_init_get_option_group ());
+
+  if (!g_option_context_parse (option_context, &argc, &argv, &error)) {
+    g_printerr ("Option parsing failed: %s\n", error->message);
+    g_clear_error (&error);
+    g_option_context_free (option_context);
+    return 1;
+  }
+  g_option_context_free (option_context);
+
+  ctx.pipeline = gst_pipeline_new ("gst-camera-switch");
+  ctx.main_loop = g_main_loop_new (NULL, FALSE);
+  if (ctx.pipeline == NULL || ctx.main_loop == NULL || !create_pipe (&ctx)) {
+    g_printerr ("Failed to create pipeline.\n");
+    if (ctx.main_loop != NULL) g_main_loop_unref (ctx.main_loop);
+    if (ctx.pipeline != NULL) gst_object_unref (ctx.pipeline);
+    return 1;
   }
 
-  g_print ("Using camera0 id = %d and camera1 id = %d\n",
-      cameraswitchctx.camera0_id, cameraswitchctx.camera1_id);
-
-  pipeline = gst_pipeline_new ("gst-cameraswitch");
-  cameraswitchctx.pipeline = pipeline;
-
-  // Check if all elements are created successfully
-  if (!pipeline) {
-    g_printerr ("Failed to create pipeline...Exiting.\n");
-    return -1;
-  }
-
-  // Build the pipeline
-  ret = create_pipe (&cameraswitchctx);
-  if (!ret) {
-    g_printerr ("failed to create GST pipe.\n");
-    return -1;
-  }
-
-  // Initialize main loop.
-  if ((mloop = g_main_loop_new (NULL, FALSE)) == NULL) {
-    g_printerr ("ERROR: Failed to create Main loop!\n");
-    return -1;
-  }
-  cameraswitchctx.mloop = mloop;
-
-  // Retrieve reference to the pipeline's bus.
-  if ((bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline))) == NULL) {
-    g_printerr ("ERROR: Failed to retrieve pipeline bus!\n");
-    g_main_loop_unref (mloop);
-    return -1;
-  }
-
-  // Watch for messages on the pipeline's bus.
-  gst_bus_add_signal_watch (bus);
-  g_signal_connect (bus, "message::state-changed", G_CALLBACK (state_changed_cb),
-      pipeline);
-  g_signal_connect (bus, "message::warning", G_CALLBACK (warning_cb), NULL);
-  g_signal_connect (bus, "message::error", G_CALLBACK (error_cb), mloop);
-  g_signal_connect (bus, "message::eos", G_CALLBACK (eos_cb), mloop);
+  bus = gst_element_get_bus (ctx.pipeline);
+  gst_bus_add_watch (bus, bus_cb, &ctx);
   gst_object_unref (bus);
 
-  // Register function for handling interrupt signals with the main loop.
-  intrpt_watch_id = g_unix_signal_add (SIGINT, handle_interrupt_signal,
-      &cameraswitchctx);
+  ctx.switch_source_id = g_timeout_add_seconds (SWITCH_INTERVAL_SECONDS,
+      switch_camera_cb, &ctx);
+  ctx.signal_source_id = g_unix_signal_add (SIGINT, signal_cb, &ctx);
 
-  g_print ("Set pipeline to GST_STATE_PLAYING state\n");
-  switch (gst_element_set_state (pipeline, GST_STATE_PLAYING)) {
-    case GST_STATE_CHANGE_FAILURE:
-      g_printerr ("\n Failed to transition to PLAY state!\n");
-      if (intrpt_watch_id)
-        g_source_remove (intrpt_watch_id);
-      g_main_loop_unref (mloop);
-      return -1;
-    case GST_STATE_CHANGE_NO_PREROLL:
-      g_print ("\n Pipeline is live and does not need PREROLL.\n");
-      break;
-    case GST_STATE_CHANGE_ASYNC:
-      g_print ("\n Pipeline is PREROLLING ...\n");
-      break;
-    case GST_STATE_CHANGE_SUCCESS:
-      g_print ("\n Pipeline state change was successful\n");
-      break;
+  state_result = gst_element_set_state (ctx.pipeline, GST_STATE_PLAYING);
+  if (state_result == GST_STATE_CHANGE_FAILURE) {
+    g_printerr ("Failed to set pipeline to PLAYING.\n");
+    g_main_loop_quit (ctx.main_loop);
+  } else {
+    g_print ("Running in %s mode. Camera 0=%u, camera 1=%u\n",
+        ctx.use_display ? "display" : "preview and encode",
+        ctx.camera0_id, ctx.camera1_id);
+    g_main_loop_run (ctx.main_loop);
   }
 
-  pthread_t thread;
-  pthread_create (&thread, NULL, &thread_fn, &cameraswitchctx);
+  if (ctx.switch_source_id != 0) g_source_remove (ctx.switch_source_id);
+  if (ctx.signal_source_id != 0) g_source_remove (ctx.signal_source_id);
 
-  // Run main loop.
-  g_print ("Application Running\n");
-  g_main_loop_run (mloop);
-  g_print ("Stop application\n");
-
-  g_mutex_lock (&cameraswitchctx.lock);
-  cameraswitchctx.exit = true;
-  g_mutex_unlock (&cameraswitchctx.lock);
-  pthread_join (thread, NULL);
-
-  g_print ("Setting pipeline to NULL state ...\n");
-  switch (gst_element_set_state (pipeline, GST_STATE_NULL)) {
-    case GST_STATE_CHANGE_FAILURE:
-      g_printerr ("Failed to transition to state NULL!\n");
-      g_source_remove (intrpt_watch_id);
-      g_main_loop_unref (mloop);
-      g_mutex_clear (&cameraswitchctx.lock);
-      gst_object_unref (pipeline);
-      return -1;
-    case GST_STATE_CHANGE_NO_PREROLL:
-      g_print ("\n Pipeline is live and does not need PREROLL.\n");
-      break;
-    case GST_STATE_CHANGE_ASYNC:
-      g_print ("\n Pipeline is PREROLLING ...\n");
-      break;
-    case GST_STATE_CHANGE_SUCCESS:
-      g_print ("Pipeline state change was successful\n");
-      break;
+  if (ctx.use_display == 0) {
+    gst_element_send_event (ctx.pipeline, gst_event_new_eos ());
+    gst_element_get_state (ctx.pipeline, NULL, NULL, 5 * GST_SECOND);
   }
 
-  g_source_remove (intrpt_watch_id);
-  g_main_loop_unref (mloop);
-
-  g_mutex_clear (&cameraswitchctx.lock);
-  gst_object_unref (pipeline);
-
-  // Deinitialize the GST library
-  g_print ("gst_deinit\n");
+  gst_element_set_state (ctx.pipeline, GST_STATE_NULL);
+  release_request_pad (&ctx, &ctx.composer_sink0);
+  release_request_pad (&ctx, &ctx.composer_sink1);
+  gst_object_unref (ctx.pipeline);
+  g_main_loop_unref (ctx.main_loop);
   gst_deinit ();
   return 0;
 }
