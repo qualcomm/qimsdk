@@ -116,7 +116,7 @@ bool Module::Process(const Tensors& tensors, Dictionary& mlparams,
   for (uint32_t row = top; row < bottom; row++) {
     for (uint32_t column = left; column < right; column++) {
       // Calculate the source index.
-      uint32_t inidx = (row * mlwidth * n_scores) + column;
+      uint32_t inidx = ((row * mlwidth) + column) * n_scores;
 
       // Initialize the class ID value.
       uint32_t id = inidx;
