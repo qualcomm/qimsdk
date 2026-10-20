@@ -12,6 +12,8 @@
 #include <gst/ml/ml-post-process-pose.h>
 #include <gst/ml/ml-post-process-segmentation.h>
 #include <gst/ml/ml-post-process-depth-map.h>
+#include <gst/video/video.h>
+#include <gst/video/video-utils.h>
 
 static PyObject *
 _gst_ml_frame_get_memory_view (PyObject * self, PyObject * args)
@@ -1235,6 +1237,35 @@ _gst_ml_depth_map_set_xtraparams (PyObject * self, PyObject * args)
   Py_RETURN_NONE;
 }
 
+static PyObject *
+_gst_video_region_of_interest_meta_get_quadrilateral (PyObject * self,
+    PyObject * args)
+{
+  PyObject *py_meta = NULL;
+  GstVideoRegionOfInterestMeta *meta = NULL;
+  GstVideoQuadrilateral quadrilateral;
+
+  // GstVideo.VideoRegionOfInterestMeta is a plain struct without a GType.
+  if (!PyArg_ParseTuple (args, "O!", &PyGPointer_Type, &py_meta)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  meta = pyg_pointer_get (py_meta, GstVideoRegionOfInterestMeta);
+
+  if (meta == NULL) {
+    PyErr_SetString (PyExc_ValueError, "invalid GstVideoRegionOfInterestMeta!");
+    return NULL;
+  }
+
+  quadrilateral = gst_video_region_of_interest_meta_get_quadrilateral (meta);
+
+  // GstVideoQuadrilateral has no GType so return its 4 points as 8 doubles.
+  return Py_BuildValue ("(dddddddd)", quadrilateral.a.x, quadrilateral.a.y,
+      quadrilateral.b.x, quadrilateral.b.y, quadrilateral.c.x, quadrilateral.c.y,
+      quadrilateral.d.x, quadrilateral.d.y);
+}
+
 static PyMethodDef _gi_gst_qti_functions[] = {
     {"ml_frame_get_memory_view", (PyCFunction) _gst_ml_frame_get_memory_view, METH_VARARGS, NULL},
     {"ml_keypoint_get_name", (PyCFunction) _gst_ml_keypoint_get_name, METH_VARARGS, NULL},
@@ -1269,6 +1300,7 @@ static PyMethodDef _gi_gst_qti_functions[] = {
     {"ml_depth_map_set_colors", (PyCFunction) _gst_ml_depth_map_set_colors, METH_VARARGS, NULL},
     {"ml_depth_map_get_xtraparams", (PyCFunction) _gst_ml_depth_map_get_xtraparams, METH_VARARGS, NULL},
     {"ml_depth_map_set_xtraparams", (PyCFunction) _gst_ml_depth_map_set_xtraparams, METH_VARARGS, NULL},
+    {"video_region_of_interest_meta_get_quadrilateral", (PyCFunction) _gst_video_region_of_interest_meta_get_quadrilateral, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}
 };
 

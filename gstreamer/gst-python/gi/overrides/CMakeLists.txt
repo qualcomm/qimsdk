@@ -20,6 +20,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
   ${GST_LIBRARIES}
   ${PYGOBJECT_LIBRARIES}
   gstqtimlbase
+  gstqtivideobase
 )
 
 install(
@@ -33,9 +34,9 @@ install(
 # Install the overrides so 'from gi.repository import' picks them up.
 install(
   FILES ${CMAKE_CURRENT_SOURCE_DIR}/GstQtiML.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/GstQtiVideo.py
   DESTINATION ${PYTHON_SITEPACKAGES_DIR}/gi/overrides
 )
-
 find_file(QIMSDK_GSTQTIML_TYPELIB "GstQtiML-1.0.typelib"
   PATH_SUFFIXES "lib/girepository-1.0" "usr/lib/girepository-1.0"
 )
