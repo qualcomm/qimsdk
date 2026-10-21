@@ -14,6 +14,13 @@ set(GST_PLUGINS_QTI_OSS_INSTALL_INCDIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_
 set(GST_PLUGINS_QTI_OSS_INSTALL_DATADIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATAROOTDIR}")
 set(GST_PLUGINS_QTI_OSS_INSTALL_CONFIG "${CMAKE_INSTALL_SYSCONFDIR}/configs")
 
+# Instruct CMake's FindPkgConfig module to use the directories specified in
+# CMAKE_PREFIX_PATH when searching for .pc files. This ensures that locally
+# provided .pc files are also considered for all components within the CMake
+# build system.
+set(PKG_CONFIG_USE_CMAKE_PREFIX_PATH ON)
+set(CMAKE_PREFIX_PATH "${PKG_CONFIG_LOCAL_PATH}")
+
 option(ENABLE_GST_IMSDK_PLUGINS "Enable IMSDK Plugins" OFF)
 
 option(ENABLE_GST_PLUGIN_BASE "Enable gst-plugin-base libraries" ${ENABLE_GST_IMSDK_PLUGINS})
