@@ -152,7 +152,7 @@ typedef struct {
 */
 static GstVideoRectangle position_data[2] = {
   {0, 0, 1920, 1080},
-  {30, 30, 480, 360}
+  {30, 30, 540, 72}
 };
 
 /**
@@ -883,9 +883,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
 
   // 2.9 Set the properties of pad_filter for negotiation with qtivcomposer
   pad_filter = gst_caps_new_simple ("video/x-raw",
-      "format", G_TYPE_STRING, "RGBA",
-      "width", G_TYPE_INT, 640,
-      "height", G_TYPE_INT, 360, NULL);
+      "format", G_TYPE_STRING, "RGBA", NULL);
 
   g_object_set (G_OBJECT (classification_filter), "caps", pad_filter, NULL);
   gst_caps_unref (pad_filter);

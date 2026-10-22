@@ -895,7 +895,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
         g_value_init (&position, GST_TYPE_ARRAY);
         g_value_init (&dimension, GST_TYPE_ARRAY);
         pos_vals[0] = (coordinates[i].w + 30); pos_vals[1] = 45;
-        dim_vals[0] = coordinates[i].w/3; dim_vals[1] = coordinates[i].h/3;
+        dim_vals[0] = coordinates[i].w/4; dim_vals[1] = coordinates[i].h/6;
         build_pad_property (&position, pos_vals, 2);
         build_pad_property (&dimension, dim_vals, 2);
         break;
