@@ -44,6 +44,13 @@ struct _GstBatch
   /// Convenient local reference to source pad.
   GstPad         *srcpad;
 
+  /// Pool handing out empty wrapper buffers for the worker task's output;
+  /// going through a pool (instead of a bare gst_buffer_new()) sets the
+  /// wrapper's pool field, so downstream consumers don't mistake it for a
+  /// one-shot buffer whose derived GPU resources are safe to destroy as
+  /// soon as this one wrapper is done with them.
+  GstBufferPool  *pool;
+
   /// Output buffers duration.
   GstClockTime   duration;
 

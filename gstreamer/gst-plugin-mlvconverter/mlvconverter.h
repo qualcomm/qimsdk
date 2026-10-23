@@ -108,6 +108,9 @@ struct _GstMLVideoConverter {
 
   /// Buffer pools.
   GstBufferPool            *outpool;
+  /// Pool for the single-memory-block wrapper buffers vended by
+  /// gst_buffer_new_from_parent_memory() when the parent buffer is pool-backed.
+  GstBufferPool            *parentpool;
 
   /// Queue for managing stashed buffers with not enough ROI / memory.
   GQueue                   *bufqueue;

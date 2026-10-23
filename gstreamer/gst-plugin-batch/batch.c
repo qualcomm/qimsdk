@@ -26,6 +26,30 @@ GST_DEBUG_CATEGORY (gst_batch_debug);
 #define gst_batch_parent_class parent_class
 G_DEFINE_TYPE (GstBatch, gst_batch, GST_TYPE_ELEMENT);
 
+// Vends empty wrapper buffers (gst_buffer_new(), no memory of their own) for
+// the worker task's output. Going through a pool sets buffer->pool, so
+// downstream (e.g. the GLES video converter) doesn't treat the wrapper as a
+// one-shot buffer whose memory - still shared with other tee'd consumers -
+// is safe to free as soon as this wrapper is done with it.
+#define GST_TYPE_BATCH_BUFFER_POOL (gst_batch_buffer_pool_get_type ())
+
+typedef struct _GstBatchBufferPool      GstBatchBufferPool;
+typedef struct _GstBatchBufferPoolClass GstBatchBufferPoolClass;
+
+struct _GstBatchBufferPool
+{
+  GstBufferPool parent;
+};
+
+struct _GstBatchBufferPoolClass
+{
+  GstBufferPoolClass parent;
+};
+
+GType gst_batch_buffer_pool_get_type (void);
+
+G_DEFINE_TYPE (GstBatchBufferPool, gst_batch_buffer_pool, GST_TYPE_BUFFER_POOL);
+
 #define DEFAULT_PROP_MOVING_WINDOW_SIZE 1
 
 #define GST_BATCH_SINK_CAPS \
@@ -195,6 +219,30 @@ gst_batch_sink_buffers_available (GstBatch * batch)
 
   // If all pads are idle then ignore the cumulative buffers 'available' variable.
   return !idle && available;
+}
+
+static gboolean
+gst_batch_sink_buffers_pooled (GstBatch * batch)
+{
+  GList *list = NULL;
+
+  for (list = batch->sinkpads; list != NULL; list = g_list_next (list)) {
+    GstBatchSinkPad *sinkpad = GST_BATCH_SINK_PAD (list->data);
+    GstBuffer *inbuffer = NULL;
+
+    // Pads that haven't accumulated enough buffers won't contribute to the
+    // output buffer this round - see gst_batch_extract_sink_buffer() - so
+    // their state is irrelevant to whether the output should be pooled.
+    if (g_queue_get_length (sinkpad->buffers) < batch->depth)
+      continue;
+
+    inbuffer = g_queue_peek_head (sinkpad->buffers);
+
+    if (inbuffer->pool == NULL)
+      return FALSE;
+  }
+
+  return TRUE;
 }
 
 static gboolean
@@ -368,6 +416,51 @@ cleanup:
 }
 
 static void
+gst_batch_buffer_pool_reset_buffer (GstBufferPool * pool, GstBuffer * buffer)
+{
+  gst_buffer_remove_all_memory (buffer);
+  GST_BUFFER_FLAG_UNSET (buffer, GST_BUFFER_FLAG_TAG_MEMORY);
+
+  GST_BUFFER_POOL_CLASS (gst_batch_buffer_pool_parent_class)->reset_buffer (
+      pool, buffer);
+}
+
+static void
+gst_batch_buffer_pool_class_init (GstBatchBufferPoolClass * klass)
+{
+  GstBufferPoolClass *pool = GST_BUFFER_POOL_CLASS (klass);
+  pool->reset_buffer = gst_batch_buffer_pool_reset_buffer;
+}
+
+static void
+gst_batch_buffer_pool_init (GstBatchBufferPool * pool)
+{
+  // Not implemented
+}
+
+static GstBufferPool *
+gst_batch_buffer_pool_new (void)
+{
+  GstBufferPool *pool = GST_BUFFER_POOL_CAST (
+      g_object_new (GST_TYPE_BATCH_BUFFER_POOL, NULL));
+  GstStructure *config = gst_buffer_pool_get_config (pool);
+
+  // Size/caps/min/max are irrelevant since alloc_buffer() above ignores them;
+  // this call only exists to satisfy GstBufferPool's config validation. Caps
+  // must be NULL or fixed - there are none to give, so pass NULL.
+  gst_buffer_pool_config_set_params (config, NULL, 0, 0, 0);
+
+  if (!gst_buffer_pool_set_config (pool, config) ||
+      !gst_buffer_pool_set_active (pool, TRUE)) {
+    GST_ERROR ("Failed to configure batch output buffer pool!");
+    gst_object_unref (pool);
+    return NULL;
+  }
+
+  return pool;
+}
+
+static void
 gst_batch_worker_task (gpointer userdata)
 {
   GstBatch *batch = GST_BATCH (userdata);
@@ -425,8 +518,20 @@ gst_batch_worker_task (gpointer userdata)
 
   time = gst_util_get_timestamp ();
 
-  // Create a new buffer wrapper to hold a reference to input buffer.
-  buffer = gst_buffer_new ();
+  // Acquire a new, empty buffer wrapper to hold a reference to input buffer.
+  // Only go through our pool when every contributing sink pad's buffer is
+  // itself pool-backed - otherwise there's no premature-free risk to guard
+  // against, so keep the lighter-weight plain allocation.
+  if (gst_batch_sink_buffers_pooled (batch)) {
+    if (gst_buffer_pool_acquire_buffer (batch->pool, &buffer, NULL) != GST_FLOW_OK) {
+      GST_ERROR_OBJECT (batch, "Failed to acquire output buffer!");
+      GST_BATCH_UNLOCK (batch);
+      return;
+    }
+  } else {
+    buffer = gst_buffer_new ();
+  }
+
   // Reset the offset field as it will be used to store the channels mask.
   GST_BUFFER_OFFSET (buffer) = 0;
 
@@ -1187,6 +1292,12 @@ gst_batch_finalize (GObject * object)
 {
   GstBatch *batch = GST_BATCH (object);
 
+  if (batch->pool != NULL) {
+    gst_buffer_pool_set_active (batch->pool, FALSE);
+    gst_object_unref (batch->pool);
+    batch->pool = NULL;
+  }
+
   g_rec_mutex_clear (&batch->worklock);
   g_cond_clear (&batch->wakeup);
 
@@ -1248,6 +1359,8 @@ gst_batch_init (GstBatch * batch)
 
   batch->depth = 1;
   batch->moving_window_size = DEFAULT_PROP_MOVING_WINDOW_SIZE;
+
+  batch->pool = gst_batch_buffer_pool_new ();
 
   g_rec_mutex_init (&batch->worklock);
   g_cond_init (&batch->wakeup);
