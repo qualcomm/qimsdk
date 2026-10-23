@@ -2541,7 +2541,7 @@ gst_ocv_video_converter_compose (GstOcvVideoConverter * convert,
 
     success = gst_video_frame_map (&outframe, composition->info,
         composition->buffer,
-        (GstMapFlags)(GST_MAP_READ | GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
+        (GstMapFlags)(GST_MAP_READWRITE | GST_VIDEO_FRAME_MAP_FLAG_NO_REF));
 
     if (!success) {
       GST_ERROR ("Failed to map input buffer!");
