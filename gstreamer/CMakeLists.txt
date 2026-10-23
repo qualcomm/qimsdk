@@ -72,6 +72,7 @@ option(ENABLE_GST_PLUGIN_RTSPBIN "Enable gst-plugin-rtspbin" ${ENABLE_GST_SOFTWA
 option(ENABLE_GST_PLUGIN_SOCKET "Enable gst-plugin-socket" ${ENABLE_GST_SOFTWARE_PLUGINS})
 option(ENABLE_GST_PLUGIN_URIDECODEBIN "Enable gst-plugin-uridecodebin" ${ENABLE_GST_SOFTWARE_PLUGINS})
 option(ENABLE_GST_PLUGIN_VIDEOTEMPLATE "Enable gst-plugin-videotemplate" ${ENABLE_GST_SOFTWARE_PLUGINS})
+option(ENABLE_GST_PLUGIN_BEAMFORMING "Enable gst-plugin-beamforming" ${ENABLE_GST_SOFTWARE_PLUGINS})
 
 # Python extension module
 option(ENABLE_GST_PYTHON "Enable gst-python libraries" OFF)
@@ -185,6 +186,7 @@ add_plugin_if(ENABLE_GST_PLUGIN_RTSPBIN         gst-plugin-rtspbin)
 add_plugin_if(ENABLE_GST_PLUGIN_SOCKET          gst-plugin-socket)
 add_plugin_if(ENABLE_GST_PLUGIN_URIDECODEBIN    gst-plugin-uridecodebin)
 add_plugin_if(ENABLE_GST_PLUGIN_VIDEOTEMPLATE   gst-plugin-videotemplate)
+add_plugin_if(ENABLE_GST_PLUGIN_BEAMFORMING     gst-plugin-beamforming)
 
 # Software Plugins (prop)
 add_plugin_if(ENABLE_GST_PLUGIN_SMARTVENCBIN    gst-plugin-smartvencbin)
