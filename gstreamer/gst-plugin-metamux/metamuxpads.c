@@ -23,9 +23,8 @@ queue_is_full_cb (GstDataQueue * queue, guint visible, guint bytes,
     GST_METAMUX_PAD_SIGNAL_IDLE (srcpad, FALSE);
 
     // Limiting the output queue
-    if (visible >= srcpad->buffers_limit) {
-      GST_TRACE_OBJECT (pad, "Queue limit reached of %d buffers!",
-          srcpad->buffers_limit);
+    if (visible >= srcpad->qlimit) {
+      GST_TRACE_OBJECT (pad, "Queue limit reached of %d buffers!", srcpad->qlimit);
       return TRUE;
     }
   } else if (GST_IS_METAMUX_SINK_PAD (pad)) {
@@ -33,9 +32,8 @@ queue_is_full_cb (GstDataQueue * queue, guint visible, guint bytes,
     GST_METAMUX_PAD_SIGNAL_IDLE (sinkpad, FALSE);
 
     // Limiting the input queue
-    if (visible >= sinkpad->buffers_limit) {
-      GST_TRACE_OBJECT (pad, "Queue limit reached of %d buffers!",
-          sinkpad->buffers_limit);
+    if (visible >= sinkpad->qlimit) {
+      GST_TRACE_OBJECT (pad, "Queue limit reached of %d buffers!", sinkpad->qlimit);
       return TRUE;
     }
   }
@@ -63,7 +61,7 @@ gst_metamux_src_pad_worker_task (gpointer userdata)
   GstMetaMuxSrcPad *srcpad = GST_METAMUX_SRC_PAD (userdata);
   GstDataQueueItem *item = NULL;
 
-  if (gst_data_queue_peek (srcpad->buffers, &item)) {
+  if (gst_data_queue_peek (srcpad->queue, &item)) {
     GstBuffer *buffer = NULL;
 
     // Take the buffer from the queue item and null the object pointer.
@@ -74,7 +72,7 @@ gst_metamux_src_pad_worker_task (gpointer userdata)
     gst_pad_push (GST_PAD (srcpad), buffer);
 
     // Buffer was sent downstream, remove and free the item from the queue.
-    if (gst_data_queue_pop (srcpad->buffers, &item))
+    if (gst_data_queue_pop (srcpad->queue, &item))
       item->destroy (item);
   } else {
     GST_INFO_OBJECT (srcpad, "Pause worker task!");
@@ -167,14 +165,14 @@ gst_metamux_src_pad_activate_mode (GstPad * pad, GstObject * parent,
       GST_INFO_OBJECT (srcpad, "%s task", active ? "Activating" : "Deactivating");
 
       if (active && (state != GST_TASK_STARTED)) {
-        gst_data_queue_set_flushing (srcpad->buffers, FALSE);
-        gst_data_queue_flush (srcpad->buffers);
+        gst_data_queue_set_flushing (srcpad->queue, FALSE);
+        gst_data_queue_flush (srcpad->queue);
 
         success = gst_pad_start_task (
             GST_PAD (srcpad), gst_metamux_src_pad_worker_task, srcpad, NULL);
       } else if (!active  && (state != GST_TASK_STOPPED)) {
-        gst_data_queue_set_flushing (srcpad->buffers, TRUE);
-        gst_data_queue_flush (srcpad->buffers);
+        gst_data_queue_set_flushing (srcpad->queue, TRUE);
+        gst_data_queue_flush (srcpad->queue);
 
         success = gst_pad_stop_task (GST_PAD (srcpad));
 
@@ -227,6 +225,8 @@ gst_metamux_data_pad_init (GstMetaMuxDataPad * pad)
   pad->prtlmeta = NULL;
   pad->strcache = NULL;
   pad->lastmeta = NULL;
+
+  pad->is_idle = FALSE;
   pad->queue = g_queue_new ();
 }
 
@@ -235,9 +235,9 @@ gst_metamux_sink_pad_finalize (GObject * object)
 {
   GstMetaMuxSinkPad *pad = GST_METAMUX_SINK_PAD (object);
 
-  gst_data_queue_set_flushing (pad->buffers, TRUE);
-  gst_data_queue_flush (pad->buffers);
-  gst_object_unref (GST_OBJECT_CAST (pad->buffers));
+  gst_data_queue_set_flushing (pad->queue, TRUE);
+  gst_data_queue_flush (pad->queue);
+  gst_object_unref (GST_OBJECT_CAST (pad->queue));
 
   g_cond_clear (&pad->drained);
   g_mutex_clear (&pad->lock);
@@ -259,10 +259,9 @@ gst_metamux_sink_pad_init (GstMetaMuxSinkPad * pad)
   g_mutex_init (&pad->lock);
   g_cond_init (&pad->drained);
 
-  pad->buffers =
-      gst_data_queue_new (queue_is_full_cb, NULL, queue_empty_cb, pad);
+  pad->queue = gst_data_queue_new (queue_is_full_cb, NULL, queue_empty_cb, pad);
   pad->is_idle = TRUE;
-  pad->buffers_limit = 0;
+  pad->qlimit = 0;
 }
 
 static void
@@ -270,9 +269,9 @@ gst_metamux_src_pad_finalize (GObject * object)
 {
   GstMetaMuxSrcPad *pad = GST_METAMUX_SRC_PAD (object);
 
-  gst_data_queue_set_flushing (pad->buffers, TRUE);
-  gst_data_queue_flush (pad->buffers);
-  gst_object_unref (GST_OBJECT_CAST (pad->buffers));
+  gst_data_queue_set_flushing (pad->queue, TRUE);
+  gst_data_queue_flush (pad->queue);
+  gst_object_unref (GST_OBJECT_CAST (pad->queue));
 
   g_cond_clear (&pad->drained);
   g_mutex_clear (&pad->lock);
@@ -296,9 +295,8 @@ gst_metamux_src_pad_init (GstMetaMuxSrcPad * pad)
 
   gst_segment_init (&pad->segment, GST_FORMAT_UNDEFINED);
 
-  pad->buffers =
-      gst_data_queue_new (queue_is_full_cb, NULL, queue_empty_cb, pad);
+  pad->queue = gst_data_queue_new (queue_is_full_cb, NULL, queue_empty_cb, pad);
   pad->is_idle = TRUE;
-  pad->buffers_limit = 0;
+  pad->qlimit = 0;
 }
 

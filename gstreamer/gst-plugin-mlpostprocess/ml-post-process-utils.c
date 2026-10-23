@@ -27,7 +27,6 @@ gst_ml_predictions_list_append (GValue * list, const GQuark mltype,
     GValue * results, const GstStructure * mlparam)
 {
   GstStructure *structure = NULL;
-  const GValue *value = NULL;
   GValue entry = G_VALUE_INIT;
 
   if (GST_IS_AUDIO_CLASSIFICATION (mltype)) {
@@ -53,14 +52,28 @@ gst_ml_predictions_list_append (GValue * list, const GQuark mltype,
     gst_structure_take_value (structure, "vectors", results);
   }
 
-  value = gst_structure_get_value (mlparam, "timestamp");
-  gst_structure_set_value (structure, "timestamp", value);
+  gst_ml_params_copy_service_info (structure, mlparam);
 
-  value = gst_structure_get_value (mlparam, "sequence-index");
-  gst_structure_set_value (structure, "sequence-index", value);
+  g_value_init (&entry, GST_TYPE_STRUCTURE);
+  g_value_take_boxed (&entry, structure);
 
-  value = gst_structure_get_value (mlparam, "sequence-num-entries");
-  gst_structure_set_value (structure, "sequence-num-entries", value);
+  gst_value_list_append_and_take_value (list, &entry);
+}
+
+void
+gst_ml_params_copy_service_info (GstStructure * structure,
+    const GstStructure * mlparam)
+{
+  const GValue *value = NULL;
+
+  if ((value = gst_structure_get_value (mlparam, "timestamp")))
+    gst_structure_set_value (structure, "timestamp", value);
+
+  if ((value = gst_structure_get_value (mlparam, "sequence-index")))
+    gst_structure_set_value (structure, "sequence-index", value);
+
+  if ((value = gst_structure_get_value (mlparam, "sequence-num-entries")))
+    gst_structure_set_value (structure, "sequence-num-entries", value);
 
   if ((value = gst_structure_get_value (mlparam, "stream-id")))
     gst_structure_set_value (structure, "stream-id", value);
@@ -71,10 +84,8 @@ gst_ml_predictions_list_append (GValue * list, const GQuark mltype,
   if ((value = gst_structure_get_value (mlparam, "parent-id")))
     gst_structure_set_value (structure, "parent-id", value);
 
-  g_value_init (&entry, GST_TYPE_STRUCTURE);
-  g_value_take_boxed (&entry, structure);
-
-  gst_value_list_append_and_take_value (list, &entry);
+  if ((value = gst_structure_get_value (mlparam, "parent-label")))
+    gst_structure_set_value (structure, "parent-label", value);
 }
 
 gboolean

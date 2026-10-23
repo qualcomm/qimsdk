@@ -56,14 +56,17 @@ G_BEGIN_DECLS
 #define GST_META_SEQ_ID_OFFSET         8
 
 // Macro to create unique meta ID from stage, sequence and entry IDs.
-#define GST_META_ID(stage_id, sequence_id, entry_id) \
-    (((stage_id & 0xFF) << GST_META_STAGE_ID_OFFSET) | \
-        ((sequence_id & 0xFF) << GST_META_SEQ_ID_OFFSET) | entry_id)
+#define GST_META_ID(stream_id, stage_id, sequence_id, entry_id) \
+    (((stream_id & 0xFF) << GST_MUX_STREAM_ID_OFFSET) | \
+        ((stage_id & 0xFF) << GST_META_STAGE_ID_OFFSET) | \
+            ((sequence_id & 0xFF) << GST_META_SEQ_ID_OFFSET) | entry_id)
 
-// Macro to extract stage from meta ID.
+// Macro to extract stream ID from meta ID.
+#define GST_META_ID_GET_STREAM(id) ((id >> GST_MUX_STREAM_ID_OFFSET) & 0xFF)
+// Macro to extract stage ID from meta ID.
 #define GST_META_ID_GET_STAGE(id) ((id >> GST_META_STAGE_ID_OFFSET) & 0xFF)
-// Macro to extract stage from meta ID.
-#define GST_META_ID_GET_ENTRY(id) (id & 0xFF)
+// Macro to extract enty ID from meta ID.
+#define GST_META_ID_GET_ENTRY(id) (id & 0xFFFF)
 
 typedef struct _GstClassLabel GstClassLabel;
 

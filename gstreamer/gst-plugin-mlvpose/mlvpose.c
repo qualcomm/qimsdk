@@ -436,7 +436,7 @@ gst_ml_video_pose_fill_text_output (GstMLVideoPose * vpose, GstBuffer * buffer)
   GValue list = G_VALUE_INIT, entries = G_VALUE_INIT, value = G_VALUE_INIT;
   GValue keypoints = G_VALUE_INIT, links = G_VALUE_INIT, link = G_VALUE_INIT;
   guint idx = 0, num = 0, seqnum = 0, n_entries = 0, sequence_idx = 0, id = 0;
-  gsize length = 0;
+  guint length = 0, stream_id = 0;
 
   g_value_init (&list, GST_TYPE_LIST);
   g_value_init (&entries, GST_TYPE_ARRAY);
@@ -454,6 +454,7 @@ gst_ml_video_pose_fill_text_output (GstMLVideoPose * vpose, GstBuffer * buffer)
 
     mlparam = g_ptr_array_index (vpose->mlparams, idx);
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
+    gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
     for (num = 0; num < n_entries; num++) {
       entry = gst_ml_poses_entry (poses, num);
@@ -512,7 +513,7 @@ gst_ml_video_pose_fill_text_output (GstMLVideoPose * vpose, GstBuffer * buffer)
         g_value_reset (&link);
       }
 
-      id = GST_META_ID (vpose->stage_id, sequence_idx, num);
+      id = GST_META_ID (stream_id, vpose->stage_id, sequence_idx, num);
 
       structure = gst_structure_new ("pose", "id", G_TYPE_UINT, id,
           "confidence", G_TYPE_DOUBLE, entry->confidence, NULL);

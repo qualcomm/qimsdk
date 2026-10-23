@@ -9,20 +9,20 @@
  * Description:
  * This application demonstrates an AI-based group framing camera use case.
  * It captures video from qticamsrc, runs YOLOv8 person detection through the
- * Qualcomm TFLite external delegate path, merges person ROIs, applies automatic
+ * Qualcomm qairt path, merges person ROIs, applies automatic
  * ROI-based framing, and displays the framed output through Wayland.
  *
  * Features:
  *   -- Camera source selection through camera-id
  *   -- Configurable input capture resolution
- *   -- YOLOv8 object detection using qtimltflite
+ *   -- YOLOv8 object detection using qtimlqairt
  *   -- Person ROI merge and ROI auto-framing metadata transforms
  *   -- Optional debug overlay for visualizing detection/framing metadata
  *
  * Pipeline:
  *   qticamsrc(camera=<camera-id>) -> capsfilter -> tee
  *     tee branch 1:
- *       queue -> qtimlvconverter -> queue -> qtimltflite -> qtimlpostprocess
+ *       queue -> qtimlvconverter -> queue -> qtimlqairt -> qtimlpostprocess
  *         -> qtimetamux metadata pad
  *     tee branch 2:
  *       queue -> qtimetamux -> roi-person-merge -> [qtivoverlay] -> roi-auto-framing
@@ -33,7 +33,7 @@
  *
  * Example:
  *   gst-ai-group-framing-app --camera-id=0 --width=3840 --height=2160 \
- *     --model-path=/path/to/model.tflite --labels-path=/path/to/labels.json
+ *     --model-path=/path/to/model.dlc --labels-path=/path/to/labels.json
  *
  * Options:
  *   -c, --camera-id=id                 Camera ID for qticamsrc (default: 0)
@@ -55,6 +55,8 @@
  *       --first-rect-start             Start from first rectangle (default: false)
  */
 #include <gst/gst.h>
+#include <gst/gstvalue.h>
+
 #define DEFAULT_DEBUG_MODE FALSE
 #define DEFAULT_CONFIDENCE 45.0
 #define DEFAULT_FILTER_SIZE 240
@@ -68,44 +70,57 @@
 #define DEFAULT_MAX_CROP_RATIO 10.0
 #define DEFAULT_FIRST_RECT_START FALSE
 #define DEFAULT_CAMERA_ID 0
+
 #define APP_SUCCESS 0
 #define APP_FAILURE -1
+
 #define POSTPROCESS_SETTINGS_SIZE 128
 #define AUTO_FRAMING_SETTINGS_SIZE 512
+
 static gboolean
 link_src_to_sink (GstElement * src, GstElement * sink)
 {
   GstPad *src_pad = gst_element_request_pad_simple (src, "src_%u");
   GstPad *sink_pad = gst_element_get_static_pad (sink, "sink");
   gboolean linked = FALSE;
+
   if (src_pad && sink_pad)
     linked = (gst_pad_link (src_pad, sink_pad) == GST_PAD_LINK_OK);
+
   if (sink_pad)
     gst_object_unref (sink_pad);
+
   if (src_pad)
     gst_object_unref (src_pad);
+
   return linked;
 }
+
 static gint
 get_enum_value (const gchar * enum_type_name, const gchar * enum_nick)
 {
   GEnumClass *enum_class;
   GEnumValue *enum_value;
   gint value = 0;
+
   enum_class = g_type_class_ref (g_type_from_name (enum_type_name));
+
   if (enum_class) {
     enum_value = g_enum_get_value_by_nick (enum_class, enum_nick);
     if (enum_value)
       value = enum_value->value;
     g_type_class_unref (enum_class);
   }
+
   return value;
 }
+
 gint
 main (gint argc, gchar * argv[])
 {
   gboolean debug_mode = DEFAULT_DEBUG_MODE;
   gdouble confidence = DEFAULT_CONFIDENCE;
+
   guint filter_size = DEFAULT_FILTER_SIZE;
   guint filter_average_size = DEFAULT_FILTER_AVERAGE_SIZE;
   guint movement_speed = DEFAULT_MOVEMENT_SPEED;
@@ -128,7 +143,7 @@ main (gint argc, gchar * argv[])
   GstElement *queue1 = NULL;
   GstElement *ml_converter = NULL;
   GstElement *queue2 = NULL;
-  GstElement *tflite = NULL;
+  GstElement *qairt = NULL;
   GstElement *postprocess = NULL;
   GstElement *metamux = NULL;
   GstElement *queue3 = NULL;
@@ -137,7 +152,6 @@ main (gint argc, gchar * argv[])
   GstElement *vsplit = NULL;
   GstElement *waylandsink = NULL;
   GstElement *overlay = NULL;
-  GstStructure *delegate_options = NULL;
   GstCaps *caps = NULL;
   GstPad *text_src_pad = NULL;
   GstPad *meta_sink_pad = NULL;
@@ -149,6 +163,7 @@ main (gint argc, gchar * argv[])
   gchar *mode = NULL;
   gchar postprocess_settings[POSTPROCESS_SETTINGS_SIZE];
   gchar afr_settings[AUTO_FRAMING_SETTINGS_SIZE];
+
   GOptionEntry entries[] = {
     {
       "camera-id", 'c', 0, G_OPTION_ARG_INT, &camera_id,
@@ -223,10 +238,12 @@ main (gint argc, gchar * argv[])
     },
     { NULL }
   };
+
   ctx = g_option_context_new (
       "- GStreamer AI Group Framing Application");
   g_option_context_add_main_entries (ctx, entries, NULL);
   g_option_context_add_group (ctx, gst_init_get_option_group ());
+
   if (!g_option_context_parse (ctx, &argc, &argv, &error)) {
     if (error) {
       g_printerr ("Failed to parse options: %s\n", error->message);
@@ -240,7 +257,9 @@ main (gint argc, gchar * argv[])
     g_free (labels_path);
     return APP_FAILURE;
   }
+
   g_option_context_free (ctx);
+
   if (mode) {
     if (g_strcmp0 (mode, "debug") == 0)
       debug_mode = TRUE;
@@ -253,17 +272,20 @@ main (gint argc, gchar * argv[])
     }
     g_free (mode);
   }
+
   /* Model path and labels path must be provided via command-line */
   if (!model_path) {
     g_printerr ("ERROR: --model-path is required\n");
     g_free (labels_path);
     return APP_FAILURE;
   }
+
   if (!labels_path) {
     g_printerr ("ERROR: --labels-path is required\n");
     g_free (model_path);
     return APP_FAILURE;
   }
+
   pipeline = gst_pipeline_new ("ai-camera-pipeline");
   source = gst_element_factory_make ("qticamsrc", "camera-source");
   capsfilter = gst_element_factory_make ("capsfilter", "camera-caps");
@@ -272,7 +294,7 @@ main (gint argc, gchar * argv[])
   ml_converter = gst_element_factory_make ("qtimlvconverter",
       "ml-converter");
   queue2 = gst_element_factory_make ("queue", "queue2");
-  tflite = gst_element_factory_make ("qtimltflite", "yolov8");
+  qairt = gst_element_factory_make ("qtimlqairt", "yolov8");
   postprocess = gst_element_factory_make ("qtimlpostprocess", "postprocess");
   metamux = gst_element_factory_make ("qtimetamux", "mux");
   queue3 = gst_element_factory_make ("queue", "queue3");
@@ -282,25 +304,52 @@ main (gint argc, gchar * argv[])
       "auto-framing");
   vsplit = gst_element_factory_make ("qtivsplit", "vsplit");
   waylandsink = gst_element_factory_make ("waylandsink", "display");
+
   if (debug_mode)
     overlay = gst_element_factory_make ("qtivoverlay", "overlay");
+
   if (!pipeline || !source || !capsfilter || !tee || !queue1 ||
-      !ml_converter || !queue2 || !tflite || !postprocess || !metamux ||
+      !ml_converter || !queue2 || !qairt || !postprocess || !metamux ||
       !queue3 || !person_merge_transform || !auto_framing_transform ||
       !vsplit || !waylandsink || (debug_mode && !overlay))
     goto error;
+
   g_object_set (G_OBJECT (source), "camera", camera_id, NULL);
-  delegate_options = gst_structure_new ("QNNExternalDelegate",
-      "backend_type", G_TYPE_STRING, "htp", NULL);
-  g_object_set (G_OBJECT (tflite),
-      "delegate", 7,
-      "external-delegate-path", "libQnnTFLiteDelegate.so",
-      "external-delegate-options", delegate_options,
-      "model", model_path,
+
+  GValue tensors = G_VALUE_INIT;
+  GValue tensor = G_VALUE_INIT;
+
+  g_value_init (&tensors, GST_TYPE_ARRAY);
+
+  g_value_init (&tensor, G_TYPE_STRING);
+  g_value_set_string (&tensor, "boxes");
+  gst_value_array_append_value (&tensors, &tensor);
+
+  g_value_reset (&tensor);
+  g_value_set_string (&tensor, "scores");
+  gst_value_array_append_value (&tensors, &tensor);
+
+  g_value_reset (&tensor);
+  g_value_set_string (&tensor, "class_idx");
+  gst_value_array_append_value (&tensors, &tensor);
+
+  g_object_set (G_OBJECT (qairt),
+      "backend",
+      get_enum_value ("GstMLQairtBackend", "htp"),
+      "model",
+      model_path,
       NULL);
+
+  g_object_set_property (
+      G_OBJECT (qairt),
+      "tensors",
+      &tensors);
   g_snprintf (postprocess_settings, sizeof (postprocess_settings),
       "{\"confidence\": %.1f}",
       confidence);
+  g_value_unset (&tensor);
+  g_value_unset (&tensors);
+
   g_object_set (G_OBJECT (postprocess),
       "module",
       get_enum_value ("GstMLPostProcessModules", "yolov8"),
@@ -308,11 +357,13 @@ main (gint argc, gchar * argv[])
       "settings", postprocess_settings,
       "bbox-stabilization", TRUE,
       NULL);
+
   g_object_set (G_OBJECT (person_merge_transform),
       "module",
       get_enum_value ("GstMetaTranformModules", "roi-person-merge"),
       "module-params", "label=person,padding=0.1",
       NULL);
+
   g_snprintf (afr_settings, sizeof (afr_settings),
       "filter-size=%u,"
       "filter-average-size=%u,"
@@ -329,12 +380,15 @@ main (gint argc, gchar * argv[])
       dims_moving_threshold, movement_speed, max_move_step,
       max_crop_ratio,
       first_rect_start ? "true" : "false");
+
   g_object_set (G_OBJECT (auto_framing_transform),
       "module",
       get_enum_value ("GstMetaTranformModules", "roi-auto-framing"),
       "module-params", afr_settings,
       NULL);
+
   g_object_set (G_OBJECT (waylandsink), "fullscreen", TRUE, NULL);
+
   caps = gst_caps_new_simple ("video/x-raw",
       "format", G_TYPE_STRING, "NV12",
       "width", G_TYPE_INT, caps_width,
@@ -344,32 +398,42 @@ main (gint argc, gchar * argv[])
   g_object_set (capsfilter, "caps", caps, NULL);
   gst_caps_unref (caps);
   caps = NULL;
+
   gst_bin_add_many (GST_BIN (pipeline),
       source, capsfilter, tee, queue1, ml_converter, queue2,
-      tflite, postprocess, metamux, queue3,
+      qairt, postprocess, metamux, queue3,
       person_merge_transform, auto_framing_transform, vsplit,
       waylandsink,
       NULL);
+
   if (debug_mode)
     gst_bin_add (GST_BIN (pipeline), overlay);
+
   if (!gst_element_link_many (source, capsfilter, tee, NULL))
     goto error;
+
   if (!link_src_to_sink (tee, queue1))
     goto error;
+
   if (!link_src_to_sink (tee, queue3))
     goto error;
+
   if (!gst_element_link (queue3, metamux))
     goto error;
+
   text_src_pad = gst_element_get_static_pad (postprocess, "src");
   meta_sink_pad = gst_element_request_pad_simple (metamux, "data_%u");
   if (!text_src_pad || !meta_sink_pad ||
       gst_pad_link (text_src_pad, meta_sink_pad) != GST_PAD_LINK_OK)
     goto error;
+
   if (!gst_element_link (queue1, ml_converter))
     goto error;
-  if (!gst_element_link_many (ml_converter, queue2, tflite,
+
+  if (!gst_element_link_many (ml_converter, queue2, qairt,
           postprocess, NULL))
     goto error;
+
   if (debug_mode) {
     if (!gst_element_link_many (metamux, person_merge_transform,
             overlay, auto_framing_transform, vsplit, NULL))
@@ -378,18 +442,23 @@ main (gint argc, gchar * argv[])
           person_merge_transform, auto_framing_transform, vsplit,
           NULL))
     goto error;
+
   vsplit_src_pad = gst_element_request_pad_simple (vsplit, "src_%u");
   wayland_sink_pad = gst_element_get_static_pad (waylandsink, "sink");
   if (!vsplit_src_pad || !wayland_sink_pad)
     goto error;
+
   g_object_set (G_OBJECT (vsplit_src_pad), "mode", 2, NULL);
+
   if (gst_pad_link (vsplit_src_pad, wayland_sink_pad) !=
       GST_PAD_LINK_OK)
     goto error;
+
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
   bus = gst_element_get_bus (pipeline);
   gst_bus_timed_pop_filtered (bus, GST_CLOCK_TIME_NONE,
       GST_MESSAGE_ERROR | GST_MESSAGE_EOS);
+
   gst_object_unref (bus);
   gst_object_unref (text_src_pad);
   gst_object_unref (meta_sink_pad);
@@ -397,32 +466,38 @@ main (gint argc, gchar * argv[])
   gst_object_unref (wayland_sink_pad);
   gst_element_set_state (pipeline, GST_STATE_NULL);
   gst_object_unref (pipeline);
-  if (delegate_options) {
-    gst_structure_free (delegate_options);
-  }
+
   g_free (model_path);
   g_free (labels_path);
+
   return APP_SUCCESS;
+
 error:
   if (bus)
     gst_object_unref (bus);
+
   if (caps)
     gst_caps_unref (caps);
+
   if (text_src_pad)
     gst_object_unref (text_src_pad);
+
   if (meta_sink_pad)
     gst_object_unref (meta_sink_pad);
+
   if (vsplit_src_pad)
     gst_object_unref (vsplit_src_pad);
+
   if (wayland_sink_pad)
     gst_object_unref (wayland_sink_pad);
+
   if (pipeline) {
     gst_element_set_state (pipeline, GST_STATE_NULL);
     gst_object_unref (pipeline);
   }
-  if (delegate_options)
-    gst_structure_free (delegate_options);
+
   g_free (model_path);
   g_free (labels_path);
+
   return APP_FAILURE;
 }

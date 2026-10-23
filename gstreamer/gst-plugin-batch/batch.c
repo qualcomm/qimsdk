@@ -290,10 +290,8 @@ gst_batch_extract_sink_buffer (GstElement * element, GstPad * pad,
   GstBatch *batch = GST_BATCH (element);
   GstBatchSinkPad *sinkpad = GST_BATCH_SINK_PAD (pad);
   GstBuffer *outbuffer = NULL, *inbuffer = NULL;
-  GstVideoMeta *vmeta = NULL;
-  GstVideoRegionOfInterestMeta *roimeta = NULL;
   GstStructure *structure = NULL;
-  guint num = 0, stream_id = 0, idx = 0, flags = 0;
+  guint stream_id = 0, idx = 0, flags = 0;
 
   // If the number of buffers in the queue is less than the requered depth,
   // not enough buffers have been accumulated for the current sink pad
@@ -308,8 +306,11 @@ gst_batch_extract_sink_buffer (GstElement * element, GstPad * pad,
   // Iterate up to "depth" because that is the exact number of buffer that
   // have to be extracted from the queue
   for (idx = 0; idx < batch->depth; idx++) {
-    inbuffer = g_queue_peek_nth (sinkpad->buffers, idx);
+    GstVideoMeta *vmeta = NULL;
+    GstVideoRegionOfInterestMeta *roimeta = NULL;
+    gpointer state = NULL;
 
+    inbuffer = g_queue_peek_nth (sinkpad->buffers, idx);
     GST_TRACE_OBJECT (sinkpad, "Taking %" GST_PTR_FORMAT, inbuffer);
 
     flags |= GST_BUFFER_FLAGS (inbuffer);
@@ -338,17 +339,12 @@ gst_batch_extract_sink_buffer (GstElement * element, GstPad * pad,
 
 
     // Transfer all ROI meta if present in the input buffer.
-    roimeta = gst_buffer_get_video_region_of_interest_meta_id (inbuffer, num);
-
-    // Copy ROI metadata for current memory block into the new buffer.
-    while (roimeta != NULL) {
+    while ((roimeta = GST_BUFFER_ITERATE_ROI_METAS (inbuffer, state)) != NULL) {
       roimeta = gst_buffer_add_video_region_of_interest_meta_id (outbuffer,
           roimeta->roi_type, roimeta->x, roimeta->y, roimeta->w, roimeta->h);
 
       // Prefix the original ROI ID with the stream ID.
-      roimeta->id = (stream_id << GST_MUX_STREAM_ID_OFFSET) + num;
-
-      roimeta = gst_buffer_get_video_region_of_interest_meta_id (inbuffer, ++num);
+      roimeta->id |= stream_id << GST_MUX_STREAM_ID_OFFSET;
     }
 
   }

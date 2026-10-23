@@ -246,17 +246,17 @@ void Module::ParseDualblockFrame(const Tensors& tensors, Dictionary& mlparams,
     for (uint32_t num = (idx + n_paxels); num < (n_classes * n_paxels); num += n_paxels)
       id = (TensorCompareValues(scores, num, id) > 0) ? num : id;
 
-    uint32_t class_idx = idx / n_paxels;
+    uint32_t class_idx = id / n_paxels;
 
     double confidence = scores[id];
 
     if (confidence < threshold_)
       continue;
 
-    double cx = bboxes[id + 0 * n_paxels];
-    double cy = bboxes[id + 1 * n_paxels];
-    double w  = bboxes[id + 2 * n_paxels];
-    double h  = bboxes[id + 3 * n_paxels];
+    double cx = bboxes[idx + 0 * n_paxels];
+    double cy = bboxes[idx + 1 * n_paxels];
+    double w  = bboxes[idx + 2 * n_paxels];
+    double h  = bboxes[idx + 3 * n_paxels];
 
     LOG(logger_, kLog, "Class: %u Confidence: %.2f CX x CY[%f, %f] W x H: [%f, %f]",
         class_idx, confidence, cx, cy, w, h);

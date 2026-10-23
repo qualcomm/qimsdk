@@ -756,6 +756,7 @@ gst_socket_src_fill_buffer (GstFdSocketSrc * src, GstBuffer ** outbuf)
         GArray *labels = g_array_sized_new (FALSE, TRUE,
             sizeof (GstClassLabel), class_meta_pl->size);
         g_array_set_size (labels, class_meta_pl->size);
+        g_array_set_clear_func (labels, (GDestroyNotify) gst_class_label_reset);
 
         for (guint i = 0; i < class_meta_pl->size; i++) {
           GstClassLabel *label = &(g_array_index (labels, GstClassLabel, i));
