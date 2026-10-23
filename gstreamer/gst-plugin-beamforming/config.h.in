@@ -1,0 +1,11 @@
+/*
+ * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * SPDX-License-Identifier: BSD-3-Clause-Clear
+ */
+
+#define PACKAGE         "gst-plugins-qcom"
+#define PACKAGE_VERSION "@PROJECT_VERSION@"
+#define PACKAGE_LICENSE "BSD-3-Clause-Clear"
+#define PACKAGE_SUMMARY "Qualcomm open-source GStreamer beamforming fusion " \
+    "plug-in that combines DOA audio metadata with vision-AI ROIs"
+#define PACKAGE_ORIGIN  "Unknown package origin"
