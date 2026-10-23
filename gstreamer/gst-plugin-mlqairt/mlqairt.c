@@ -648,7 +648,7 @@ gst_ml_qairt_class_init (GstMLQairtClass * klass)
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   gst_element_class_set_static_metadata (element,
-      "QAIRT Machine Learning", "Filter/Effect/Converter",
+      "QAIRT Machine Learning (Alpha quality)", "Filter/Effect/Converter",
       "Qualcomm AI Runtime (QAIRT) based Machine Learning plugin", "QTI");
 
   gst_element_class_add_pad_template (element,
@@ -701,7 +701,7 @@ GST_PLUGIN_DEFINE (
     GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
     qtimlqairt,
-    "QTI QAIRT based Machine Learning plugin",
+    "QTI QAIRT based Machine Learning plugin (Alpha quality)",
     plugin_init,
     PACKAGE_VERSION,
     PACKAGE_LICENSE,
