@@ -67,6 +67,35 @@ GST_DEBUG_CATEGORY_STATIC (gst_ml_video_converter_debug);
 G_DEFINE_TYPE (GstMLVideoConverter, gst_ml_video_converter,
     GST_TYPE_BASE_TRANSFORM);
 
+// Vends empty wrapper buffers (gst_buffer_new(), no memory of their own) used
+// by gst_buffer_new_from_parent_memory() to carry a single memory block out
+// of a pool-backed muxed buffer (e.g. qtibatch's output). Going through a
+// pool sets buffer->pool, so downstream (e.g. the GLES video converter)
+// doesn't treat the wrapper as a one-shot buffer whose memory - still shared
+// with the muxed parent - is safe to free as soon as this wrapper is done.
+#define GST_TYPE_ML_VIDEO_CONVERTER_PARENT_POOL \
+    (gst_ml_video_converter_parent_pool_get_type ())
+
+typedef struct _GstMLVideoConverterParentPool
+    GstMLVideoConverterParentPool;
+typedef struct _GstMLVideoConverterParentPoolClass
+    GstMLVideoConverterParentPoolClass;
+
+struct _GstMLVideoConverterParentPool
+{
+  GstBufferPool parent;
+};
+
+struct _GstMLVideoConverterParentPoolClass
+{
+  GstBufferPoolClass parent;
+};
+
+GType gst_ml_video_converter_parent_pool_get_type (void);
+
+G_DEFINE_TYPE (GstMLVideoConverterParentPool,
+    gst_ml_video_converter_parent_pool, GST_TYPE_BUFFER_POOL);
+
 #define DEFAULT_PROP_MIN_BUFFERS     2
 #define DEFAULT_PROP_MAX_BUFFERS     24
 
@@ -502,8 +531,55 @@ gst_buffer_get_region_of_interest_n_meta (GstBuffer * buffer,
   return n_metas;
 }
 
+static void
+gst_ml_video_converter_parent_pool_reset_buffer (GstBufferPool * pool,
+    GstBuffer * buffer)
+{
+  gst_buffer_remove_all_memory (buffer);
+  GST_BUFFER_FLAG_UNSET (buffer, GST_BUFFER_FLAG_TAG_MEMORY);
+
+  GST_BUFFER_POOL_CLASS (gst_ml_video_converter_parent_pool_parent_class)->
+      reset_buffer (pool, buffer);
+}
+
+static void
+gst_ml_video_converter_parent_pool_class_init (
+    GstMLVideoConverterParentPoolClass * klass)
+{
+  GstBufferPoolClass *pool = GST_BUFFER_POOL_CLASS (klass);
+  pool->reset_buffer = gst_ml_video_converter_parent_pool_reset_buffer;
+}
+
+static void
+gst_ml_video_converter_parent_pool_init (GstMLVideoConverterParentPool * pool)
+{
+  // Not implemented
+}
+
+static GstBufferPool *
+gst_ml_video_converter_parent_pool_new (void)
+{
+  GstBufferPool *pool = GST_BUFFER_POOL_CAST (
+      g_object_new (GST_TYPE_ML_VIDEO_CONVERTER_PARENT_POOL, NULL));
+  GstStructure *config = gst_buffer_pool_get_config (pool);
+
+  // Size/caps/min/max are irrelevant since alloc_buffer() above ignores
+  // them - this call only exists to satisfy GstBufferPool's config checks.
+  gst_buffer_pool_config_set_params (config, NULL, 0, 0, 0);
+
+  if (!gst_buffer_pool_set_config (pool, config) ||
+      !gst_buffer_pool_set_active (pool, TRUE)) {
+    GST_ERROR ("Failed to configure parent-memory wrapper buffer pool!");
+    gst_object_unref (pool);
+    return NULL;
+  }
+
+  return pool;
+}
+
 static inline GstBuffer *
-gst_buffer_new_from_parent_memory (GstBuffer * buffer, guint index, guint depth)
+gst_buffer_new_from_parent_memory (GstMLVideoConverter * mlconverter,
+    GstBuffer * buffer, guint index, guint depth)
 {
   GstBuffer *newbuffer = NULL;
   GstVideoMeta *vmeta = NULL;
@@ -512,8 +588,20 @@ gst_buffer_new_from_parent_memory (GstBuffer * buffer, guint index, guint depth)
   gpointer state = NULL;
   gint stream_id = -1;
 
-  // Create a new buffer to placehold a reference to a single GstMemory block.
-  newbuffer = gst_buffer_new ();
+  // Only go through our pool when the parent/muxed buffer is itself
+  // pool-backed (e.g. qtibatch's output) - that's the only case where a
+  // bare gst_buffer_new() wrapper risks the memory being freed out from
+  // under other consumers before this wrapper is done with it.
+  if (buffer->pool != NULL) {
+    if (gst_buffer_pool_acquire_buffer (mlconverter->parentpool, &newbuffer,
+        NULL) != GST_FLOW_OK) {
+      GST_ERROR_OBJECT (mlconverter, "Failed to acquire wrapper buffer!");
+      return NULL;
+    }
+  } else {
+    // Create a new buffer to placehold a reference to a single GstMemory block.
+    newbuffer = gst_buffer_new ();
+  }
 
   // Append the memory block from input buffer into the new buffer.
   gst_buffer_append_memory (newbuffer, gst_buffer_get_memory (buffer, index));
@@ -1271,7 +1359,13 @@ gst_ml_video_converter_setup_composition (GstMLVideoConverter * mlconverter,
     do {
       if (mview_mode == GST_VIDEO_MULTIVIEW_MODE_SEPARATED) {
         // Input is muxed stream separate each memory block into child buffer.
-        buffer = gst_buffer_new_from_parent_memory (inbuffer, mem_idx, depth);
+        buffer = gst_buffer_new_from_parent_memory (mlconverter, inbuffer,
+            mem_idx, depth);
+
+        if (buffer == NULL) {
+          success = FALSE;
+          goto cleanup;
+        }
 
         n_roi_meta = gst_buffer_get_region_of_interest_n_meta (buffer, -1,
             mlconverter->roi_stage_ids);
@@ -2777,6 +2871,12 @@ gst_ml_video_converter_finalize (GObject * object)
   if (mlconverter->outpool != NULL)
     gst_object_unref (mlconverter->outpool);
 
+  if (mlconverter->parentpool != NULL) {
+    gst_buffer_pool_set_active (mlconverter->parentpool, FALSE);
+    gst_object_unref (mlconverter->parentpool);
+    mlconverter->parentpool = NULL;
+  }
+
   if (mlconverter->roi_stage_ids != NULL)
     g_array_free (mlconverter->roi_stage_ids, TRUE);
 
@@ -2883,6 +2983,8 @@ gst_ml_video_converter_init (GstMLVideoConverter * mlconverter)
   mlconverter->roi_stage_ids = g_array_new (FALSE, FALSE, sizeof (guint));
 
   mlconverter->outpool = NULL;
+
+  mlconverter->parentpool = gst_ml_video_converter_parent_pool_new ();
 
   mlconverter->bufqueue = g_queue_new ();
 
