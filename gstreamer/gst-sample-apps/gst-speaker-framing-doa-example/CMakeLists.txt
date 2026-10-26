@@ -3,7 +3,8 @@ project(GST-SPEAKER-FRAMING-DOA-EXAMPLE LANGUAGES CXX)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-# pkgconfigs are exported by the parent CMakeLists
+find_package(PkgConfig)
+
 pkg_check_modules(GST
   REQUIRED gstreamer-1.0>=${GST_VERSION_REQUIRED})
 pkg_check_modules(GST_VIDEO
