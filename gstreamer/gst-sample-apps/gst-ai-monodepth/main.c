@@ -250,7 +250,7 @@ on_pad_added (GstElement * element, GstPad * pad, gpointer data)
 static gboolean
 create_pipe (GstAppContext * appctx, GstAppOptions * options)
 {
-  GstElement *qtiqmmfsrc = NULL, *qmmfsrc_caps_preview = NULL;
+  GstElement *qticamsrc = NULL, *qmmfsrc_caps_preview = NULL;
   GstElement *qmmfsrc_caps_monodepth = NULL, *qtivcomposer = NULL;
   GstElement *queue[QUEUE_COUNT], *tee = NULL;
   GstElement *qtimlvconverter = NULL, *qtimlelement = NULL;
@@ -260,7 +260,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   GstElement *v4l2h264dec_caps = NULL;
   GstElement *fpsdisplaysink = NULL, *waylandsink = NULL;
   GstCaps *pad_filter = NULL , *filtercaps = NULL;
-  GstPad *qtiqmmfsrc_type = NULL;
+  GstPad *qticamsrc_type = NULL;
   GstStructure *delegate_options = NULL;
   GstVideoRectangle coordinates[STREAM_COUNT];
   gboolean ret = FALSE;
@@ -351,10 +351,10 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
       goto error_clean_elements;
     }
   } else if (options->use_camera) {
-    // Create qtiqmmfsrc plugin for camera stream
-    qtiqmmfsrc = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmfsrc");
-    if (!qtiqmmfsrc) {
-      g_printerr ("Failed to create qtiqmmfsrc\n");
+    // Create qticamsrc plugin for camera stream
+    qticamsrc = gst_element_factory_make ("qticamsrc", "qticamsrc");
+    if (!qticamsrc) {
+      g_printerr ("Failed to create qticamsrc\n");
       goto error_clean_elements;
     }
 
@@ -488,7 +488,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     gst_caps_unref (filtercaps);
   } else if (options->use_camera) {
     // 2.3 Set user provided Camera ID
-    g_object_set (G_OBJECT (qtiqmmfsrc), "camera", options->camera_type, NULL);
+    g_object_set (G_OBJECT (qticamsrc), "camera", options->camera_type, NULL);
     // 2.4 Set the capabilities of camera plugin output
     if (options->camera_type == GST_CAMERA_TYPE_PRIMARY) {
       // 2.4 Set the capabilities of primary and secondary camera preview
@@ -630,7 +630,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     gst_bin_add_many (GST_BIN (appctx->pipeline), rtspsrc, rtph264depay,
         h264parse, v4l2h264dec, v4l2h264dec_caps, NULL);
   } else if (options->use_camera) {
-    gst_bin_add_many (GST_BIN (appctx->pipeline), qtiqmmfsrc,
+    gst_bin_add_many (GST_BIN (appctx->pipeline), qticamsrc,
         qmmfsrc_caps_monodepth, qmmfsrc_caps_preview, NULL);
   } else {
     g_printerr ("Incorrect input source type\n");
@@ -719,7 +719,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
 
   } else {
     // Linking Monodepth Pipeline using Camera Source
-    ret = gst_element_link_many (qtiqmmfsrc, qmmfsrc_caps_preview, queue[0],
+    ret = gst_element_link_many (qticamsrc, qmmfsrc_caps_preview, queue[0],
         tee, NULL);
     if (!ret) {
       g_printerr ("Pipeline elements cannot be linked for qmmfsource->tee\n");
@@ -739,7 +739,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
       goto error_clean_pipeline;
     }
 
-    ret = gst_element_link_many (qtiqmmfsrc, qmmfsrc_caps_monodepth, queue[3],
+    ret = gst_element_link_many (qticamsrc, qmmfsrc_caps_monodepth, queue[3],
         qtimlvconverter, queue[4], qtimlelement, queue[5], qtimlvsegmentation,
         segmentation_filter, queue[6], qtivcomposer, NULL);
     if (!ret) {
@@ -749,18 +749,18 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   }
 
   if (options->use_camera) {
-    // Setting Up qtiqmmfsrc streamtype property
-    qtiqmmfsrc_type = gst_element_get_static_pad (qtiqmmfsrc, "video_0");
-    if (!qtiqmmfsrc_type) {
-      g_printerr ("video_0 of qtiqmmfsrc couldn't be retrieved\n");
+    // Setting Up qticamsrc streamtype property
+    qticamsrc_type = gst_element_get_static_pad (qticamsrc, "video_0");
+    if (!qticamsrc_type) {
+      g_printerr ("video_0 of qticamsrc couldn't be retrieved\n");
       goto error_clean_pipeline;
     }
 
     g_value_init (&video_type, G_TYPE_INT);
     g_value_set_int (&video_type, GST_SOURCE_STREAM_TYPE_PREVIEW);
-    g_object_set_property (G_OBJECT (qtiqmmfsrc_type), "type", &video_type);
+    g_object_set_property (G_OBJECT (qticamsrc_type), "type", &video_type);
     g_value_unset (&video_type);
-    gst_object_unref (qtiqmmfsrc_type);
+    gst_object_unref (qticamsrc_type);
   }
 
   if (options->use_file) {
@@ -810,7 +810,7 @@ error_clean_pipeline:
   return FALSE;
 
 error_clean_elements:
-  cleanup_gst (&qtiqmmfsrc, &qmmfsrc_caps_preview, &qmmfsrc_caps_monodepth,
+  cleanup_gst (&qticamsrc, &qmmfsrc_caps_preview, &qmmfsrc_caps_monodepth,
       &qtivcomposer, &qtdemux, &tee, &h264parse, &v4l2h264dec, &v4l2h264dec_caps,
       &rtph264depay, &qtimlvconverter, &qtimlelement, &qtimlvsegmentation,
       &segmentation_filter, &fpsdisplaysink, &waylandsink, &filesrc,

@@ -381,10 +381,7 @@ is_camera_available ()
   if (!gst_reg)
     return FALSE;
   // Check presence of either camera plugin
-  gst_plugin = gst_registry_find_plugin(gst_reg, "qtiqmmfsrc");
-  if (!gst_plugin) {
-    gst_plugin = gst_registry_find_plugin(gst_reg, "qticamsrc");
-  }
+  gst_plugin = gst_registry_find_plugin(gst_reg, "qticamsrc");
 
   if (gst_plugin) {
     gst_object_unref(gst_plugin);

@@ -18,7 +18,7 @@
  *
  * Buffer handling for different sources:
  * 1. For camera source:
- * qtiqmmfsrc (Camera) -> qmmfsrc_caps -> tee (SPLIT)
+ * qticamsrc (Camera) -> qmmfsrc_caps -> tee (SPLIT)
  *
  * 2. For File source:
  * filesrc -> qtdemux -> h264parse -> v4l2h264dec -> tee (SPLIT)
@@ -416,7 +416,7 @@ gst_app_context_free (GstAppContext * appctx, GstAppOptions * options, gchar * c
 static gboolean
 create_pipe (GstAppContext * appctx, GstAppOptions * options)
 {
-  GstElement *qtiqmmfsrc = NULL, *qmmfsrc_caps = NULL;
+  GstElement *qticamsrc = NULL, *qmmfsrc_caps = NULL;
   GstElement *filesrc = NULL, *rtspsrc = NULL, *qtdemux = NULL, *h264parse = NULL;
   GstElement *v4l2h264dec = NULL, *rtph264depay = NULL, *qtivcomposer = NULL;
   GstElement *v4l2h264dec_caps = NULL;
@@ -506,10 +506,10 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     }
   } else {
     // 1. Create the elements or Plugins
-    // Create qtiqmmfsrc plugin for camera stream
-    qtiqmmfsrc = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmfsrc");
-    if (!qtiqmmfsrc) {
-      g_printerr ("Failed to create qtiqmmfsrc\n");
+    // Create qticamsrc plugin for camera stream
+    qticamsrc = gst_element_factory_make ("qticamsrc", "qticamsrc");
+    if (!qticamsrc) {
+      g_printerr ("Failed to create qticamsrc\n");
       goto error_clean_elements;
     }
 
@@ -621,7 +621,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     g_object_set (G_OBJECT (v4l2h264dec_caps), "caps", filtercaps, NULL);
     gst_caps_unref (filtercaps);
   } else {
-    g_object_set (G_OBJECT (qtiqmmfsrc), "camera", options->camera_type, NULL);
+    g_object_set (G_OBJECT (qticamsrc), "camera", options->camera_type, NULL);
 
     if (options->camera_type == GST_CAMERA_TYPE_PRIMARY) {
       // 2.2 Set the capabilities of camera plugin output
@@ -769,7 +769,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
         rtph264depay, h264parse, v4l2h264dec, v4l2h264dec_caps,
         tee, qtivcomposer, waylandsink, fpsdisplaysink, NULL);
   } else {
-    gst_bin_add_many (GST_BIN (appctx->pipeline), qtiqmmfsrc,  qmmfsrc_caps,
+    gst_bin_add_many (GST_BIN (appctx->pipeline), qticamsrc,  qmmfsrc_caps,
         tee, qtivcomposer, fpsdisplaysink, NULL);
   }
 
@@ -807,7 +807,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
       goto error_clean_pipeline;
     }
   } else {
-    ret = gst_element_link_many (qtiqmmfsrc, qmmfsrc_caps, queue[0],
+    ret = gst_element_link_many (qticamsrc, qmmfsrc_caps, queue[0],
         tee, NULL);
     if (!ret) {
       g_printerr ("Pipeline elements cannot be linked for qmmfsource->tee\n");
@@ -919,7 +919,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   return TRUE;
 
 error_clean_elements:
-  cleanup_gst (&qtiqmmfsrc, &qmmfsrc_caps, &filesrc, &qtdemux,
+  cleanup_gst (&qticamsrc, &qmmfsrc_caps, &filesrc, &qtdemux,
       &h264parse, &v4l2h264dec, &v4l2h264dec_caps, &rtspsrc,
       &rtph264depay, &tee, &qtivcomposer, &fpsdisplaysink, &waylandsink, NULL);
 
