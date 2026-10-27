@@ -15,6 +15,103 @@ import signal
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk, Gio, Gdk, GdkPixbuf, GLib
 
+# Define SocID for v66 architecture
+V66_SOC_IDS = {
+    "kTALOS_QCS610": 401,
+    "kTALOS_QCS410": 406,
+    "kTALOS_QCS615": 680,
+    "CQ2390M": 756,
+    "CQ2390S": 758,
+    "IQ2390S": 759,
+}
+
+# Mapping of applications to their required models and labels
+APP_REQUIREMENTS = {
+    "Classification": {
+        "models": ["inception_v3_quantized.tflite"],
+        "labels": ["classification.json"],
+    },
+    "Face Detection": {
+        "models": ["face_det_lite_quantized.tflite"],
+        "labels": ["face_detection.json"],
+    },
+    "Pose Detection": {
+        "models": ["hrnet_pose_quantized.tflite"],
+        "labels": ["hrnet_pose.json", "hrnet_pose_settings.json"],
+    },
+    "Gesture Recognition": {
+        "models": [
+            "palm_detection.tflite",
+            "hand_landmark.tflite",
+            "gesture_embedder.tflite",
+            "canned_gesture_classifier.tflite",
+        ],
+        "labels": [
+            "palmd_labels.json",
+            "palmd_settings.json",
+            "hlandmark_labels.json",
+            "hlandmark_settings.json",
+            "gesture_labels.json",
+        ],
+    },
+    "ObjectDetection": {
+        "models": ["yolox_quantized.tflite"],
+        "labels": ["yolox.json"],
+    },
+    "Parallel-AI-Fusion": {
+        "models": [
+            "yolox_quantized.tflite",
+            "inception_v3_quantized.tflite",
+            "hrnet_pose_quantized.tflite",
+            "deeplabv3_plus_mobilenet_quantized.tflite",
+        ],
+        "labels": [
+            "yolox.json",
+            "classification.json",
+            "hrnet_pose.json",
+            "hrnet_pose_settings.json",
+            "deeplabv3_resnet50.json",
+        ],
+    },
+    "Daisychain Pose": {
+        "models": ["yolox_quantized.tflite", "hrnet_pose_quantized.tflite"],
+        "labels": ["yolox.json", "hrnet_pose.json", "hrnet_pose_settings.json"],
+    },
+    "Multistream": {
+        "models": ["yolox_quantized.tflite"],
+        "labels": ["yolox.json"],
+    },
+}
+
+# Common media file needed for file source
+COMMON_MEDIA = ["video.mp4"]
+
+NON_AI_APPLICATIONS = [
+    "Record live video",
+    "DashCamera",
+    "VideoWall",
+    "VideoTestSrc",
+]
+
+V66_AI_APPLICATIONS = [
+    "Classification",
+    "Face Detection",
+    "Pose Detection",
+    "Gesture Recognition",
+]
+
+NON_V66_AI_APPLICATIONS = [
+    "ObjectDetection",
+    "Parallel-AI-Fusion",
+    "Face Detection",
+    "Daisychain Pose",
+    "Multistream",
+    "Gesture Recognition",
+]
+
+AI_APPLICATIONS = set(V66_AI_APPLICATIONS) | set(NON_V66_AI_APPLICATIONS)
+
+
 # Define the base directory for all qdemo artifacts under $HOME/qdemo
 QDEMO_HOME = os.path.join(os.path.expanduser("~"), "qdemo")
 QDEMO_MODELS_DIR = os.path.join(QDEMO_HOME, "models")
@@ -23,6 +120,9 @@ QDEMO_MEDIA_DIR = os.path.join(QDEMO_HOME, "media")
 
 # Maximum number of /dev/videoN nodes to probe when searching for a USB camera.
 MAX_VIDEO_DEVICES = 32
+SOC_DEV_PATH_PRIMARY = "/sys/devices/soc0/soc_id"
+SOC_DEV_PATH_SECONDARY = "/sys/devices/system/soc/soc0/id"
+CAMX_SOCKET_PATH = "/run/cam_server/le_cam_socket"
 
 def setup_qdemo_dirs():
     """Create the qdemo directory structure under $HOME if it doesn't exist."""
@@ -46,6 +146,10 @@ class DemoWindow(Gtk.Window):
         self.check_download = None
         self.download_artifacts = False
         self.ssid = None
+
+        # Fetch Soc ID of the device
+        self.soc_id = self.get_soc_id()
+        self.v66_arch = self.is_v66_arch(self.soc_id)
 
         # Check Wi-Fi status every 2 seconds
         self.label = Gtk.Label(label="Wi-Fi status")
@@ -137,23 +241,17 @@ class DemoWindow(Gtk.Window):
 
         # select the application
         self.app_label = Gtk.Label(label="Applications")
-        applications = [
-            "Record live video",
-            "DashCamera",
-            "VideoWall",
-            "ObjectDetection",
-            "Parallel-AI-Fusion",
-            "Face Detection",
-            "Daisychain Pose",
-            "Multistream",
-            "VideoTestSrc"
-        ]
+        if self.v66_arch:
+            architecture_applications = V66_AI_APPLICATIONS
+        else:
+            architecture_applications = NON_V66_AI_APPLICATIONS
+        self.applications = NON_AI_APPLICATIONS + architecture_applications
         self.application_select = Gtk.ComboBoxText()
-        for app in applications:
+        for app in self.applications:
             self.application_select.append_text(app)
 
         # Set the default active application
-        self.application_select.set_active(3)
+        self.application_select.set_active(len(NON_AI_APPLICATIONS))
 
         # Application descriptions dictionary
         self.app_descriptions = {
@@ -162,9 +260,12 @@ class DemoWindow(Gtk.Window):
             "VideoWall": "Multichannel video decoding and composition. Creates four instances of a video. Requires 'Record live video' to be executed first.",
             "ObjectDetection": "Object detection on input streams from a camera using YOLOX model.",
             "Parallel-AI-Fusion": "Parallel AI inferences (Detection, Classification, Pose estimation and Segmentation) from a camera.",
+            "Classification": "Classification on input streams from a camera.",
             "Face Detection": "Face detection on input streams from a camera.",
             "Daisychain Pose": "Daisychain of detection and pose estimation from a camera.",
+            "Pose Detection": "Pose detection on input streams from a camera.",
             "Multistream": "Multistream inference from a camera and 3 file streams.",
+            "Gesture Recognition": "Palm detection, hand landmark tracking and gesture classification from a camera.",
             "VideoTestSrc": "Displays a test video pattern (no camera required)."
         }
 
@@ -174,7 +275,7 @@ class DemoWindow(Gtk.Window):
         self.desc_value.set_line_wrap(True)
         self.desc_value.set_max_width_chars(40)
         self.desc_value.set_xalign(0)
-        self.desc_value.set_text(self.app_descriptions.get("ObjectDetection", ""))
+        self.desc_value.set_text(self.app_descriptions.get(self.application_select.get_active_text(), ""))
 
         # Connect application selection change to update description
         self.application_select.connect("changed", self.on_application_changed)
@@ -212,6 +313,24 @@ class DemoWindow(Gtk.Window):
 
         # Add the grid to the window
         self.add(grid)
+
+    def get_soc_id(self):
+        """Read the SoC ID from sysfs. Returns 0 and shows a warning on failure."""
+        soc_path = SOC_DEV_PATH_PRIMARY if os.path.exists(SOC_DEV_PATH_PRIMARY) else SOC_DEV_PATH_SECONDARY
+        try:
+            with open(soc_path, "r", encoding="ascii") as soc_file:
+                return int(soc_file.read().strip())
+        except (OSError, ValueError) as exc:
+            print(f"WARNING: Failed to read SoC ID from {soc_path}: {exc}")
+            return 0
+
+    def is_v66_arch(self, soc_id: int):
+        """Return True if the given SoC ID belongs to a v66 architecture."""
+        return soc_id in V66_SOC_IDS.values()
+
+    def check_camx_availability(self):
+        """Check whether the CamX socket exists on this device."""
+        return os.access(CAMX_SOCKET_PATH, os.F_OK)
 
     def update_ip_address(self, device):
         result = subprocess.run(
@@ -333,17 +452,11 @@ class DemoWindow(Gtk.Window):
             buttons=Gtk.ButtonsType.OK,
             text="Applications Information",
         )
-        # Format and set the secondary text of the dialog
-        dialog.format_secondary_markup(
-            "<b>Record Live Video</b>: Records camera feed and saves video.\n\n"
-            "<b>DashCamera</b>: Simultaneous streaming from two camera sensors.\n\n"
-            "<b>VideoWall</b>: Multichannel video decoding and composition. Creates four instances of a video. Ensure 'Record Live Video' is executed beforehand.\n\n"
-            "<b>ObjectDetection</b>: Object detection on input streams from a camera.\n\n"
-            "<b>Parallel-AI-Fusion</b>: Parallel AI inferences (Detection, Classification, Pose estimation and Segmentation) from a camera.\n\n"
-            "<b>Face Detection</b>: Face detection on input streams from a camera.\n\n"
-            "<b>Daisychain Pose</b>: Daisychain of detection and pose estimation from a camera.\n\n"
-            "<b>Multistream</b>: Multistream inference from a camera and 7 file streams.\n\n"
+        app_information = "\n\n".join(
+            f"{application}: {self.app_descriptions[application]}"
+            for application in self.applications
         )
+        dialog.format_secondary_text(app_information)
         dialog.run()
         dialog.destroy()
 
@@ -361,49 +474,49 @@ class DemoWindow(Gtk.Window):
             self.popup.destroy()
             self.popup = None
 
-    def download_assets(self):
+    def download_assets(self, application):
         """
-        Downloads necessary assets if they do not already exist.
+        Downloads necessary assets for the specified application if they do not already exist.
 
-        Checks for the existence of specific files and downloads them if they are missing.
+        Args:
+            application (str): The name of the application to download assets for.
         """
 
         file_path = os.path.join(QDEMO_HOME, "download_artifacts_2.x.sh")
-        DEFAULT_TFLITE_OBJECT_DETECTION_MODEL = os.path.join(QDEMO_MODELS_DIR, "yolox_quantized.tflite")
-        DEFAULT_TFLITE_CLASSIFICATION_MODEL = os.path.join(QDEMO_MODELS_DIR, "inception_v3_quantized.tflite")
-        DEFAULT_TFLITE_POSE_DETECTION_MODEL = os.path.join(QDEMO_MODELS_DIR, "hrnet_pose_quantized.tflite")
-        DEFAULT_TFLITE_SEGMENTATION_MODEL = os.path.join(QDEMO_MODELS_DIR, "deeplabv3_plus_mobilenet_quantized.tflite")
-        DEFAULT_TFLITE_FACE_DETECTION_MODEL = os.path.join(QDEMO_MODELS_DIR, "face_det_lite_quantized.tflite")
-        DEFAULT_OBJECT_DETECTION_LABELS = os.path.join(QDEMO_LABELS_DIR, "yolox.json")
-        DEFAULT_CLASSIFICATION_LABELS = os.path.join(QDEMO_LABELS_DIR, "classification.json")
-        DEFAULT_POSE_DETECTION_LABELS = os.path.join(QDEMO_LABELS_DIR, "hrnet_pose.json")
-        DEFAULT_SEGMENTATION_LABELS = os.path.join(QDEMO_LABELS_DIR, "deeplabv3_resnet50.json")
-        DEFAULT_FACE_DETECTION_LABELS = os.path.join(QDEMO_LABELS_DIR, "face_detection.json")
-        DEFAULT_POSE_SETTINGS = os.path.join(QDEMO_LABELS_DIR, "hrnet_pose_settings.json")
-        DEFAULT_INPUT_VIDEO = os.path.join(QDEMO_MEDIA_DIR, "video.mp4")
 
-        # Check if all required files and models exist
-        if os.path.exists(file_path) \
-                and os.path.exists(DEFAULT_TFLITE_OBJECT_DETECTION_MODEL) \
-                and os.path.exists(DEFAULT_TFLITE_CLASSIFICATION_MODEL) \
-                and os.path.exists(DEFAULT_TFLITE_POSE_DETECTION_MODEL) \
-                and os.path.exists(DEFAULT_TFLITE_SEGMENTATION_MODEL) \
-                and os.path.exists(DEFAULT_TFLITE_FACE_DETECTION_MODEL) \
-                and os.path.exists(DEFAULT_OBJECT_DETECTION_LABELS) \
-                and os.path.exists(DEFAULT_CLASSIFICATION_LABELS) \
-                and os.path.exists(DEFAULT_POSE_DETECTION_LABELS) \
-                and os.path.exists(DEFAULT_SEGMENTATION_LABELS) \
-                and os.path.exists(DEFAULT_FACE_DETECTION_LABELS) \
-                and os.path.exists(DEFAULT_POSE_SETTINGS) \
-                and os.path.exists(DEFAULT_INPUT_VIDEO):
-            print("Artifacts already exist.")
+        # Collect models and labels needed by all AI applications supported on this architecture
+        ai_applications = V66_AI_APPLICATIONS if self.v66_arch else NON_V66_AI_APPLICATIONS
+        required_models = []
+        required_labels = []
+        for ai_application in ai_applications:
+            requirements = APP_REQUIREMENTS.get(ai_application, {})
+            required_models.extend(requirements.get("models", []))
+            required_labels.extend(requirements.get("labels", []))
+        required_models = list(dict.fromkeys(required_models))
+        required_labels = list(dict.fromkeys(required_labels))
+
+        # Build list of required file paths
+        required_files = [file_path]
+        for model in required_models:
+            required_files.append(os.path.join(QDEMO_MODELS_DIR, model))
+        for label in required_labels:
+            required_files.append(os.path.join(QDEMO_LABELS_DIR, label))
+        for media in COMMON_MEDIA:
+            required_files.append(os.path.join(QDEMO_MEDIA_DIR, media))
+
+        # Check if all required files exist
+        all_files_exist = all(os.path.exists(f) for f in required_files)
+
+        if all_files_exist:
+            print(f"All required artifacts for {application} already exist.")
             # Close the popup window
             GLib.idle_add(self._destroy_popup)
 
             # Set the flag to indicate that artifacts are already downloaded
             self.download_artifacts = True
         else:
-            print("Artifacts do not exist.")
+            missing_files = [f for f in required_files if not os.path.exists(f)]
+            print(f"Missing artifacts: {len(missing_files)} files")
             if self.ssid is None:
                 # Close the current popup window
                 GLib.idle_add(self._destroy_popup)
@@ -531,10 +644,22 @@ class DemoWindow(Gtk.Window):
         if self.check_download is not None:
             self.check_download.join()
         pipeline = None
-        TFLITE_DELEGATE =  "delegate=external \
-            external-delegate-path=libQnnTFLiteDelegate.so \
-            external-delegate-options='QNNExternalDelegate,backend_type=htp,\
-            htp_device_id=(string)0,htp_performance_mode=(string)2'"
+        if self.v66_arch:
+            TFLITE_DELEGATE = (
+                "delegate=external "
+                "external-delegate-path=libQnnTFLiteDelegate.so "
+                "external-delegate-options='QNNExternalDelegate,"
+                "backend_type=dsp'"
+            )
+        else:
+            TFLITE_DELEGATE = (
+                "delegate=external "
+                "external-delegate-path=libQnnTFLiteDelegate.so "
+                "external-delegate-options='QNNExternalDelegate,"
+                "backend_type=htp,"
+                "htp_device_id=(string)0,"
+                "htp_performance_mode=(string)2'"
+            )
 
         # Artifact paths
         models_dir = QDEMO_MODELS_DIR
@@ -550,22 +675,25 @@ class DemoWindow(Gtk.Window):
                 return None
             in_src = f"v4l2src io-mode=dmabuf-import device={found_device} ! video/x-raw,width=640,height=360,framerate=30/1 ! queue ! qtivtransform ! video/x-raw,format=NV12"
         elif src == "On-Device-Camera":
-            in_src = "qtiqmmfsrc name=camsrc ! video/x-raw,format=NV12,width=1280,height=720,framerate=30/1"
-
+            if self.check_camx_availability():
+                camera_plugin = "qticamsrc name=camsrc"
+            else:
+                camera_plugin = "libcamerasrc"
+            in_src = f"{camera_plugin} ! qtivtransform ! video/x-raw,format=NV12,width=1280,height=720,framerate=30/1"
         if application == "Record live video":
             if not os.path.exists(media_dir):
                 os.makedirs(media_dir, exist_ok=True)
 
             pipeline = "gst-launch-1.0 " + in_src + " ! queue ! tee name=split ! queue ! qtivcomposer ! queue ! \
-                gtksink split. ! queue ! v4l2h264enc capture-io-mode=4 output-io-mode=5 ! \
+                gtksink split. ! queue ! v4l2h264enc capture-io-mode=4 output-io-mode=4 ! \
                 h264parse ! mp4mux reserved-moov-update-period=1000000000 reserved-bytes-per-sec=10000 reserved-max-duration=600000000000 ! filesink location=" + video_out
 
         elif application == "DashCamera" and src == "On-Device-Camera":
             pipeline = "gst-launch-1.0 -e qtivcomposer name=mix sink_0::position='<0, 0>' sink_0::dimensions='<640, 360>' \
                 sink_1::position='<640, 0>' sink_1::dimensions='<640, 360>' \
                 mix. ! queue ! gtksink \
-                qtiqmmfsrc name=camsrc camera=0 ! video/x-raw,format=NV12,width=1280,height=720,framerate=30/1 ! queue ! mix. \
-                qtiqmmfsrc name=camsrc1 camera=1 ! video/x-raw,format=NV12,width=1280,height=720,framerate=30/1 ! queue ! mix. "
+                qticamsrc name=camsrc camera=0 ! video/x-raw,format=NV12,width=1280,height=720,framerate=30/1 ! queue ! mix. \
+                qticamsrc name=camsrc1 camera=1 ! video/x-raw,format=NV12,width=1280,height=720,framerate=30/1 ! queue ! mix. "
 
         elif application == "DashCamera" and src == "USB-Camera":
             pipeline = f"gst-launch-1.0 -e qtivcomposer name=mix sink_0::position='<0, 0>' sink_0::dimensions='<640, 360>' \
@@ -621,7 +749,7 @@ class DemoWindow(Gtk.Window):
                     sink_0::position='<0, 0>' sink_0::dimensions='<960, 540>' \
                     sink_1::position='<0, 0>' sink_1::dimensions='<960, 540>' \
                     sink_2::position='<960, 0>' sink_2::dimensions='<960, 540>' \
-                    sink_3::position='<990, 45>' sink_3::dimensions='<320, 180>' \
+                    sink_3::position='<990, 30>' sink_3::dimensions='<360, 48>' \
                     sink_4::position='<0, 540>' sink_4::dimensions='<960, 540>' \
                     sink_5::position='<0, 540>' sink_5::dimensions='<960, 540>' \
                     sink_6::position='<960, 540>' sink_6::dimensions='<960, 540>' \
@@ -630,7 +758,7 @@ class DemoWindow(Gtk.Window):
                     split. ! queue ! mixer. \
                     split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/yolox_quantized.tflite ! queue ! qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels={labels_dir}/yolox.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. \
                     split. ! queue ! mixer. \
-                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/inception_v3_quantized.tflite ! queue ! qtimlpostprocess settings='{{\"confidence\": 40.0}}' results=2 module=mobilenet-softmax labels={labels_dir}/classification.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. \
+                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/inception_v3_quantized.tflite ! queue ! qtimlpostprocess settings='{{\"confidence\": 40.0}}' results=2 module=mobilenet-softmax labels={labels_dir}/classification.json ! video/x-raw,format=RGBA ! queue ! mixer. \
                     split. ! queue ! mixer. \
                     split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model={models_dir}/hrnet_pose_quantized.tflite ! queue ! qtimlpostprocess settings={labels_dir}/hrnet_pose_settings.json results=2 module=hrnet labels={labels_dir}/hrnet_pose.json ! video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer. \
                     split. ! queue ! mixer. \
@@ -642,17 +770,37 @@ class DemoWindow(Gtk.Window):
                     split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model='{models_dir}/yolox_quantized.tflite' ! queue ! \
                     qtimlpostprocess settings='{{\"confidence\": 51.0}}' results=10 module=yolov8 labels='{labels_dir}/yolox.json' ! \
                     video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer."
+            elif application == "Classification":
+                pipeline = "gst-launch-1.0 " + in_src + f" ! queue ! tee name=split \
+                    split. ! queue ! qtivcomposer name=mixer ! queue ! gtksink \
+                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model='{models_dir}/inception_v3_quantized.tflite' ! queue ! \
+                    qtimlpostprocess settings='{{\"confidence\": 40.0}}' results=2 module=mobilenet-softmax labels='{labels_dir}/classification.json' ! \
+                    video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer."
             elif application == "Face Detection":
                 if src == "On-Device-Camera":
-                    in_src = "qtiqmmfsrc name=camsrc ! video/x-raw,format=NV12,width=640,height=480,framerate=30/1"
+                    camera_plugin = "qticamsrc name=camsrc" if self.check_camx_availability() else "libcamerasrc"
+                    in_src = f"{camera_plugin} ! qtivtransform ! video/x-raw,format=NV12,width=640,height=480,framerate=30/1"
                 else:
                     in_src = f"v4l2src io-mode=dmabuf-import device={found_device} ! video/x-raw,width=640,height=480,framerate=30/1 ! queue ! qtivtransform ! video/x-raw,format=NV12"
+                if self.v66_arch:
+                    in_src += " ! videorate ! video/x-raw,framerate=15/1"
                 pipeline = f"gst-launch-1.0 -e \
                     qtimlvconverter name=stage_01_preproc mode=image-batch-non-cumulative \
                     qtimltflite name=stage_01_inference model={models_dir}/face_det_lite_quantized.tflite {TFLITE_DELEGATE} \
                     qtimlpostprocess name=stage_01_postproc settings='{{\"confidence\": 51.0}}' results=6 module=qfd labels={labels_dir}/face_detection.json \
                     " + in_src + " ! queue ! tee name=split ! queue ! qtivcomposer name=mixer ! queue ! gtksink \
                     split. ! queue ! stage_01_preproc. stage_01_preproc. ! queue ! stage_01_inference. stage_01_inference. ! queue ! stage_01_postproc. stage_01_postproc. ! video/x-raw ! queue ! mixer."
+            elif application == "Pose Detection":
+                if src == "On-Device-Camera":
+                    camera_plugin = "qticamsrc name=camsrc" if self.check_camx_availability() else "libcamerasrc"
+                    in_src = f"{camera_plugin} ! video/x-raw,width=640,height=480,framerate=15/1"
+                else:
+                    in_src = f"v4l2src io-mode=dmabuf-import device={found_device} ! video/x-raw,width=640,height=480,framerate=15/1"
+                pipeline = "gst-launch-1.0 -e " + in_src + f" ! qtivtransform ! video/x-raw ! queue ! tee name=split \
+                    split. ! queue ! qtivcomposer name=mixer ! queue ! gtksink sync=false \
+                    split. ! queue ! qtimlvconverter ! queue ! qtimltflite {TFLITE_DELEGATE} model='{models_dir}/hrnet_pose_quantized.tflite' ! queue ! \
+                    qtimlpostprocess results=2 module=hrnet labels='{labels_dir}/hrnet_pose.json' settings='{labels_dir}/hrnet_pose_settings.json' ! \
+                    video/x-raw,format=RGBA,width=640,height=360 ! queue ! mixer."
             elif application == "Daisychain Pose":
                 pipeline = f"gst-launch-1.0 -e \
                     qtimlvconverter name=stage_01_preproc mode=image-batch-non-cumulative \
@@ -677,6 +825,35 @@ class DemoWindow(Gtk.Window):
                     sink_1::position='<0, 0>' sink_1::dimensions='<240, 480>' \
                     sink_2::position='<1680, 0>' sink_2::dimensions='<240, 480>' \
                     mixer. ! queue ! qtivoverlay ! gtksink"
+            elif application == "Gesture Recognition":
+                os.environ["OCL_ICD_FILENAMES"] = "/usr/lib/libOpenCL_adreno.so.1"
+                framerate = "10" if self.v66_arch else "30"
+                if src == "On-Device-Camera":
+                    camera_plugin = "qticamsrc name=camsrc" if self.check_camx_availability() else "libcamerasrc"
+                    in_src = f"{camera_plugin} ! video/x-raw,width=640,height=480,framerate={framerate}/1"
+                else:
+                    in_src = f"v4l2src io-mode=dmabuf-import device={found_device} ! video/x-raw,width=640,height=480,framerate={framerate}/1"
+                pipeline = f"gst-launch-1.0 -e \
+                    qtimlvconverter name=palm_pre \
+                    qtimltflite name=palm_inf delegate=gpu model={models_dir}/palm_detection.tflite \
+                    qtimlpostprocess name=palm_post module=palmd labels={labels_dir}/palmd_labels.json settings={labels_dir}/palmd_settings.json results=1 \
+                    qtimetatransform name=metatransform module=roi-palmd \
+                    qtimlvconverter name=hand_pre mode=roi-batch-non-cumulative \
+                    qtimltflite name=hand_inf delegate=gpu model={models_dir}/hand_landmark.tflite \
+                    qtimlpostprocess name=hand_post module=hlandmark labels={labels_dir}/hlandmark_labels.json settings={labels_dir}/hlandmark_settings.json results=6 \
+                    qtimlpostprocess name=gesture_pre module=tensor results=6 \
+                    qtimltflite name=gesture_embed delegate=gpu model={models_dir}/gesture_embedder.tflite \
+                    qtimltflite name=gesture_class delegate=gpu model={models_dir}/canned_gesture_classifier.tflite \
+                    qtimlpostprocess name=gesture_post module=mobilenet labels={labels_dir}/gesture_labels.json results=8 \
+                    " + in_src +  " ! qtivtransform ! video/x-raw ! queue ! tee name=t_split_1 \
+                    t_split_1. ! queue ! metamux_1. \
+                    t_split_1. ! queue ! palm_pre. palm_pre. ! queue ! palm_inf. palm_inf. ! queue ! palm_post. palm_post. ! text/x-raw ! queue ! metamux_1. \
+                    qtimetamux name=metamux_1 ! queue ! metatransform. metatransform. ! queue ! tee name=t_split_2 \
+                    t_split_2. ! queue ! metamux_2. \
+                    t_split_2. ! queue ! hand_pre. hand_pre. ! queue ! hand_inf. hand_inf. ! queue ! tee name=t_split_3 \
+                    t_split_3. ! queue ! hand_post. hand_post. ! text/x-raw ! queue ! metamux_2. \
+                    t_split_3. ! queue ! gesture_pre. gesture_pre. ! queue ! gesture_embed. gesture_embed. ! queue ! gesture_class. gesture_class. ! queue ! gesture_post. gesture_post. ! text/x-raw ! queue ! metamux_2. \
+                    qtimetamux name=metamux_2 ! queue ! qtivoverlay ! queue ! gtksink sync=false"
             elif application == "Multistream":
                 pipeline = f"gst-launch-1.0 -e qtivcomposer name=mixer \
                     sink_0::position='<0, 0>' sink_0::dimensions='<960, 540>' \
@@ -763,10 +940,8 @@ class DemoWindow(Gtk.Window):
         src = self.src_select.get_active_text()
 
         # Download models and labels
-        if((application == "ObjectDetection") or (application == "Parallel-AI-Fusion") \
-            or (application == "Face Detection") or (application == "Daisychain Pose") \
-            or (application == "Multistream")):
-            self.check_download = threading.Thread(target=self.download_assets)
+        if application in AI_APPLICATIONS:
+            self.check_download = threading.Thread(target=self.download_assets, args=(application,))
             self.check_download.start()
         else:
             self._destroy_popup()
