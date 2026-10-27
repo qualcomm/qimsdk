@@ -504,9 +504,9 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options, guint htp_count)
 
   // 1. Create the elements or Plugins
   for (gint i = 0; i < options->num_camera; i++) {
-    // Create qtiqmmfsrc plugin for camera stream
+    // Create qticamsrc plugin for camera stream
     snprintf (element_name, 127, "camsrc-%d", i);
-    camsrc[i] = gst_element_factory_make ("qtiqmmfsrc", element_name);
+    camsrc[i] = gst_element_factory_make ("qticamsrc", element_name);
     if (!camsrc[i]) {
       g_printerr ("Failed to create camsrc-%d\n", i);
       goto error_clean_elements;

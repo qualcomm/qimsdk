@@ -1189,10 +1189,10 @@ gst_app_create_input_pipe (GstGestureAppContext * appctx, GstElement ** input_ta
     }
   } else if (g_strcmp0 (appctx->config.input_type, "isp") == 0) {
     /*
-     * ISP input: qtiqmmfsrc is the Qualcomm camera source. The capsfilter makes
+     * ISP input: qticamsrc is the Qualcomm camera source. The capsfilter makes
      * the documented resolution, format, and framerate contract explicit.
      */
-    source = gst_app_make_element ("qtiqmmfsrc", "isp_camera_src");
+    source = gst_app_make_element ("qticamsrc", "isp_camera_src");
     if (!source)
       goto error;
 

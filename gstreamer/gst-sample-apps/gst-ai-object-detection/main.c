@@ -13,11 +13,11 @@
  * for object detection and display preview with overlayed AI Model output with
  * detection labels.
  *
- * For overlay builds, the camera source element used is qtiqmmfsrc.
+ * For overlay builds, the camera source element used is qticamsrc.
  * In non-overlay builds, libcamerasrc is used instead.
  *
- * Pipeline for Gstreamer with qtiqmmfsrc:
- * qtiqmmfsrc -> | qmmfsrc_caps (Preview)    -> qtivcomposer
+ * Pipeline for Gstreamer with qticamsrc:
+ * qticamsrc -> | qmmfsrc_caps (Preview)    -> qtivcomposer
  *               | qmmfsrc_caps (Inference)  -> Pre-process -> Inference
  *                 ->  Post-process          -> qtivcomposer
  *
@@ -357,7 +357,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   GstCaps *pad_filter = NULL, *filtercaps = NULL;
   GstPad *vcomposer_sink;
   GstStructure *delegate_options = NULL;
-  GstPad *qtiqmmfsrc_type = NULL;
+  GstPad *qticamsrc_type = NULL;
   gboolean ret = FALSE;
   gchar element_name[128], settings[128];
   GValue tensors = G_VALUE_INIT;
@@ -453,7 +453,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     }
 
   } else if (options->use_camera) {
-    // Create qtiqmmfsrc plugin for camera stream, if qtiqmmfsrc is available
+    // Create qticamsrc plugin for camera stream, if qticamsrc is available
     // Otherwise create libcamerasrc plugin for camera stream
     camera_source =
       create_camera_source_bin ("camera_source");
@@ -685,7 +685,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     gst_caps_unref (filtercaps);
   } else if (options->use_camera) {
     if (options->is_camx_available) {
-      g_print("Using qtiqmmfsrc\n");
+      g_print("Using qticamsrc\n");
 
       // 2.3 Set user provided Camera ID
       g_object_set (G_OBJECT (camera_source), "camera", options->camera_type, NULL);
@@ -1298,17 +1298,17 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   }
 
   if (options->use_camera && options->is_camx_available) {
-    qtiqmmfsrc_type = gst_element_get_static_pad (camera_source, "video_0");
-    if (!qtiqmmfsrc_type) {
-      g_printerr ("video_0 of qtiqmmfsrc couldn't be retrieved\n");
+    qticamsrc_type = gst_element_get_static_pad (camera_source, "video_0");
+    if (!qticamsrc_type) {
+      g_printerr ("video_0 of qticamsrc couldn't be retrieved\n");
       goto error_clean_pipeline;
     }
 
     g_value_init (&video_type, G_TYPE_INT);
     g_value_set_int (&video_type, GST_SOURCE_STREAM_TYPE_PREVIEW);
-    g_object_set_property (G_OBJECT (qtiqmmfsrc_type), "type", &video_type);
+    g_object_set_property (G_OBJECT (qticamsrc_type), "type", &video_type);
     g_value_unset (&video_type);
-    gst_object_unref (qtiqmmfsrc_type);
+    gst_object_unref (qticamsrc_type);
   }
 
   // Set overlay window size for Detection to display text labels
@@ -1704,7 +1704,7 @@ main (gint argc, gchar * argv[])
     );
   } else {
     snprintf (camera_description, sizeof (camera_description),
-        "NOTE: libcamera is used by default as qtiqmmfsrc is not available.\n"
+        "NOTE: libcamera is used by default as qticamsrc is not available.\n"
     );
   }
 
@@ -1867,7 +1867,7 @@ main (gint argc, gchar * argv[])
 
   // Check for input source
   if (options.is_camx_available) {
-    g_print ("TARGET Can support file source, RTSP source and qtiqmmfsrc\n");
+    g_print ("TARGET Can support file source, RTSP source and qticamsrc\n");
   } else {
     g_print ("TARGET Can support file sourc, RTSP sourcee and libcamerasrc\n");
   }
@@ -1884,7 +1884,7 @@ main (gint argc, gchar * argv[])
   if (! (options.use_file || (options.camera_type != GST_CAMERA_TYPE_NONE) ||
       options.use_rtsp || options.use_usb == TRUE)) {
     options.use_camera = TRUE;
-    // For qtiqmmfsrc, default to PRIMARY camera when camera ID is not mentioned
+    // For qticamsrc, default to PRIMARY camera when camera ID is not mentioned
     if (options.is_camx_available) {
       options.camera_type = GST_CAMERA_TYPE_PRIMARY;
       g_print ("Using PRIMARY camera by default, Not valid camera id selected\n");
@@ -1894,7 +1894,7 @@ main (gint argc, gchar * argv[])
   }
 
   // Checking camera id passed by user.
-  // This is only applicable when qtiqmmfsrc is available
+  // This is only applicable when qticamsrc is available
   if (options.is_camx_available) {
     if (options.camera_type < GST_CAMERA_TYPE_NONE ||
         options.camera_type > GST_CAMERA_TYPE_SECONDARY) {

@@ -191,7 +191,7 @@ def create_source_elements(args):
         )
     else:
         source_elements = {
-            "camsrc": create_element("qtiqmmfsrc", "camsrc"),
+            "camsrc": create_element("qticamsrc", "camsrc"),
             "camcaps": create_element("capsfilter", "camcaps")
         }
         source_elements["camsrc"].set_property("camera", args.camera)

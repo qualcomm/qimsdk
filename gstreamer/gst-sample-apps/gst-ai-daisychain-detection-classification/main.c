@@ -14,7 +14,7 @@
  * AI Model output Labels.
  *
  * Pipeline for Gstreamer with Camera:
- * qtiqmmfsrc   -> qmmfsrc_caps  -> tee
+ * qticamsrc   -> qmmfsrc_caps  -> tee
  * Pipeline for Gstreamer with USB Camera:
  * v4l2src   -> v4l2src_caps  -> tee
  *     tee -> qtimetamux
@@ -399,7 +399,7 @@ on_pad_added (GstElement * element, GstPad * pad, gpointer data)
 static gboolean
 create_pipe (GstAppContext * appctx, const GstAppOptions options)
 {
-  GstElement *qtiqmmfsrc = NULL, *qmmfsrc_caps = NULL;
+  GstElement *qticamsrc = NULL, *qmmfsrc_caps = NULL;
   GstElement *queue[QUEUE_COUNT] = { NULL };
   GstElement *tee[TEE_COUNT] = { NULL };
   GstElement *qtimlvconverter[TFLITE_ELEMENT_COUNT] = { NULL };
@@ -430,10 +430,10 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
 
   // 1. Create the elements or Plugins
   if (options.source_type == GST_STREAM_TYPE_CAMERA) {
-    // Create qtiqmmfsrc plugin for camera stream
-    qtiqmmfsrc = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmfsrc");
-    if (!qtiqmmfsrc) {
-      g_printerr ("Failed to create qtiqmmfsrc\n");
+    // Create qticamsrc plugin for camera stream
+    qticamsrc = gst_element_factory_make ("qticamsrc", "qticamsrc");
+    if (!qticamsrc) {
+      g_printerr ("Failed to create qticamsrc\n");
       goto error_clean_elements;
     }
 
@@ -1037,7 +1037,7 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
   g_print ("Adding all elements to the pipeline...\n");
 
   if (options.source_type == GST_STREAM_TYPE_CAMERA) {
-    gst_bin_add_many (GST_BIN (appctx->pipeline), qtiqmmfsrc,
+    gst_bin_add_many (GST_BIN (appctx->pipeline), qticamsrc,
         qmmfsrc_caps, NULL);
   } else if (options.source_type == GST_STREAM_TYPE_FILE) {
     gst_bin_add_many (GST_BIN (appctx->pipeline),
@@ -1106,9 +1106,9 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
   // 3.1 Create pipeline for Parallel Inferencing
   g_print ("Linking elements...\n");
   if (options.source_type == GST_STREAM_TYPE_CAMERA) {
-    ret = gst_element_link_many (qtiqmmfsrc, qmmfsrc_caps, tee[0], NULL);
+    ret = gst_element_link_many (qticamsrc, qmmfsrc_caps, tee[0], NULL);
     if (!ret) {
-      g_printerr ("\n pipeline elements qtiqmmfsrc -> qmmfsrc_caps "
+      g_printerr ("\n pipeline elements qticamsrc -> qmmfsrc_caps "
           " -> tee cannot be linked. Exiting.\n");
       goto error_clean_pipeline;
     }
@@ -1392,7 +1392,7 @@ error_clean_pipeline:
 error_clean_elements:
   g_printerr ("Pipeline elements cannot be linked\n");
   if (options.source_type == GST_STREAM_TYPE_CAMERA) {
-    cleanup_gst (&qtiqmmfsrc, &qmmfsrc_caps, NULL);
+    cleanup_gst (&qticamsrc, &qmmfsrc_caps, NULL);
   } else if (options.source_type == GST_STREAM_TYPE_FILE) {
     cleanup_gst (&filesrc, &qtdemux, &h264parse, &v4l2h264dec,
         &v4l2h264dec_caps, &qtimetamux, NULL);

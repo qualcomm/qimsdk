@@ -284,8 +284,8 @@ def create_pipeline(pipeline):
     elements = {}
 
     if args.camera:
-        # Create qtiqmmfsrc plugin for camera stream
-        elements["qtiqmmfsrc"] = create_element("qtiqmmfsrc", "qtiqmmfsrc")
+        # Create qticamsrc plugin for camera stream
+        elements["qticamsrc"] = create_element("qticamsrc", "qticamsrc")
 
         # Create capsfilter to define camera output settings
         elements["qmmfsrc_caps"] = create_element("capsfilter", "qmmfsrc_caps")
@@ -469,7 +469,7 @@ def create_pipeline(pipeline):
 
     if args.camera:
         link_orders+= [
-            ["qtiqmmfsrc", "qmmfsrc_caps", "queue0", "tee"]
+            ["qticamsrc", "qmmfsrc_caps", "queue0", "tee"]
         ]
     elif args.file:
         link_orders+= [

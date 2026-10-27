@@ -222,7 +222,7 @@ on_pad_added (GstElement * element, GstPad * pad, gpointer data)
 static gboolean
 create_pipe (GstAppContext * appctx, GstAppOptions * options)
 {
-  GstElement *qtiqmmfsrc = NULL, *qmmfsrc_caps_preview = NULL;
+  GstElement *qticamsrc = NULL, *qmmfsrc_caps_preview = NULL;
   GstElement *tee = NULL, *qtimlvconverter = NULL, *queue[QUEUE_COUNT];
   GstElement *qtimlelement = NULL, *qtivcomposer = NULL;
   GstElement *qtimlvdetection = NULL, *detection_filter = NULL;
@@ -336,10 +336,10 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
       goto error_clean_elements;
     }
   } else if (options->use_camera) {
-    // Create qtiqmmfsrc plugin for camera stream
-    qtiqmmfsrc = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmfsrc");
-    if (!qtiqmmfsrc) {
-      g_printerr ("Failed to create qtiqmmfsrc\n");
+    // Create qticamsrc plugin for camera stream
+    qticamsrc = gst_element_factory_make ("qticamsrc", "qticamsrc");
+    if (!qticamsrc) {
+      g_printerr ("Failed to create qticamsrc\n");
       goto error_clean_elements;
     }
 
@@ -463,7 +463,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     gst_caps_unref (filtercaps);
   } else if (options->use_camera) {
     // 2.3 Set user provided Camera ID
-    g_object_set (G_OBJECT (qtiqmmfsrc), "camera", options->camera_type, NULL);
+    g_object_set (G_OBJECT (qticamsrc), "camera", options->camera_type, NULL);
     // 2.4 Set the capabilities of camera plugin output
     if (options->camera_type == GST_CAMERA_TYPE_PRIMARY) {
       // 2.4 Set the capabilities of primary and secondary camera preview
@@ -595,7 +595,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     gst_bin_add_many (GST_BIN (appctx->pipeline), rtspsrc, rtph264depay,
         h264parse, v4l2h264dec, v4l2h264dec_caps, qtivtransform, NULL);
   } else if (options->use_camera) {
-    gst_bin_add_many (GST_BIN (appctx->pipeline), qtiqmmfsrc,
+    gst_bin_add_many (GST_BIN (appctx->pipeline), qticamsrc,
         qmmfsrc_caps_preview, NULL);
   } else {
     g_printerr ("Incorrect input source type\n");
@@ -687,7 +687,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
 
   } else {
     // Linking Camera Stream
-    ret = gst_element_link_many (qtiqmmfsrc, qmmfsrc_caps_preview, queue[0],
+    ret = gst_element_link_many (qticamsrc, qmmfsrc_caps_preview, queue[0],
         tee, NULL);
     if (!ret) {
       g_printerr ("Pipeline elements cannot be linked for preview Stream, from"
@@ -736,7 +736,7 @@ error_clean_pipeline:
   return FALSE;
 
 error_clean_elements:
-  cleanup_gst (&qtiqmmfsrc, &filesrc, &rtspsrc, &tee, &qmmfsrc_caps_preview,
+  cleanup_gst (&qticamsrc, &filesrc, &rtspsrc, &tee, &qmmfsrc_caps_preview,
       &qtdemux, &h264parse, &v4l2h264dec, &rtph264depay, &qtimlvconverter,
       &qtimlelement, &qtivcomposer, &qtimlvdetection, &detection_filter,
       &v4l2h264dec_caps, &qtivtransform, &waylandsink, &fpsdisplaysink, NULL);
