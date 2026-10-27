@@ -197,7 +197,7 @@ gst_meta_module_process (gpointer instance, GstBuffer * buffer)
   GstStructure *objparam = NULL;
   VideoRectangle input_rect = {0};
   gpointer state = NULL;
-  gboolean found_person = FALSE;
+  gint found_person = 0;
   gint afr_sx = 0, afr_sy = 0;
   gint afr_sw, afr_sh;
   gint clamp_w, clamp_h;
@@ -214,17 +214,17 @@ gst_meta_module_process (gpointer instance, GstBuffer * buffer)
   while ((roimeta = GST_BUFFER_ITERATE_ROI_METAS (buffer, state)) != NULL) {
     if (roimeta->roi_type != g_quark_from_static_string ("person"))
       continue;
-
+    if (found_person == 0){
     input_rect.x = (gint) roimeta->x;
     input_rect.y = (gint) roimeta->y;
     input_rect.w = (gint) roimeta->w;
     input_rect.h = (gint) roimeta->h;
-    found_person = TRUE;
-    break;
+    found_person++;
+    }
   }
 
-  if (!found_person) {
-    /* No person detected — resolve frame dimensions for the
+  if (found_person != 1) {
+    /* No person or 2+ persons detected — resolve frame dimensions for the
      * full-FOV fallback */
     gint fov_w = submodule->config.in_width;
     gint fov_h = submodule->config.in_height;
@@ -257,8 +257,8 @@ gst_meta_module_process (gpointer instance, GstBuffer * buffer)
   {
     VideoRectangleF output_rectf;
 
-    clamp_w = found_person ? submodule->config.in_width  : input_rect.w;
-    clamp_h = found_person ? submodule->config.in_height : input_rect.h;
+    clamp_w = (found_person > 0) ? submodule->config.in_width  : input_rect.w;
+    clamp_h = (found_person > 0) ? submodule->config.in_height : input_rect.h;
 
     GST_TRACE ("Auto-framing input ROI: x=%d, y=%d, w=%d, h=%d",
         input_rect.x, input_rect.y, input_rect.w, input_rect.h);
