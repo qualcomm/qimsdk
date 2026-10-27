@@ -5,8 +5,65 @@
 
 #include "ml-post-process-utils.h"
 
+#include <cairo/cairo-ft.h>
+#include <fontconfig/fontconfig.h>
+
 GST_DEBUG_CATEGORY_EXTERN (gst_ml_post_process_debug);
 #define GST_CAT_DEFAULT gst_ml_post_process_debug
+
+// Monospaced font, its glyph advance matches the (length * fontsize * 3 / 5)
+// label width estimation used for the label background rectangles.
+#define DEFAULT_FONT_FAMILY    "Liberation Mono"
+
+static cairo_font_face_t *
+gst_cairo_get_font_face (void)
+{
+  static cairo_font_face_t *fontface = NULL;
+  static gsize inited = 0;
+  FcPattern *pattern = NULL, *match = NULL;
+  FcChar8 *filename = NULL;
+  FcResult result = FcResultNoMatch;
+
+  if (!g_once_init_enter (&inited))
+    return fontface;
+
+  pattern = FcPatternBuild (NULL, FC_FAMILY, FcTypeString, DEFAULT_FONT_FAMILY,
+      FC_WEIGHT, FcTypeInteger, FC_WEIGHT_BOLD, NULL);
+
+  if (pattern == NULL) {
+    GST_ERROR ("Failed to create font pattern for '%s'!", DEFAULT_FONT_FAMILY);
+    goto cleanup;
+  }
+
+  FcConfigSubstitute (NULL, pattern, FcMatchPattern);
+  FcDefaultSubstitute (pattern);
+
+  match = FcFontMatch (NULL, pattern, &result);
+  FcPatternDestroy (pattern);
+
+  if (match == NULL) {
+    GST_ERROR ("No font found for '%s'!", DEFAULT_FONT_FAMILY);
+    goto cleanup;
+  }
+
+  FcPatternGetString (match, FC_FILE, 0, &filename);
+  GST_INFO ("Using font '%s' for family '%s'", filename, DEFAULT_FONT_FAMILY);
+
+  // Explicitly resolved FreeType font face, avoids the fallback to Cairo's
+  // built-in user font which is not thread safe on scaled font creation.
+  fontface = cairo_ft_font_face_create_for_pattern (match);
+  FcPatternDestroy (match);
+
+  if (cairo_font_face_status (fontface) != CAIRO_STATUS_SUCCESS) {
+    GST_ERROR ("Failed to create font face for '%s'!", DEFAULT_FONT_FAMILY);
+    cairo_font_face_destroy (fontface);
+    fontface = NULL;
+  }
+
+cleanup:
+  g_once_init_leave (&inited, 1);
+  return fontface;
+}
 
 void
 gst_value_array_append_and_take_ml_structure (GValue * array, const guint id,
@@ -117,9 +174,17 @@ gboolean
 gst_cairo_draw_setup (GstVideoFrame * vframe, cairo_surface_t ** surface,
     cairo_t ** context)
 {
-  cairo_format_t format;
+  cairo_font_face_t *fontface = NULL;
   cairo_font_options_t *options = NULL;
+  cairo_format_t format;
   gdouble fontsize = DEFAULT_FONT_SIZE, linewidth = 2.0F;
+
+  // The default font face may resolve to Cairo's built-in user font which is
+  // not thread safe on scaled font creation, never draw without own font.
+  if ((fontface = gst_cairo_get_font_face ()) == NULL) {
+    GST_ERROR ("No font face available!");
+    return FALSE;
+  }
 
   switch (GST_VIDEO_FRAME_FORMAT (vframe)) {
     case GST_VIDEO_FORMAT_BGRA:
@@ -149,14 +214,13 @@ gst_cairo_draw_setup (GstVideoFrame * vframe, cairo_surface_t ** surface,
   *context = cairo_create (*surface);
   g_return_val_if_fail (*context, FALSE);
 
-  // Select font.
-  cairo_select_font_face (*context, "@cairo:Georgia",
-      CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+  // Set font.
+  cairo_set_font_face (*context, fontface);
   cairo_set_antialias (*context, CAIRO_ANTIALIAS_BEST);
 
-  // Set font options.
+  // Set font options, BEST maps to LCD subpixel glyphs for FreeType fonts.
   options = cairo_font_options_create ();
-  cairo_font_options_set_antialias (options, CAIRO_ANTIALIAS_BEST);
+  cairo_font_options_set_antialias (options, CAIRO_ANTIALIAS_GRAY);
 
   cairo_set_font_options (*context, options);
   cairo_font_options_destroy (options);
