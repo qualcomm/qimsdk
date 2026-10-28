@@ -230,6 +230,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   GstElement *h264parse = NULL, *v4l2h264dec = NULL;
   GstElement *rtspsrc = NULL, *rtph264depay = NULL;
   GstElement *v4l2h264dec_caps = NULL, *qtivtransform = NULL;
+  GstElement *videorate = NULL, *videorate_caps = NULL;
   GstElement *waylandsink = NULL, *fpsdisplaysink = NULL;
   GstCaps *pad_filter = NULL , *filtercaps = NULL;
   GstStructure *delegate_options;
@@ -362,6 +363,21 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     queue[i] = gst_element_factory_make ("queue", element_name);
     if (!queue[i]) {
       g_printerr ("Failed to create queue %d\n", i);
+      goto error_clean_elements;
+    }
+  }
+
+
+  if (is_v66) {
+    videorate = gst_element_factory_make ("videorate", "videorate");
+    if (!videorate) {
+      g_printerr ("Failed to create videorate\n");
+      goto error_clean_elements;
+    }
+
+    videorate_caps = gst_element_factory_make ("capsfilter", "videorate_caps");
+    if (!videorate_caps) {
+      g_printerr ("Failed to create videorate_caps\n");
       goto error_clean_elements;
     }
   }
@@ -585,6 +601,15 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   g_object_set (G_OBJECT (detection_filter), "caps", pad_filter, NULL);
   gst_caps_unref (pad_filter);
 
+  if (is_v66) {
+    pad_filter = gst_caps_new_simple ("video/x-raw",
+      "framerate", GST_TYPE_FRACTION, 15, 1, NULL);
+
+    g_object_set (G_OBJECT (videorate_caps), "caps",
+      pad_filter, NULL);
+    gst_caps_unref (pad_filter);
+  }
+
   // 3. Setup the pipeline
   g_print ("Adding all elements to the pipeline...\n");
 
@@ -609,6 +634,11 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     gst_bin_add_many (GST_BIN (appctx->pipeline), queue[i], NULL);
   }
 
+  if (is_v66) {
+    gst_bin_add_many (GST_BIN (appctx->pipeline), videorate,
+        videorate_caps, NULL);
+  }
+
   g_print ("Linking elements...\n");
 
   // Create Pipeline for Face detection
@@ -621,8 +651,14 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
       goto error_clean_pipeline;
     }
 
-    ret = gst_element_link_many (queue[0], h264parse, v4l2h264dec, qtivtransform,
-        v4l2h264dec_caps, queue[1], tee, NULL);
+    if (is_v66) {
+      ret = gst_element_link_many (queue[0], h264parse, v4l2h264dec,
+          qtivtransform, v4l2h264dec_caps, videorate, videorate_caps,
+          queue[1], tee, NULL);
+    } else {
+      ret = gst_element_link_many (queue[0], h264parse, v4l2h264dec,
+          qtivtransform, v4l2h264dec_caps, queue[1], tee, NULL);
+    }
     if (!ret) {
       g_printerr ("Pipeline elements cannot be linked for"
       "parse->tee\n");
@@ -654,8 +690,14 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
 
   } else if (options->use_rtsp) {
     // Linking RTSP source Stream
-    ret = gst_element_link_many (queue[0], rtph264depay, h264parse,
-        v4l2h264dec, qtivtransform, v4l2h264dec_caps, queue[1], tee, NULL);
+    if (is_v66) {
+      ret = gst_element_link_many (queue[0], rtph264depay, h264parse,
+          v4l2h264dec, qtivtransform, v4l2h264dec_caps, videorate,
+          videorate_caps, queue[1], tee, NULL);
+    } else {
+      ret = gst_element_link_many (queue[0], rtph264depay, h264parse,
+          v4l2h264dec, qtivtransform, v4l2h264dec_caps, queue[1], tee, NULL);
+    }
     if (!ret) {
       g_printerr ("Pipeline elements cannot be linked for"
           "rtspsource->waylandsink\n");
@@ -687,8 +729,13 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
 
   } else {
     // Linking Camera Stream
-    ret = gst_element_link_many (qticamsrc, qmmfsrc_caps_preview, queue[0],
-        tee, NULL);
+    if (is_v66) {
+      ret = gst_element_link_many (qticamsrc, qmmfsrc_caps_preview,
+          videorate, videorate_caps, queue[0], tee, NULL);
+    } else {
+      ret = gst_element_link_many (qticamsrc, qmmfsrc_caps_preview,
+          queue[0], tee, NULL);
+    }
     if (!ret) {
       g_printerr ("Pipeline elements cannot be linked for preview Stream, from"
           "qmmfsource->tee\n");
@@ -742,6 +789,12 @@ error_clean_elements:
       &v4l2h264dec_caps, &qtivtransform, &waylandsink, &fpsdisplaysink, NULL);
   for (gint i = 0; i < QUEUE_COUNT; i++) {
     gst_object_unref (queue[i]);
+  }
+  if (is_v66) {
+    if (videorate && !GST_OBJECT_PARENT (videorate))
+      gst_object_unref (videorate);
+    if (videorate_caps && !GST_OBJECT_PARENT (videorate_caps))
+      gst_object_unref (videorate_caps);
   }
 
   return FALSE;
