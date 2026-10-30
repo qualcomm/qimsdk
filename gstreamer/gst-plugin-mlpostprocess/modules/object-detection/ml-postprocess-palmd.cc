@@ -270,6 +270,11 @@ bool Module::Process(const Tensors& tensors, Dictionary& mlparams,
     entry.left = (entry.left - region.x) / region.width;
     entry.right = (entry.right - region.x) / region.width;
 
+    // Discard boxes which are completely outside the frame on X and/or Y.
+    if (entry.left >= 1.0f || entry.right <= 0.0f ||
+        entry.top >= 1.0f || entry.bottom <= 0.0f)
+      continue;
+
     entry.confidence = confidence * 100;
     entry.name = labels_parser_.GetLabel(0);
     entry.color = labels_parser_.GetColor(0);
