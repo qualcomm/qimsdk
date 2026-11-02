@@ -838,7 +838,7 @@ static void on_cairo_draw_signal(void* /*overlay*/, void* draw_context,
 //      split. -> q_video_palm -> metamux_palm
 //      split. -> q_palm_pre -> palm_preproc -> q_palm_infer -> palm_inf -> q_palm_post
 //             -> palm_post -> [palm_mlf:text] -> q_palm_meta -> metamux_palm
-//      metamux_palm -> palm_roi_transform -> split_after_palm
+//      metamux_palm -> split_after_palm
 //      split_after_palm. -> q_video_final -> metamux_final
 //      split_after_palm. -> q_hand_pre -> hand_preproc -> q_hand_infer -> hand_inf -> q_hand_post
 //                       -> hand_post -> [hand_mlf:text] -> q_hand_meta -> metamux_final
@@ -959,11 +959,7 @@ void create_and_execute_pipeline()
     // Palm metadata mux element.
     Element metamux_palm("qtimetamux", "metamux_palm");
 
-    // Palm ROI transform element.
-    Element palm_roi_transform("qtimetatransform", "palm_roi_transform");
-    palm_roi_transform.set("module", "roi-palmd");
-
-    // Tee after palm ROI transform.
+    // Tee after metadata mux element.
     Element split_after_palm("tee", "split_after_palm");
 
     // Queue for video path into final metamux.
@@ -1062,7 +1058,6 @@ void create_and_execute_pipeline()
         .add_stream_filter("palm_mlf", palm_mlf)
         .add(q_palm_meta)
         .add(metamux_palm)
-        .add(palm_roi_transform)
         .add(split_after_palm)
         .add(q_video_final)
         .add(q_hand_pre)
@@ -1088,7 +1083,7 @@ void create_and_execute_pipeline()
         .link("split", "q_video_palm", "metamux_palm")
         .link("split", "q_palm_pre", "palm_preproc", "q_palm_infer", "palm_inf",
               "q_palm_post", "palm_post", "palm_mlf", "q_palm_meta", "metamux_palm")
-        .link("metamux_palm", "palm_roi_transform", "split_after_palm")
+        .link("metamux_palm", "split_after_palm")
         .link("split_after_palm", "q_video_final", "metamux_final")
         .link("split_after_palm", "q_hand_pre", "hand_preproc", "q_hand_infer", "hand_inf",
               "q_hand_post", "hand_post", "hand_mlf", "q_hand_meta", "metamux_final")

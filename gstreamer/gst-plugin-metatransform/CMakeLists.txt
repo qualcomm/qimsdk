@@ -14,6 +14,7 @@ set(CMAKE_PREFIX_PATH "${PKG_CONFIG_LOCAL_PATH}")
 
 pkg_check_modules(GST REQUIRED gstreamer-1.0>=${GST_VERSION_REQUIRED})
 pkg_check_modules(GST_BASE REQUIRED gstreamer-base-1.0>=${GST_VERSION_REQUIRED})
+pkg_check_modules(GST_VIDEO REQUIRED gstreamer-video-1.0>=${GST_VERSION_REQUIRED})
 pkg_check_modules(GST_QCOM_UTILS REQUIRED gstreamer-qcom-oss-utils-1.0>=1.0.0)
 pkg_check_modules(GST_QCOM_VIDEO REQUIRED gstreamer-qcom-oss-video-1.0>=1.0.0)
 

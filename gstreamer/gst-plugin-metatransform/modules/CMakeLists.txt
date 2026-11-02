@@ -57,32 +57,6 @@ install(
               WORLD_EXECUTE WORLD_READ
 )
 
-set(GST_QTI_META_MODULE meta-transform-roi-palmd)
-
-add_library(${GST_QTI_META_MODULE} SHARED
-  meta-transform-roi-palmd.c
-)
-
-target_include_directories(${GST_QTI_META_MODULE} PUBLIC
-  ${GST_INCLUDE_DIRS}
-)
-
-target_link_libraries(${GST_QTI_META_MODULE} PRIVATE
-  ${GST_LIBRARIES}
-  ${GST_VIDEO_LIBRARIES}
-  gstqtiutilsbase
-  gstqtivideobase
-  m
-)
-
-install(
-  TARGETS ${GST_QTI_META_MODULE}
-  LIBRARY DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}/imsdk/qtimetatransform/modules
-  PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
-              GROUP_EXECUTE GROUP_READ
-              WORLD_EXECUTE WORLD_READ
-)
-
 set(GST_QTI_META_MODULE meta-transform-roi-auto-framing)
 
 add_library(${GST_QTI_META_MODULE} SHARED

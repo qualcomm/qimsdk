@@ -9,7 +9,7 @@
 
 static const float kDefaultThreshold = 0.70;
 
-static const char* kModuleCaps = R"(
+static const std::string kModuleCaps = R"(
 {
   "type": "pose-estimation",
   "tensors": [
@@ -34,13 +34,6 @@ Module::Module(LogCallback cb)
 
 Module::~Module() {
 
-}
-
-void Module::KeypointTransformCoordinates(Keypoint& keypoint,
-                                          const Region& region) {
-
-  keypoint.x = (keypoint.x - region.x) / region.width;
-  keypoint.y = (keypoint.y - region.y) / region.height;
 }
 
 std::string Module::Caps() {
@@ -74,16 +67,6 @@ bool Module::Configure(const std::string& labels_file,
 
   auto nodes = root->GetArray("connections");
 
-  if (!LoadConnections(nodes)) {
-    LOG(logger_, kError, "Failed load connections from settings!");
-    return false;
-  }
-
-  return true;
-}
-
-bool Module::LoadConnections(const std::vector<JsonValue::Ptr>& nodes) {
-
   for (const auto& node : nodes) {
     if (!node || node->GetType() != JsonType::Object)
       continue;
@@ -93,10 +76,10 @@ bool Module::LoadConnections(const std::vector<JsonValue::Ptr>& nodes) {
     if (obj.count("id") == 0 || obj.count("connection") == 0)
       continue;
 
-    uint32_t label_id = static_cast<uint32_t>(node->GetNumber("id"));
-    uint32_t con_id = static_cast<uint32_t>(node->GetNumber("connection"));
+    uint32_t s_kp_id = static_cast<uint32_t>(node->GetNumber("id"));
+    uint32_t d_kp_id = static_cast<uint32_t>(node->GetNumber("connection"));
 
-    connections_.emplace_back(label_id, con_id);
+    connections_.emplace_back(s_kp_id, d_kp_id);
   }
 
   return true;
@@ -119,18 +102,19 @@ bool Module::Process(const Tensors& tensors, Dictionary& mlparams,
   PoseEstimations& estimations = std::any_cast<PoseEstimations&>(output);
   Region& region = std::any_cast<Region&>(mlparams["input-tensor-region"]);
 
-  const float* coordinates = reinterpret_cast<const float*>(tensors[0].data);
-  const float* scores = reinterpret_cast<const float*>(tensors[1].data);
+  auto coordinates = reinterpret_cast<const float*>(tensors[0].data);
+  auto scores = reinterpret_cast<const float*>(tensors[1].data);
+  auto handedness = reinterpret_cast<const float*>(tensors[2].data);
 
   // There are 3 coordinates per point - x, y, z
   uint32_t n_keypoints = tensors[0].dimensions[1] / 3;
-  float confidence = scores[0];
 
-  if (confidence < threshold_)
+  if (scores[0] < threshold_)
     return true;
 
   PoseEstimation entry;
-  entry.confidence = confidence;
+  entry.name = (handedness[0] >= 0.5F) ? "Right Hand" : "Left Hand";
+  entry.confidence = scores[0];
 
   entry.keypoints.resize(n_keypoints);
 
@@ -141,23 +125,19 @@ bool Module::Process(const Tensors& tensors, Dictionary& mlparams,
     kp.y = coordinates[3 * idx + 1];
     kp.name = labels_parser_.GetLabel(idx);
     kp.color = labels_parser_.GetColor(idx);
-    kp.confidence = confidence * 100;
+    kp.confidence = scores[0] * 100;
 
-    KeypointTransformCoordinates(kp, region);
-
-    kp.x = std::min(std::max(kp.x,(float)0),(float)1);
-    kp.y = std::min(std::max(kp.y,(float)0),(float)1);
+    kp.x = (kp.x - region.x) / region.width;
+    kp.y = (kp.y - region.y) / region.height;
   }
 
-  KeypointLinks links;
+  entry.links.emplace();
 
-  for (const auto &lk : connections_) {
-    links.emplace_back(entry.keypoints[lk.s_kp_id], entry.keypoints[lk.d_kp_id]);
+  for (const auto& [s_kp_id, d_kp_id] : connections_) {
+    entry.links->emplace_back(entry.keypoints[s_kp_id], entry.keypoints[d_kp_id]);
   }
 
-  entry.links = std::move(links);
-
-  estimations.emplace_back(entry);
+  estimations.emplace_back(std::move(entry));
 
   return true;
 }

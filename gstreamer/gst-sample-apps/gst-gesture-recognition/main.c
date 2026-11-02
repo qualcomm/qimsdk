@@ -1811,7 +1811,6 @@ gst_app_create_user_pipe (GstGestureAppContext * appctx,
   GstElement *q;
 
   GstElement *metamux1 = NULL, *metamux2 = NULL;
-  GstElement *metatransform = NULL;
 
   GstElement *overlay = NULL;
 
@@ -1835,9 +1834,6 @@ gst_app_create_user_pipe (GstGestureAppContext * appctx,
 
   metamux1 = gst_app_make_element ("qtimetamux", "metamux_1");
   metamux2 = gst_app_make_element ("qtimetamux", "metamux_2");
-
-  metatransform = gst_app_make_element ("qtimetatransform", "metatransform");
-  gst_element_set_enum_property(metatransform, "module", "roi-palmd");
 
   overlay = gst_app_make_element ("qtivoverlay", "overlay");
 
@@ -1936,7 +1932,6 @@ gst_app_create_user_pipe (GstGestureAppContext * appctx,
   gst_bin_add_many (GST_BIN (appctx->pipeline),
       tee1, tee2, tee3, tee4,
       metamux1, metamux2,
-      metatransform,
       overlay,
       parser,
       palm_pre, palm_inf, palm_post,
@@ -1952,7 +1947,7 @@ gst_app_create_user_pipe (GstGestureAppContext * appctx,
   q = gst_app_make_element ("queue", NULL);
   gst_bin_add (GST_BIN (appctx->pipeline), q);
 
-  gst_element_link_many (tee1, q, metamux1, metatransform, tee2, NULL);
+  gst_element_link_many (tee1, q, metamux1, tee2, NULL);
 
   /* tee1 → palm */
   q = gst_app_make_element ("queue", NULL);

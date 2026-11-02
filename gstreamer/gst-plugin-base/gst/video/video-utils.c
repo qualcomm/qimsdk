@@ -36,6 +36,7 @@
 
 #include <stdbool.h>
 #include <string.h>
+#include <math.h>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -265,10 +266,24 @@ void
 gst_video_quadrilateral_to_rectangle (
     const GstVideoQuadrilateral * quadrilateral, GstVideoRectangle * rectangle)
 {
-  rectangle->x = quadrilateral->a.x;
-  rectangle->y = quadrilateral->a.y;
-  rectangle->w = quadrilateral->d.x - quadrilateral->a.x;
-  rectangle->h = quadrilateral->d.y - quadrilateral->a.y;
+  gdouble left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
+
+  // Axis-aligned dimensions of all 4 points, quadrilateral may not be rectangle.
+  // For an upright rectangle this reduces to corners 'a' and 'd'.
+  left = MIN (MIN (quadrilateral->a.x, quadrilateral->b.x),
+      MIN (quadrilateral->c.x, quadrilateral->d.x));
+  right = MAX (MAX (quadrilateral->a.x, quadrilateral->b.x),
+      MAX (quadrilateral->c.x, quadrilateral->d.x));
+
+  top = MIN (MIN (quadrilateral->a.y, quadrilateral->b.y),
+      MIN (quadrilateral->c.y, quadrilateral->d.y));
+  bottom = MAX (MAX (quadrilateral->a.y, quadrilateral->b.y),
+      MAX (quadrilateral->c.y, quadrilateral->d.y));
+
+  rectangle->x = (gint) floor (left);
+  rectangle->y = (gint) floor (top);
+  rectangle->w = (gint) ceil (right) - rectangle->x;
+  rectangle->h = (gint) ceil (bottom) - rectangle->y;
 }
 
 gboolean
@@ -472,6 +487,83 @@ gst_buffer_get_video_region_of_interest_metas_parent_id (GstBuffer * buffer,
       metalist = g_list_prepend (metalist, meta);
   }
   return metalist;
+}
+
+GArray *
+gst_video_region_of_interest_meta_get_landmarks (
+    GstVideoRegionOfInterestMeta * meta)
+{
+  GstStructure *objparam = NULL, *xtraparams = NULL;
+  const GValue *value = NULL;
+  GArray *landmarks = NULL, *keypoints = NULL;
+  gdouble x = 0.0, y = 0.0, z = 0.0, matrix[3][3] = {{0}};
+  guint idx = 0;
+
+  g_return_val_if_fail (meta != NULL, NULL);
+
+  objparam = gst_video_region_of_interest_meta_get_param (meta,
+      "ObjectDetection");
+
+  if ((objparam == NULL) || !gst_structure_has_field (objparam, "landmarks"))
+    return NULL;
+
+  if ((value = gst_structure_get_value (objparam, "xtraparams")) != NULL)
+    xtraparams = GST_STRUCTURE (g_value_get_boxed (value));
+
+  gst_structure_get (objparam, "landmarks", G_TYPE_ARRAY, &landmarks, NULL);
+
+  keypoints = g_array_copy (landmarks);
+  g_array_unref (landmarks);
+
+  if (!gst_structure_get_matrix (xtraparams, "inverse-affine-matrix", matrix))
+    return keypoints;
+
+  for (idx = 0; idx < keypoints->len; idx++) {
+    GstVideoKeypoint *kp = &(g_array_index (keypoints, GstVideoKeypoint, idx));
+
+    x = matrix[0][0] * kp->x + matrix[0][1] * kp->y + matrix[0][2];
+    y = matrix[1][0] * kp->x + matrix[1][1] * kp->y + matrix[1][2];
+    z = matrix[2][0] * kp->x + matrix[2][1] * kp->y + matrix[2][2];
+
+    // Transform from world space (3D) to screen space (2D).
+    kp->x = x / z;
+    kp->y = y / z;
+  }
+
+  return keypoints;
+}
+
+GstVideoQuadrilateral
+gst_video_region_of_interest_meta_get_quadrilateral (
+    GstVideoRegionOfInterestMeta * meta)
+{
+  GstStructure *objparam = NULL, *xtraparams = NULL;
+  GstVideoQuadrilateral quadrilateral = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
+  const GValue *value = NULL;
+  gdouble matrix[3][3] = {{0}};
+
+  g_return_val_if_fail (meta != NULL, quadrilateral);
+
+  quadrilateral.a.x = quadrilateral.b.x = meta->x;
+  quadrilateral.a.y = quadrilateral.c.y = meta->y;
+  quadrilateral.c.x = quadrilateral.d.x = meta->x + meta->w;
+  quadrilateral.b.y = quadrilateral.d.y = meta->y + meta->h;
+
+  objparam = gst_video_region_of_interest_meta_get_param (meta, "ObjectDetection");
+
+  if ((objparam != NULL) &&
+      ((value = gst_structure_get_value (objparam, "xtraparams")) != NULL))
+    xtraparams = GST_STRUCTURE (g_value_get_boxed (value));
+
+  if (!gst_structure_get_matrix (xtraparams, "rectangle-affine-matrix", matrix))
+    return quadrilateral;
+
+  gst_video_point_affine_transform (&(quadrilateral.a), matrix);
+  gst_video_point_affine_transform (&(quadrilateral.b), matrix);
+  gst_video_point_affine_transform (&(quadrilateral.c), matrix);
+  gst_video_point_affine_transform (&(quadrilateral.d), matrix);
+
+  return quadrilateral;
 }
 
 void

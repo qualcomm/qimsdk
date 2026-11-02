@@ -7,6 +7,7 @@
 #define __GST_QTI_VIDEO_UTILS_H__
 
 #include <gst/video/video.h>
+#include <gst/video/gstvideolandmarksmeta.h>
 
 G_BEGIN_DECLS
 
@@ -73,8 +74,8 @@ GST_API GType gst_video_rotate_get_type (void);
  */
 struct _GstVideoPoint
 {
-  gfloat x;
-  gfloat y;
+  gdouble x;
+  gdouble y;
 };
 
 /**
@@ -162,8 +163,9 @@ gst_video_quadrilateral_from_rectangle (GstVideoQuadrilateral * quadrilateral,
  * @quadrilateral: A #GstVideoQuadrilateral
  * @rectangle: A #GstVideoRectangle
  *
- * Helper function for converting a rectangular quadrilateral into the more
- * convinient #GstVideoRectangle.
+ * Helper function for computing the axis-aligned bounding box of a
+ * #GstVideoQuadrilateral as a #GstVideoRectangle. Works for an arbitrarily
+ * rotated quadrilateral; for an upright rectangle it returns that rectangle.
  */
 GST_VIDEO_API void
 gst_video_quadrilateral_to_rectangle (const GstVideoQuadrilateral * quadrilateral,
@@ -242,6 +244,33 @@ gst_buffer_get_video_region_of_interest_metas_parent_id (GstBuffer * buffer,
 GST_VIDEO_API GstVideoRegionOfInterestMeta *
 gst_buffer_copy_video_region_of_interest_meta (GstBuffer * buffer,
                                                GstVideoRegionOfInterestMeta * meta);
+
+/**
+ * gst_video_region_of_interest_meta_get_landmarks:
+ * @meta: A #GstVideoRegionOfInterestMeta
+ *
+ * Transform the X and Y coordinates of the 'landmarks' keypoints stored in the
+ * 'ObjectDetection' param of the @meta with the inverse-affine-matrix, if
+ * present in its xtraparams, and return a new array with them.
+ *
+ * Returns: (transfer full) (element-type GstVideoKeypoint) (nullable):
+ *          A #GArray of #GstVideoKeypoint or NULL if @meta has no landmarks.
+ */
+GST_VIDEO_API GArray *
+gst_video_region_of_interest_meta_get_landmarks (GstVideoRegionOfInterestMeta * meta);
+
+/**
+ * gst_video_region_of_interest_meta_get_quadrilateral:
+ * @meta: A #GstVideoRegionOfInterestMeta
+ *
+ * Convert the rectangle of the @meta into a #GstVideoQuadrilateral and apply
+ * the rectangle-affine-matrix on its corners, if present in the xtraparams of
+ * the 'ObjectDetection' param of the @meta.
+ *
+ * Returns: A #GstVideoQuadrilateral
+ */
+GST_VIDEO_API GstVideoQuadrilateral
+gst_video_region_of_interest_meta_get_quadrilateral (GstVideoRegionOfInterestMeta * meta);
 
 /**
  * gst_video_region_of_interest_meta_transform_coordinates: (skip):

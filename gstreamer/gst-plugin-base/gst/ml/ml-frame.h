@@ -32,7 +32,7 @@ typedef struct _GstMLTensor GstMLTensor;
  * GstMLFrame:
  * @info: A #GstMLInfo
  * @buffer: Mapped #GstBuffer containing the tensor memory blocks
- * @mapinfo: (array fixed-size=GST_ML_MAX_TENSORS) (element-type GstMapInfo):
+ * @mapinfo: (array fixed-size=8) (element-type GstMapInfo):
  *           Mappings of the tensor memory blocks
  *
  * A ML frame obtained either from gst_ml_frame_new() or locally instaciated
@@ -50,7 +50,7 @@ struct _GstMLFrame {
  * GstMLTensor:
  * @type: A #GstMLType
  * @n_dimensions: Number of tensor dimensions
- * @dimensions: (array fixed-size=GST_ML_TENSOR_MAX_DIMS) (element-type guint):
+ * @dimensions: (array fixed-size=8) (element-type guint):
  *              Dimension values
  * @data: (array length=size): Mapped tensor data
  * @size: Size of @data in bytes

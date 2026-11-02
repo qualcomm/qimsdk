@@ -1,10 +1,27 @@
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
-pkg_check_modules(OPEN_CV REQUIRED opencv4)
 
 set(TARGET_NAME ml-postprocess-yolov8)
 
 add_library(${TARGET_NAME} SHARED
   ml-postprocess-yolov8.cc
+)
+
+install(
+  TARGETS ${TARGET_NAME}
+  LIBRARY DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}/imsdk/qtimlpostprocess/modules
+  PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
+              GROUP_EXECUTE GROUP_READ
+              WORLD_EXECUTE WORLD_READ
+)
+
+set(TARGET_NAME ml-postprocess-yolov8-obb)
+
+add_library(${TARGET_NAME} SHARED
+  ml-postprocess-yolov8-obb.cc
+)
+
+target_include_directories(${TARGET_NAME} PRIVATE
+  ${EIGEN_INCLUDE_DIRS}
 )
 
 install(
@@ -108,11 +125,11 @@ add_library(${TARGET_NAME} SHARED
 target_compile_options(${TARGET_NAME} PRIVATE -Wno-error=overloaded-virtual)
 
 target_include_directories(${TARGET_NAME} PUBLIC
-  ${OPEN_CV_INCLUDE_DIRS}
+  ${OPENCV_INCLUDE_DIRS}
 )
 
 target_link_libraries(${TARGET_NAME} PRIVATE
-  ${OPEN_CV_LIBRARIES}
+  ${OPENCV_LIBRARIES}
 )
 
 install(
@@ -141,6 +158,20 @@ set(TARGET_NAME ml-postprocess-mediapipe-pose)
 
 add_library(${TARGET_NAME} SHARED
   ml-postprocess-mediapipe-pose.cc
+)
+
+install(
+  TARGETS ${TARGET_NAME}
+  LIBRARY DESTINATION ${GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR}/imsdk/qtimlpostprocess/modules
+  PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
+              GROUP_EXECUTE GROUP_READ
+              WORLD_EXECUTE WORLD_READ
+)
+
+set(TARGET_NAME ml-postprocess-rf-detr)
+
+add_library(${TARGET_NAME} SHARED
+  ml-postprocess-rf-detr.cc
 )
 
 install(

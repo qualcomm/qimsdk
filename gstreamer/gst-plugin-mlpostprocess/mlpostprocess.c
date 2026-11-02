@@ -282,9 +282,8 @@ gst_ml_detections_serialize (GstMLDetections * predictions, guint stage_id,
     GstStructure * mlparam, GValue * list)
 {
   GstStructure *structure = NULL;
+  const GValue *value = NULL;
   guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
-  gdouble matrix[3][3] = {};
-  gboolean correction = FALSE;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
@@ -292,13 +291,17 @@ gst_ml_detections_serialize (GstMLDetections * predictions, guint stage_id,
   if (gst_structure_has_field (mlparam, "stream-id"))
     gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
-  correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
+  // Propagate the inverse affine matrix produced by preprocess downstream.
+  value = gst_structure_get_value (mlparam, "inverse-affine-matrix");
 
   for (idx = 0; idx < gst_ml_detections_size (predictions); idx++) {
     GstMLDetection *entry = gst_ml_detections_entry (predictions, idx);
 
-    if (correction)
-      gst_ml_detection_affine_transform (entry, matrix);
+    if ((value != NULL) && (entry->xtraparams == NULL))
+      entry->xtraparams = gst_structure_new_empty ("xtraparams");
+
+    if (value != NULL)
+      gst_structure_set_value (entry->xtraparams, "inverse-affine-matrix", value);
 
     structure = gst_ml_detection_to_structure (entry);
     id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
@@ -314,11 +317,11 @@ gst_ml_detections_visualize (GstMLDetections * predictions,
   cairo_t* context = NULL;
   GstVideoRegionOfInterestMeta *roimeta = NULL;
   guint idx = 0, num = 0, length = 0;
-  gdouble matrix[3][3] = {};
-  gboolean success = TRUE, correction = FALSE;
+  gdouble matrix[3][3] = {}, inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gboolean success = TRUE;
 
   roimeta = gst_buffer_setup_image_region (vframe->buffer, mlparam);
-  correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
+  gst_structure_get_matrix (mlparam, "inverse-affine-matrix", inverse);
 
   success = gst_cairo_draw_setup (vframe, &surface, &context);
   g_return_val_if_fail (success, FALSE);
@@ -328,18 +331,27 @@ gst_ml_detections_visualize (GstMLDetections * predictions,
   for (idx = 0; (idx < length) && success; idx++) {
     GstMLDetection *entry = gst_ml_detections_entry (predictions, idx);
     GstMLKeypoint *keypoint = NULL;
+    gdouble affine[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 
-    if (correction)
-      gst_ml_detection_affine_transform (entry, matrix);
+    // Check for affine matrix from module which to merge with inverse matrix
+    // from preprocess or just to pass to the draw function directly.
+    gst_structure_get_matrix (entry->xtraparams, "rectangle-affine-matrix", affine);
+    gst_matrix_multiply (&inverse[0][0], &affine[0][0], 9, &matrix[0][0]);
 
-    success = gst_cairo_draw_detection (context, entry, roimeta);
+    success = gst_cairo_draw_detection (context, entry, roimeta, matrix);
 
     if ((entry->landmarks == NULL) || !success)
       continue;
 
+    // We apply only the inverse affine matrix on landmarks.
     for (num = 0; (num < entry->landmarks->len) && success; num++) {
       keypoint = &(g_array_index (entry->landmarks, GstMLKeypoint, num));
-      success = gst_cairo_draw_keypoint (context, keypoint, roimeta);
+
+      // Translate to buffer ROI coordinates from bounding box coordinates.
+      keypoint->x = entry->left + keypoint->x * (entry->right - entry->left);
+      keypoint->y = entry->top + keypoint->y * (entry->bottom - entry->top);
+
+      success = gst_cairo_draw_keypoint (context, keypoint, roimeta, inverse);
     }
   }
 
@@ -352,9 +364,8 @@ gst_ml_poses_serialize (GstMLPoses * predictions, guint stage_id,
     GstStructure * mlparam, GValue * list)
 {
   GstStructure *structure = NULL;
+  const GValue *value = NULL;
   guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
-  gdouble matrix[3][3] = {};
-  gboolean correction = FALSE;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
     gst_structure_get_uint (mlparam, "sequence-index", &sequence_idx);
@@ -362,13 +373,17 @@ gst_ml_poses_serialize (GstMLPoses * predictions, guint stage_id,
   if (gst_structure_has_field (mlparam, "stream-id"))
     gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
-  correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
+  // Propagate the inverse affine matrix produced by preprocess downstream.
+  value = gst_structure_get_value (mlparam, "inverse-affine-matrix");
 
   for (idx = 0; idx < gst_ml_poses_size (predictions); idx++) {
     GstMLPose *entry = gst_ml_poses_entry (predictions, idx);
 
-    if (correction)
-      gst_ml_pose_affine_transform (entry, matrix);
+    if ((value != NULL) && (entry->xtraparams == NULL))
+      entry->xtraparams = gst_structure_new_empty ("xtraparams");
+
+    if (value != NULL)
+      gst_structure_set_value (entry->xtraparams, "inverse-affine-matrix", value);
 
     structure = gst_ml_pose_to_structure (entry);
     id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
@@ -384,11 +399,11 @@ gst_ml_poses_visualize (GstMLPoses * predictions, GstStructure * mlparam,
   cairo_t* context = NULL;
   GstVideoRegionOfInterestMeta *roimeta = NULL;
   guint idx = 0, num = 0, length = 0;
-  gdouble matrix[3][3] = {};
-  gboolean success = TRUE, correction = FALSE;
+  gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gboolean success = TRUE;
 
   roimeta = gst_buffer_setup_image_region (vframe->buffer, mlparam);
-  correction = gst_ml_structure_get_inverse_affine_matrix (mlparam, matrix);
+  gst_structure_get_matrix (mlparam, "inverse-affine-matrix", inverse);
 
   success = gst_cairo_draw_setup (vframe, &surface, &context);
   g_return_val_if_fail (success, FALSE);
@@ -402,11 +417,7 @@ gst_ml_poses_visualize (GstMLPoses * predictions, GstStructure * mlparam,
 
     for (num = 0; (num < entry->keypoints->len) && success; num++) {
       keypoint = &(g_array_index (entry->keypoints, GstMLKeypoint, num));
-
-      if (correction)
-        gst_ml_keypoint_affine_transform (keypoint, matrix);
-
-      success = gst_cairo_draw_keypoint (context, keypoint, roimeta);
+      success = gst_cairo_draw_keypoint (context, keypoint, roimeta, inverse);
     }
 
     if ((entry->links == NULL) || !success)
@@ -414,13 +425,7 @@ gst_ml_poses_visualize (GstMLPoses * predictions, GstStructure * mlparam,
 
     for (num = 0; (num < entry->links->len) && success; num++) {
       link = &(g_array_index (entry->links, GstMLKeypointLink, num));
-
-      if (correction) {
-        gst_ml_keypoint_affine_transform (&(link->l_kp), matrix);
-        gst_ml_keypoint_affine_transform (&(link->r_kp), matrix);
-      }
-
-      success = gst_cairo_draw_link (context, link, roimeta);
+      success = gst_cairo_draw_link (context, link, roimeta, inverse);
     }
   }
 
@@ -433,6 +438,7 @@ gst_ml_segmentations_serialize (GstMLSegmentations * predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
   GstStructure *structure = NULL;
+  const GValue *value = NULL;
   guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
@@ -441,8 +447,17 @@ gst_ml_segmentations_serialize (GstMLSegmentations * predictions,
   if (gst_structure_has_field (mlparam, "stream-id"))
     gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
+  // Propagate the inverse affine matrix produced by preprocess downstream.
+  value = gst_structure_get_value (mlparam, "inverse-affine-matrix");
+
   for (idx = 0; idx < gst_ml_segmentations_size (predictions); idx++) {
     GstMLSegmentation *entry = gst_ml_segmentations_entry (predictions, idx);
+
+    if ((value != NULL) && (entry->xtraparams == NULL))
+      entry->xtraparams = gst_structure_new_empty ("xtraparams");
+
+    if (value != NULL)
+      gst_structure_set_value (entry->xtraparams, "inverse-affine-matrix", value);
 
     structure = gst_ml_segmentation_to_structure (entry);
     id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
@@ -458,9 +473,12 @@ gst_ml_segmentations_visualize (GstMLSegmentations * predictions,
   cairo_t *context = NULL;
   GstVideoRegionOfInterestMeta *roimeta = NULL;
   guint idx = 0, length = 0;
-  gboolean success = TRUE;
+  gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gboolean success = TRUE, correction = FALSE;
 
   roimeta = gst_buffer_setup_image_region (vframe->buffer, mlparam);
+  correction =
+      gst_structure_get_matrix (mlparam, "inverse-affine-matrix", inverse);
 
   success = gst_cairo_draw_setup (vframe, &surface, &context);
   g_return_val_if_fail (success, FALSE);
@@ -472,7 +490,7 @@ gst_ml_segmentations_visualize (GstMLSegmentations * predictions,
 
     success = gst_cairo_draw_mask (context,
         GST_UINT32_PTR_CAST (entry->colors->data), entry->n_rows,
-        entry->n_columns, roimeta);
+        entry->n_columns, roimeta, correction ? inverse : NULL);
   }
 
   gst_cairo_draw_cleanup (surface, context);
@@ -484,6 +502,7 @@ gst_ml_depth_maps_serialize (GstMLDepthMaps * predictions,
     guint stage_id, GstStructure * mlparam, GValue * list)
 {
   GstStructure *structure = NULL;
+  const GValue *value = NULL;
   guint idx = 0, sequence_idx = 0, stream_id = 0, id = 0;
 
   if (gst_structure_has_field (mlparam, "sequence-index"))
@@ -492,8 +511,17 @@ gst_ml_depth_maps_serialize (GstMLDepthMaps * predictions,
   if (gst_structure_has_field (mlparam, "stream-id"))
     gst_structure_get_uint (mlparam, "stream-id", &stream_id);
 
+  // Propagate the inverse affine matrix produced by preprocess downstream.
+  value = gst_structure_get_value (mlparam, "inverse-affine-matrix");
+
   for (idx = 0; idx < gst_ml_depth_maps_size (predictions); idx++) {
     GstMLDepthMap *entry = gst_ml_depth_maps_entry (predictions, idx);
+
+    if ((value != NULL) && (entry->xtraparams == NULL))
+      entry->xtraparams = gst_structure_new_empty ("xtraparams");
+
+    if (value != NULL)
+      gst_structure_set_value (entry->xtraparams, "inverse-affine-matrix", value);
 
     structure = gst_ml_depth_map_to_structure (entry);
     id = GST_META_ID (stream_id, stage_id, sequence_idx, idx);
@@ -509,9 +537,12 @@ gst_ml_depth_maps_visualize (GstMLDepthMaps * predictions,
   cairo_t *context = NULL;
   GstVideoRegionOfInterestMeta *roimeta = NULL;
   guint idx = 0, length = 0;
-  gboolean success = TRUE;
+  gdouble inverse[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  gboolean success = TRUE, correction = FALSE;
 
   roimeta = gst_buffer_setup_image_region (vframe->buffer, mlparam);
+  correction =
+      gst_structure_get_matrix (mlparam, "inverse-affine-matrix", inverse);
 
   success = gst_cairo_draw_setup (vframe, &surface, &context);
   g_return_val_if_fail (success, FALSE);
@@ -523,7 +554,7 @@ gst_ml_depth_maps_visualize (GstMLDepthMaps * predictions,
 
     success = gst_cairo_draw_mask (context,
         GST_UINT32_PTR_CAST (entry->colors->data), entry->n_rows,
-        entry->n_columns, roimeta);
+        entry->n_columns, roimeta, correction ? inverse : NULL);
   }
 
   gst_cairo_draw_cleanup (surface, context);
@@ -1323,7 +1354,7 @@ gst_ml_post_process_fixate_caps (GstBaseTransform * base,
 
   if (gst_structure_has_name (output, "video/x-raw")) {
     gint par_n = 0, par_d = 0;
-    gboolean islabels = FALSE;
+    gboolean classification = FALSE;
 
     // Fixate output PAR if not already fixated..
     value = gst_structure_get_value (output, "pixel-aspect-ratio");
@@ -1339,7 +1370,7 @@ gst_ml_post_process_fixate_caps (GstBaseTransform * base,
 
     GST_DEBUG_OBJECT (postprocess, "Output PAR fixed to: %d/%d", par_n, par_d);
 
-    islabels = GST_IS_IMAGE_CLASSIFICATION (postprocess->type) ||
+    classification = GST_IS_IMAGE_CLASSIFICATION (postprocess->type) ||
         GST_IS_AUDIO_CLASSIFICATION (postprocess->type);
 
     // For super-resolution expect the tensor resolution as video resolution.
@@ -1376,7 +1407,7 @@ gst_ml_post_process_fixate_caps (GstBaseTransform * base,
           "supported with current post-process type!");
       return NULL;
     } else if ((NULL == value) || !gst_value_is_fixed (value)) {
-      if ((width == 0) && islabels)
+      if ((width == 0) && classification)
         width = GST_ROUND_UP_4 (DEFAULT_FONT_SIZE * MAX_TEXT_LENGTH * 3 / 5);
       else if (width == 0)
         width = DEFAULT_VIDEO_WIDTH;
@@ -1393,7 +1424,7 @@ gst_ml_post_process_fixate_caps (GstBaseTransform * base,
           "supported with current post-process type!");
       return NULL;
     } else if ((NULL == value) || !gst_value_is_fixed (value)) {
-      if ((height == 0) && islabels)
+      if ((height == 0) && classification)
         height = GST_ROUND_UP_4 (DEFAULT_FONT_SIZE * postprocess->n_results);
       else if (height == 0)
         height = DEFAULT_VIDEO_HEIGHT;
@@ -1636,8 +1667,8 @@ gst_ml_post_process_transform (GstBaseTransform * base, GstBuffer * inbuffer,
 
   time = GST_CLOCK_DIFF (time, gst_util_get_timestamp ());
 
-  GST_LOG_OBJECT (postprocess, "Postprocess took %" G_GINT64_FORMAT ".%03"
-      G_GINT64_FORMAT " ms", GST_TIME_AS_MSECONDS (time),
+  GST_LOG_OBJECT (postprocess, "Performance time %" G_GINT64_FORMAT ".%03"
+      G_GINT64_FORMAT " ms, HW utilization: CPU", GST_TIME_AS_MSECONDS (time),
       (GST_TIME_AS_USECONDS (time) % 1000));
 
   return GST_FLOW_OK;

@@ -159,8 +159,9 @@ gst_cairo_draw_label (cairo_t * context, const guint index,
 /**
  * gst_cairo_draw_detection:
  * @context: Cairo context
- * @detection: A #GstMLKeypoint for visualization
- * @roimeta: Video region in which to draw the rectangle
+ * @detection: A #GstMLDetection for visualization
+ * @roimeta: Region in which to nomalize dimensions and draw the @detection
+ * @matrix: A 3x3 affine matrix to be applied on @detection
  *
  * Helper function for drawing detection rectangle using cairo.
  *
@@ -168,13 +169,15 @@ gst_cairo_draw_label (cairo_t * context, const guint index,
  */
 gboolean
 gst_cairo_draw_detection (cairo_t * context, GstMLDetection * detection,
-                          GstVideoRegionOfInterestMeta * roimeta);
+                          GstVideoRegionOfInterestMeta * roimeta,
+                          gdouble matrix[3][3]);
 
 /**
  * gst_cairo_draw_keypoint:
  * @context: Cairo context
  * @keypoint: A #GstMLKeypoint for visualization
- * @roimeta: Video region in which to draw the keypoint
+ * @roimeta: Region in which to nomalize dimensions and draw the @keypoint
+ * @matrix: A 3x3 affine matrix to be applied on @keypoint
  *
  * Helper function for drawing keypoint using cairo.
  *
@@ -182,13 +185,15 @@ gst_cairo_draw_detection (cairo_t * context, GstMLDetection * detection,
  */
 gboolean
 gst_cairo_draw_keypoint (cairo_t * context, GstMLKeypoint * keypoint,
-                         GstVideoRegionOfInterestMeta * roimeta);
+                         GstVideoRegionOfInterestMeta * roimeta,
+                         gdouble matrix[3][3]);
 
 /**
  * gst_cairo_draw_link:
  * @context: Cairo context
  * @link: A #GstMLKeypointLink for visualization
- * @roimeta: Video region in which to draw the link
+ * @roimeta: Region in which to nomalize dimensions and draw the @link
+ * @matrix: A 3x3 affine matrix from module to be applied on @link
  *
  * Helper function for drawing link between keypoints using cairo.
  *
@@ -196,7 +201,8 @@ gst_cairo_draw_keypoint (cairo_t * context, GstMLKeypoint * keypoint,
  */
 gboolean
 gst_cairo_draw_link (cairo_t * context, GstMLKeypointLink * link,
-                     GstVideoRegionOfInterestMeta * roimeta);
+                     GstVideoRegionOfInterestMeta * roimeta,
+                     gdouble matrix[3][3]);
 
 /**
  * gst_cairo_draw_mask:
@@ -204,19 +210,22 @@ gst_cairo_draw_link (cairo_t * context, GstMLKeypointLink * link,
  * @colormask: Raw color mask.
  * @n_rows: Number of rows in the mask.
  * @n_columns: Number of columns in the mask.
- * @roimeta: Video region in which to draw the keypoint
+ * @roimeta: Region in which to nomalize dimensions and draw the @colormask
+ * @matrix: (nullable): A 3x3 affine matrix to be applied on the mask,
+ *          relative to the mask's own [0,1] box space, or %NULL
  *
  * Helper function for drawing a mask using cairo.
  *
  * Return: TRUE on success or FALSE on failure.
  */
 gboolean
-gst_cairo_draw_mask (cairo_t * context, const guint32 * colormask, guint n_rows,
-                     guint n_columns, GstVideoRegionOfInterestMeta * roimeta);
+gst_cairo_draw_mask (cairo_t * context, guint32 * colormask, guint n_rows,
+                     guint n_columns, GstVideoRegionOfInterestMeta * roimeta,
+                     gdouble matrix[3][3]);
 
 /**
  * gst_buffer_setup_image_region:
- * @region: A #GstVideoRectangle
+ * @buffer: A #GstBuffer to which to attach ROI meta
  * @mlparam: A #GstStructure with tensor image region.
  *
  * Helper function for exracting the image region in the input tensor of the
@@ -228,19 +237,6 @@ gst_cairo_draw_mask (cairo_t * context, const guint32 * colormask, guint n_rows,
  */
 GstVideoRegionOfInterestMeta *
 gst_buffer_setup_image_region (GstBuffer * buffer, const GstStructure * mlparam);
-
-/**
- * gst_ml_structure_get_inverse_affine_matrix:
- * @structure: #GstStructure for ML post-processing parameters.
- * @matrix: A 3x3 affine transformation matrix which will be populated.
- *
- * Helper function for retrieving the inverse affine matrix.
- *
- * Return: TRUE on success or FALSE on failure.
- */
-gboolean
-gst_ml_structure_get_inverse_affine_matrix (const GstStructure * structure,
-                                            gdouble matrix[3][3]);
 
 G_END_DECLS
 

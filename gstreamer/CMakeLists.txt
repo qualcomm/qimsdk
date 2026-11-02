@@ -6,12 +6,20 @@ include(GNUInstallDirs)
 # Common point for setting version of all libs of gst-plugins-qcom package
 set(GST_VERSION_REQUIRED "1.16")
 set(GST_PLUGINS_QTI_OSS_VERSION "1.0")
+set(QIMSDK_PLATFORM_RUNTIME_VERSION "1.0")
 
 set(GST_PLUGINS_QTI_OSS_INSTALL_BINDIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}")
 set(GST_PLUGINS_QTI_OSS_INSTALL_LIBDIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
 set(GST_PLUGINS_QTI_OSS_INSTALL_INCDIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}")
 set(GST_PLUGINS_QTI_OSS_INSTALL_DATADIR "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATAROOTDIR}")
 set(GST_PLUGINS_QTI_OSS_INSTALL_CONFIG "${CMAKE_INSTALL_SYSCONFDIR}/configs")
+
+# Instruct CMake's FindPkgConfig module to use the directories specified in
+# CMAKE_PREFIX_PATH when searching for .pc files. This ensures that locally
+# provided .pc files are also considered for all components within the CMake
+# build system.
+set(PKG_CONFIG_USE_CMAKE_PREFIX_PATH ON)
+set(CMAKE_PREFIX_PATH "${PKG_CONFIG_LOCAL_PATH}")
 
 option(ENABLE_GST_IMSDK_PLUGINS "Enable IMSDK Plugins" OFF)
 

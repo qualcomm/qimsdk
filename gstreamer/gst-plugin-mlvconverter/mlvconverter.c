@@ -123,8 +123,6 @@ G_DEFINE_TYPE (GstMLVideoConverterParentPool,
 // (2^64 - 1) / (2^8 - 1)
 #define UINT64_CONVERSION_SIGMA        72340172838076673.0
 
-#define MATRIX_MAX_SIZE                8
-
 #define GET_MEAN_VALUE(mean, idx) (mean->len > idx) ? \
     g_array_index (mean, gdouble, idx) : DEFAULT_PROP_MEAN
 #define GET_SIGMA_VALUE(sigma, idx) (sigma->len > idx) ? \
@@ -500,12 +498,7 @@ gst_region_of_interest_contains_affine_matrix (
     return FALSE;
 
   xtraparams = GST_STRUCTURE (g_value_get_boxed (value));
-
-  // No 'affine-matrix' field in 'xtraparams', nothing to do.
-  if (!gst_structure_has_field (xtraparams, "affine-matrix"))
-    return FALSE;
-
-  return TRUE;
+  return gst_structure_has_field (xtraparams, "rectangle-affine-matrix");
 }
 
 static inline guint
@@ -654,71 +647,11 @@ gst_buffer_new_from_parent_memory (GstMLVideoConverter * mlconverter,
 }
 
 static gboolean
-gst_matrix_inverse (const gdouble matrix[MATRIX_MAX_SIZE][MATRIX_MAX_SIZE],
-    const guint size, gdouble inverse[MATRIX_MAX_SIZE][MATRIX_MAX_SIZE])
-{
-  guint row = 0, column = 0, idx = 0, num = 0, maxrow = 0;
-  gdouble value = 0.0, augmented[MATRIX_MAX_SIZE][2 * MATRIX_MAX_SIZE] = {0};
-
-  // Form augmented matrix with the help of input and an identity matrix.
-  for (row = 0; row < size; row++) {
-    for (column = 0; column < size; column++) {
-      augmented[row][column] = matrix[row][column];
-      augmented[row][size + column] = (row == column) ? 1.0 : 0.0;
-    }
-  }
-
-  // Find the inverse matrix using Gauss-Jordan elimination.
-  for (row = 0; row < size; row++, maxrow = row) {
-    // Find the row with the highest pivot point among current and remaining rows.
-    for (idx = row + 1; idx < size; idx++)
-      maxrow = fabs(augmented[idx][row]) > fabs(augmented[maxrow][row]) ? idx : maxrow;
-
-    // Check if pivot is 0 - meaning a singular matrix.
-    if (augmented[maxrow][row] == 0.0)
-      return FALSE;
-
-    // Swap rows if there is a nother row with higher pivot value.
-    for (column = 0; (maxrow != row) && (column < (2 * size)); column++) {
-      value = augmented[row][column];
-      augmented[row][column] = augmented[maxrow][column];
-      augmented[maxrow][column] = value;
-    }
-
-    // Normalize the current row by making the value of the pivot element to 1.
-    value = augmented[row][row];
-
-    for (column = 0; column < (2 * size); column++)
-      augmented[row][column] /= value;
-
-    // Eliminate all elements above and under the pivot point (row-reduction).
-    for (idx = 0, column = row; idx < size; idx++) {
-      if (idx == column)
-        continue;
-
-      value = augmented[idx][column];
-
-      for (num = 0; num < (2 * size); num++)
-        augmented[idx][num] -= augmented[row][num] * value;
-    }
-  }
-
-  // Extract the inverse matrix values from the augmented matrix.
-  for (row = 0; row < size; row++)
-    for (column = 0; column < size; column++)
-      inverse[row][column] = augmented[row][size + column];
-
-  return TRUE;
-}
-
-static gboolean
 gst_video_source_inverse_affine_matrix (GstVideoQuadrilateral * source,
-    gdouble matrix[MATRIX_MAX_SIZE][MATRIX_MAX_SIZE])
+    gdouble matrix[3][3])
 {
   GstVideoPoint inpoints[4] = {0}, outpoints[4] = {0};
-  gdouble intermediary[MATRIX_MAX_SIZE][MATRIX_MAX_SIZE] = {0};
-  gdouble inverse[MATRIX_MAX_SIZE][MATRIX_MAX_SIZE] = {0};
-  gdouble affine[MATRIX_MAX_SIZE][MATRIX_MAX_SIZE] = {0};
+  gdouble intermediary[8][8] = {0}, inverse[8][8] = {0}, affine[3][3] = {0};
   guint idx = 0, num = 0, row = 0, column = 0;
 
   inpoints[0] = source->a;
@@ -760,7 +693,7 @@ gst_video_source_inverse_affine_matrix (GstVideoQuadrilateral * source,
   }
 
   // Find the inverse matrix for usage in A x X = B -> inv(A) x B = X
-  if (!gst_matrix_inverse (intermediary, 8, inverse))
+  if (!gst_matrix_inverse (&intermediary[0][0], 64, &inverse[0][0]))
     return FALSE;
 
   // Find the matrix for the affine transformation from source to destination.
@@ -775,7 +708,7 @@ gst_video_source_inverse_affine_matrix (GstVideoQuadrilateral * source,
   affine[2][2] = 1.0;
 
   // Find the inverse matrix which post-process will use for correction.
-  if (!gst_matrix_inverse (affine, 3, matrix))
+  if (!gst_matrix_inverse (&affine[0][0], 9, &matrix[0][0]))
     return FALSE;
 
   return TRUE;
@@ -827,10 +760,9 @@ gst_ml_video_converter_apply_affine_matrix (GstMLVideoConverter * mlconverter,
 {
   GstStructure *param = NULL, *xtraparams = NULL;
   const GValue *value = NULL;
-  gdouble matrix[3][3] = {0};
-  guint idx = 0, row = 0, col = 0;
+  gdouble matrix[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 
-  // No affine matrix present, nothing to do
+  // No affine matrix present, nothing to do.
   if (!gst_region_of_interest_contains_affine_matrix (roimeta))
     return TRUE;
 
@@ -838,17 +770,11 @@ gst_ml_video_converter_apply_affine_matrix (GstMLVideoConverter * mlconverter,
   value = gst_structure_get_value (param, "xtraparams");
 
   xtraparams = GST_STRUCTURE (g_value_get_boxed (value));
-  value = gst_structure_get_value (xtraparams, "affine-matrix");
+  gst_structure_get_matrix (xtraparams, "rectangle-affine-matrix", matrix);
 
-  // Expected number of values is 9 for a 3x3 affine matrix.
-  if (gst_value_array_get_size (value) != 9) {
-    GST_TRACE_OBJECT (mlconverter, "Invalid number of values in the "
-        "'affine-matrix' field!");
-    return FALSE;
-  }
-
-  for (idx = 0; idx < 9; idx++, row = (idx / 3), col = (idx % 3))
-    matrix[row][col] = g_value_get_double (gst_value_array_get_value (value, idx));
+  GST_TRACE_OBJECT (mlconverter, "Rectangle Matrix [%f, %f, %f] [%f, %f, %f] "
+      "[%f, %f, %f]", matrix[0][0], matrix[0][1], matrix[0][2], matrix[1][0],
+      matrix[1][1], matrix[1][2], matrix[2][0], matrix[2][1], matrix[2][2]);
 
   gst_video_point_affine_transform (&(source->a), matrix);
   gst_video_point_affine_transform (&(source->b), matrix);
@@ -962,10 +888,7 @@ gst_ml_video_converter_update_source (GstMLVideoConverter * mlconverter,
 {
   GstVideoQuadrilateral *source = NULL;
   GstVideoRectangle region = { 0, };
-  GValue matvals = G_VALUE_INIT, value = G_VALUE_INIT;
-  gdouble matrix[3][3] = {0}, inverse[MATRIX_MAX_SIZE][MATRIX_MAX_SIZE] = {0};
-  gdouble intermediary[MATRIX_MAX_SIZE][MATRIX_MAX_SIZE] = {0};
-  guint num = 0, row = 0, column = 0;
+  gdouble matrix[3][3] = {0}, inverse[3][3] = {0}, intermediary[3][3] = {0};
 
   source = &(vblit->source);
   vblit->mask |= GST_VIDEO_CONVERTER_MASK_SOURCE;
@@ -1031,31 +954,14 @@ gst_ml_video_converter_update_source (GstMLVideoConverter * mlconverter,
   intermediary[2][2] = 1.0;
 
   // Multiply the matrices from above in order to get final matrix.
-  for (row = 0; row < 3; row++) {
-    for (column = 0; column < 3; column++) {
-      matrix[row][column] = 0;
+  gst_matrix_multiply (&intermediary[0][0], &inverse[0][0], 9, &matrix[0][0]);
 
-      for (num = 0; num < 3; num++)
-        matrix[row][column] += intermediary[row][num] * inverse[num][column];
-    }
-  }
-
-  // Create an inverse affine matrix entry for correction downstream.
-  g_value_init (&matvals, GST_TYPE_ARRAY);
-  g_value_init (&value, G_TYPE_DOUBLE);
-
-  for (row = 0; row < 3; row++) {
-    for (column = 0; column < 3; column++) {
-      g_value_set_double (&value, matrix[row][column]);
-      gst_value_array_append_value (&matvals, &value);
-    }
-  }
+  GST_TRACE_OBJECT (mlconverter, "Inverse Matrix [%f, %f, %f] [%f, %f, %f] "
+      "[%f, %f, %f]", matrix[0][0], matrix[0][1], matrix[0][2], matrix[1][0],
+      matrix[1][1], matrix[1][2], matrix[2][0], matrix[2][1], matrix[2][2]);
 
   // Propagate the affine matrix for correction of the results in post-process.
-  gst_structure_take_value (pmeta->info, "inverse-affine-matrix", &matvals);
-
-  g_value_unset (&value);
-  g_value_unset (&matvals);
+  gst_structure_set_matrix (pmeta->info, "inverse-affine-matrix", matrix);
 
   return TRUE;
 }

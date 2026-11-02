@@ -5,7 +5,11 @@
 
 #include "common-utils.h"
 
+#include <math.h>
+
 #include <json-glib/json-glib.h>
+
+#define GST_MATRIX_MAX_SIZE            8
 
 static const gchar* mux_stream_names[] = {
     "mux-stream-00", "mux-stream-01", "mux-stream-02", "mux-stream-03",
@@ -326,6 +330,56 @@ gst_structure_to_json_string (GstStructure * structure)
   return string;
 }
 
+void
+gst_structure_set_matrix (GstStructure * structure, const gchar * name,
+    gdouble matrix[3][3])
+{
+  GValue mavals = G_VALUE_INIT, value = G_VALUE_INIT;
+  guint row = 0, column = 0;
+
+  g_value_init (&mavals, GST_TYPE_ARRAY);
+  g_value_init (&value, G_TYPE_DOUBLE);
+
+  for (row = 0; row < 3; row++) {
+    for (column = 0; column < 3; column++) {
+      g_value_set_double (&value, matrix[row][column]);
+      gst_value_array_append_value (&mavals, &value);
+    }
+  }
+
+  g_value_unset (&value);
+  gst_structure_take_value (structure, name, &mavals);
+}
+
+gboolean
+gst_structure_get_matrix (const GstStructure * structure, const gchar * name,
+    gdouble matrix[3][3])
+{
+  const GValue *value = NULL;
+  guint row = 0, column = 0;
+
+  if (structure == NULL)
+    return FALSE;
+
+  if ((value = gst_structure_get_value (structure, name)) == NULL)
+    return FALSE;
+
+  // Expected number of values is 9 for a 3x3 affine matrix.
+  if (gst_value_array_get_size (value) != 9) {
+    GST_ERROR ("Invalid number of values in the '%s' field!", name);
+    return FALSE;
+  }
+
+  for (row = 0; row < 3; row++) {
+    for (column = 0; column < 3; column++) {
+      matrix[row][column] = g_value_get_double (
+          gst_value_array_get_value (value, (row * 3) + column));
+    }
+  }
+
+  return TRUE;
+}
+
 GstProtectionMeta *
 gst_buffer_get_protection_meta_id (GstBuffer * buffer, const gchar * name)
 {
@@ -352,6 +406,90 @@ gst_buffer_copy_protection_meta (GstBuffer * destination, GstBuffer * source)
     gst_buffer_add_protection_meta (destination,
         gst_structure_copy (GST_PROTECTION_META_CAST (meta)->info));
   }
+}
+
+gboolean
+gst_matrix_multiply (const gdouble * l_matrix, const gdouble * r_matrix,
+    const guint size, gdouble * matrix)
+{
+  guint row = 0, column = 0, num = 0;
+  guint n_edges = sqrt (size);
+
+  g_return_val_if_fail (fmod (sqrt (size), 1.0) == 0.0, FALSE);
+
+  for (row = 0; row < n_edges; row++) {
+    for (column = 0; column < n_edges; column++) {
+      matrix[row * n_edges + column] = 0.0;
+
+      for (num = 0; num < n_edges; num++)
+        matrix[row * n_edges + column] +=
+            l_matrix[row * n_edges + num] * r_matrix[num * n_edges + column];
+    }
+  }
+
+  return TRUE;
+}
+
+gboolean
+gst_matrix_inverse (const gdouble * matrix, const guint size, gdouble * inverse)
+{
+  guint row = 0, column = 0, idx = 0, num = 0, maxrow = 0;
+  guint n_edges = sqrt (size);
+  gdouble augmented[GST_MATRIX_MAX_SIZE][2 * GST_MATRIX_MAX_SIZE] = {0};
+  gdouble value = 0.0;
+
+  g_return_val_if_fail (fmod (sqrt (size), 1.0) == 0.0, FALSE);
+  g_return_val_if_fail (n_edges <= GST_MATRIX_MAX_SIZE, FALSE);
+
+  // Form augmented matrix with the help of input and an identity matrix.
+  for (row = 0; row < n_edges; row++) {
+    for (column = 0; column < n_edges; column++) {
+      augmented[row][column] = matrix[row * n_edges + column];
+      augmented[row][n_edges + column] = (row == column) ? 1.0 : 0.0;
+    }
+  }
+
+  // Find the inverse matrix using Gauss-Jordan elimination.
+  for (row = 0; row < n_edges; row++, maxrow = row) {
+    // Find the row with the highest pivot point among current and remaining rows.
+    for (idx = row + 1; idx < n_edges; idx++)
+      maxrow = fabs (augmented[idx][row]) > fabs (augmented[maxrow][row]) ? idx : maxrow;
+
+    // Check if pivot is 0 - meaning a singular matrix.
+    if (augmented[maxrow][row] == 0.0)
+      return FALSE;
+
+    // Swap rows if there is another row with higher pivot value.
+    for (column = 0; (maxrow != row) && (column < (2 * n_edges)); column++) {
+      value = augmented[row][column];
+      augmented[row][column] = augmented[maxrow][column];
+      augmented[maxrow][column] = value;
+    }
+
+    // Normalize the current row by making the value of the pivot element to 1.
+    value = augmented[row][row];
+
+    for (column = 0; column < (2 * n_edges); column++)
+      augmented[row][column] /= value;
+
+    // Eliminate all elements above and under the pivot point (row-reduction).
+    for (idx = 0, column = row; idx < n_edges; idx++) {
+      if (idx == column)
+        continue;
+
+      value = augmented[idx][column];
+
+      for (num = 0; num < (2 * n_edges); num++)
+        augmented[idx][num] -= augmented[row][num] * value;
+    }
+  }
+
+  // Extract the inverse matrix values from the augmented matrix.
+  for (row = 0; row < n_edges; row++)
+    for (column = 0; column < n_edges; column++)
+      inverse[row * n_edges + column] = augmented[row][n_edges + column];
+
+  return TRUE;
 }
 
 #if !GLIB_CHECK_VERSION(2, 76, 0)

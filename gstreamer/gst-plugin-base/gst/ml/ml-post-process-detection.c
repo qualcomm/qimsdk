@@ -156,38 +156,6 @@ gst_ml_detection_relative_transform (GstMLDetection * detection,
   detection->bottom = CLAMP (detection->bottom, 0.0f, 1.0f);
 }
 
-void
-gst_ml_detection_affine_transform (GstMLDetection * detection, gdouble matrix[3][3])
-{
-  GstVideoPoint a = { 0, }, b = { 0, }, c = { 0, }, d = { 0, };
-  guint idx = 0, n_landmarks = 0;
-
-  g_return_if_fail (detection != NULL);
-
-  n_landmarks = detection->landmarks ? detection->landmarks->len : 0;
-
-  for (idx = 0; idx < n_landmarks; idx++) {
-    GstMLKeypoint *kp = &(g_array_index (detection->landmarks, GstMLKeypoint, idx));
-    gst_ml_keypoint_affine_transform (kp, matrix);
-  }
-
-  a = (GstVideoPoint) {detection->left, detection->top};
-  b = (GstVideoPoint) {detection->left, detection->bottom};
-  c = (GstVideoPoint) {detection->right, detection->top};
-  d = (GstVideoPoint) {detection->right, detection->bottom};
-
-  gst_video_point_affine_transform (&a, matrix);
-  gst_video_point_affine_transform (&b, matrix);
-  gst_video_point_affine_transform (&c, matrix);
-  gst_video_point_affine_transform (&d, matrix);
-
-  // Adjusted bounding box so that incoporates the new ABCD quadrilateral.
-  detection->left = MIN (MIN (a.x, b.x), MIN (c.x, d.x));
-  detection->top = MIN (MIN (a.y, b.y), MIN (c.y, d.y));
-  detection->right = MAX (MAX (a.x, b.x), MAX (c.x, d.x));
-  detection->bottom = MAX (MAX (a.y, b.y), MAX (c.y, d.y));
-}
-
 gfloat
 gst_ml_detection_intersection_score (const GstMLDetection * l_detection,
     const GstMLDetection * r_detection)

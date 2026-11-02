@@ -22,8 +22,9 @@ endif()
 # Get the pkgconfigs exported by the automake tools
 pkg_check_modules(GST
   REQUIRED gstreamer-1.0>=${GST_VERSION_REQUIRED}
-           gstreamer-app-1.0>=${GST_VERSION_REQUIRED}
-           gstreamer-video-1.0>=${GST_VERSION_REQUIRED})
+           gstreamer-app-1.0>=${GST_VERSION_REQUIRED})
+pkg_check_modules(GST_VIDEO REQUIRED gstreamer-video-1.0>=${GST_VERSION_REQUIRED})
+pkg_check_modules(GST_QCOM_VIDEO REQUIRED gstreamer-qcom-oss-video-1.0>=1.0.0)
 
 # GStreamer gst-fastcv-padding-strip-example
 set(GST_EXAMPLE_BIN gst-fastcv-padding-strip-example)
@@ -38,7 +39,9 @@ target_compile_options(${GST_EXAMPLE_BIN} PRIVATE
 
 target_include_directories(${GST_EXAMPLE_BIN} PRIVATE
   ${GST_INCLUDE_DIRS}
+  ${GST_VIDEO_INCLUDE_DIRS}
   ${EXTRA_INCLUDES}
+  ${GST_QCOM_VIDEO_INCLUDE_DIRS}
 )
 
 target_compile_definitions(${GST_EXAMPLE_BIN} PRIVATE
@@ -47,7 +50,9 @@ target_compile_definitions(${GST_EXAMPLE_BIN} PRIVATE
 
 target_link_libraries(${GST_EXAMPLE_BIN} PRIVATE
   ${GST_LIBRARIES}
+  ${GST_VIDEO_LIBRARIES}
   ${EXTRA_LIBS}
+  ${GST_QCOM_VIDEO_LIBRARIES}
 )
 
 install(

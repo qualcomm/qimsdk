@@ -177,6 +177,19 @@ GstStructure* build_gst_structure(const MLExtraParam& extra) {
         gst_structure_set(structure, key.c_str(), G_TYPE_STRING,
                           value.s.c_str(), nullptr);
         break;
+      case MLParam::ValueType::DoubleArray: {
+        GValue arr = G_VALUE_INIT, item = G_VALUE_INIT;
+        g_value_init(&arr, GST_TYPE_ARRAY);
+        g_value_init(&item, G_TYPE_DOUBLE);
+        for (double v : value.arr) {
+          g_value_set_double(&item, v);
+          gst_value_array_append_value(&arr, &item);
+        }
+        g_value_unset(&item);
+        gst_structure_set_value(structure, key.c_str(), &arr);
+        g_value_unset(&arr);
+        break;
+      }
     }
   }
 
@@ -767,6 +780,7 @@ bool MLParam::to_number(const Value& value, long double& out) {
       out = value.b ? 1.0L : 0.0L;
       return true;
     case ValueType::String:
+    case ValueType::DoubleArray:
       return false;
   }
 

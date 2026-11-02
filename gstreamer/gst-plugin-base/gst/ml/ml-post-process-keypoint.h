@@ -120,18 +120,6 @@ GST_API void
 gst_ml_keypoint_relative_transform (GstMLKeypoint * keypoint,
                                     const GstVideoRectangle * region,
                                     const gboolean clamp);
-
-/**
- * gst_ml_keypoint_affine_transform:
- * @keypoint: A #GstMLKeypoint
- * @matrix: (array fixed-size=9) (element-type gdouble):
- *          A 3x3 affine transformation matrix.
- *
- * Helper function for adjusting coordinates of a ML keypoint with affine matrix.
- */
-GST_API void
-gst_ml_keypoint_affine_transform (GstMLKeypoint * keypoint, gdouble matrix[3][3]);
-
 /**
  * gst_ml_keypoint_to_structure:
  * @keypoint: A #GstMLKeypoint
