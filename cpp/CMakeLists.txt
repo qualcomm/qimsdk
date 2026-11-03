@@ -120,5 +120,9 @@ install(
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qti
 )
 
+option(ENABLE_APP_BUILDER_CPP_EXAMPLES "Build App Builder C++ SDK example apps" ON)
+
 # QIMSDK test applications.
-add_subdirectory(examples)
+if(ENABLE_APP_BUILDER_CPP_EXAMPLES)
+  add_subdirectory(examples)
+endif()
