@@ -9,9 +9,9 @@
  *
  * Description:
  * The application takes live video stream from camera/file/rtsp/USB camera and
- * gives same to Detection TensorFlow Lite, SNPE DLC or ONNX Model for object
- * detection and display preview with overlayed AI Model output with detection
- * labels.
+ * gives same to Detection TensorFlow Lite, SNPE DLC, ONNX, QNN or QAIRT Model
+ * for object detection and display preview with overlayed AI Model output with
+ * detection labels.
  *
  * For overlay builds, the camera source element used is qtiqmmfsrc.
  * In non-overlay builds, libcamerasrc is used instead.
@@ -42,7 +42,7 @@
  *
  *     qtivcomposer (COMPOSITION) -> fpsdisplaysink (Display)
  *     Pre-process: qtimlvconverter
- *     ML Framework: qtimlsnpe/qtimltflite/qtimlonnx
+ *     ML Framework: qtimlsnpe/qtimltflite/qtimlonnx/qtimlqnn/qtimlqairt
  *     Post-process: qtimlvdetection -> detection_filter
  */
 
@@ -72,6 +72,10 @@
 #define DEFAULT_QNN_YOLOV8_MODEL "yolov8_det_quantized.bin"
 #define DEFAULT_QNN_YOLOX_MODEL "yolox_quantized.bin"
 #define DEFAULT_ONNX_YOLOX_MODEL "yolox.onnx"
+#define DEFAULT_QAIRT_YOLOV5_MODEL "yolov5.dlc"
+#define DEFAULT_QAIRT_YOLOV8_MODEL "yolov8.dlc"
+#define DEFAULT_QAIRT_YOLONAS_MODEL "yolonas.dlc"
+#define DEFAULT_QAIRT_YOLOX_MODEL "yolox.dlc"
 #define DEFAULT_YOLOV5_LABELS "yolov5.json"
 #define DEFAULT_YOLOV8_LABELS "yolov8.json"
 #define DEFAULT_YOLOX_LABELS "yolox.json"
@@ -134,13 +138,13 @@ typedef struct {
   gchar dev_video[16];
   enum GstSinkType sinktype;
   enum GstVideoFormat video_format;
-  gchar **snpe_tensors;
+  gchar **tensors;
   GstCameraSourceType camera_type;
   GstModelType model_type;
   GstYoloModelType yolo_model_type;
   gdouble threshold;
   gint delegate_type;
-  gint snpe_tensor_count;
+  gint tensor_count;
   gboolean use_cpu;
   gboolean use_gpu;
   gboolean use_dsp;
@@ -185,11 +189,11 @@ gst_app_context_free (GstAppContext * appctx, GstAppOptions * options,
     g_free ((gpointer)options->labels_path);
   }
 
-  if (options->snpe_tensors != NULL) {
-    for (gint i = 0; i < options->snpe_tensor_count; i++) {
-      g_free ((gpointer)options->snpe_tensors[i]);
+  if (options->tensors != NULL) {
+    for (gint i = 0; i < options->tensor_count; i++) {
+      g_free ((gpointer)options->tensors[i]);
     }
-    g_free ((gpointer)options->snpe_tensors);
+    g_free ((gpointer)options->tensors);
   }
 
   if (options->output_file != NULL) {
@@ -551,7 +555,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     goto error_clean_elements;
   }
 
-  // Create the ML inferencing plugin SNPE/TFLITE/ONNX
+  // Create the ML inferencing plugin SNPE/TFLITE/QNN/ONNX/QAIRT
   if (options->model_type == GST_MODEL_TYPE_SNPE) {
     qtimlelement = gst_element_factory_make ("qtimlsnpe", "qtimlsnpe");
   } else if (options->model_type == GST_MODEL_TYPE_TFLITE) {
@@ -560,6 +564,8 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     qtimlelement = gst_element_factory_make ("qtimlqnn", "qtimlelement");
   } else if (options->model_type == GST_MODEL_TYPE_ONNX) {
     qtimlelement = gst_element_factory_make ("qtimlonnx", "qtimlelement");
+  } else if (options->model_type == GST_MODEL_TYPE_QAIRT) {
+    qtimlelement = gst_element_factory_make ("qtimlqairt", "qtimlqairt");
   } else {
     g_printerr ("Invalid model type\n");
     goto error_clean_elements;
@@ -810,6 +816,21 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     g_print ("Using DSP delegate\n");
     g_object_set (G_OBJECT (qtimlelement), "model", options->model_path,
         "backend", "/usr/lib/libQnnHtp.so", NULL);
+  } else if (options->model_type == GST_MODEL_TYPE_QAIRT) {
+    g_object_set (G_OBJECT (qtimlelement), "model", options->model_path, NULL);
+    if (options->use_cpu) {
+      g_print ("Using CPU delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_CPU, NULL);
+    } else if (options->use_gpu) {
+      g_print ("Using GPU delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_GPU, NULL);
+    } else {
+      g_print ("Using HTP delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_HTP, NULL);
+    }
   } else if (options->model_type == GST_MODEL_TYPE_ONNX) {
     GstMLOnnxExecutionProvider onnx_delegate = GST_ML_ONNX_EXECUTION_PROVIDER_QNN;
     g_object_set (G_OBJECT (qtimlelement), "execution-provider",
@@ -834,21 +855,22 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   }
 
   // 2.6 Set properties for ML postproc plugins - module, tensors, threshold
-  if (options->model_type == GST_MODEL_TYPE_SNPE) {
+  if (options->model_type == GST_MODEL_TYPE_SNPE ||
+      options->model_type == GST_MODEL_TYPE_QAIRT) {
     g_object_set (G_OBJECT (qtimlelement), "model",
         options->model_path, NULL);
 
-    // Validate that tensors are provided for SNPE models
-    if (options->snpe_tensors == NULL || options->snpe_tensor_count == 0) {
-      g_printerr ("ERROR: snpe-tensors must be specified in config "
-         "file for SNPE models\n");
+    // Validate that tensors are provided for SNPE and QAIRT models
+    if (options->tensors == NULL || options->tensor_count == 0) {
+      g_printerr ("ERROR: tensors must be specified in config "
+         "file for SNPE and QAIRT models\n");
       goto error_clean_elements;
     }
 
     g_value_init (&tensors, GST_TYPE_ARRAY);
     g_value_init (&value, G_TYPE_STRING);
-    for (gint i = 0; i < options->snpe_tensor_count; i++) {
-      g_value_set_string (&value, options->snpe_tensors[i]);
+    for (gint i = 0; i < options->tensor_count; i++) {
+      g_value_set_string (&value, options->tensors[i]);
       gst_value_array_append_value (&tensors, &value);
     }
     g_object_set_property (G_OBJECT (qtimlelement), "tensors", &tensors);
@@ -1350,7 +1372,7 @@ parse_json (gchar * config_file,
   JsonParser *parser = NULL;
   JsonNode *root = NULL;
   JsonObject *root_obj = NULL;
-  JsonArray *snpe_tensors = NULL;
+  JsonArray *tensors = NULL;
   GError *error = NULL;
   const gchar *input_filename = NULL;
   const gchar *output_filename = NULL;
@@ -1453,9 +1475,11 @@ parse_json (gchar * config_file,
       options->model_type = GST_MODEL_TYPE_QNN;
     } else if (g_strcmp0 (framework, "onnx") == 0) {
       options->model_type = GST_MODEL_TYPE_ONNX;
+    } else if (g_strcmp0 (framework, "qairt") == 0) {
+      options->model_type = GST_MODEL_TYPE_QAIRT;
     } else {
       gst_printerr ("ml-framework can only be one of "
-          "\"snpe\", \"tflite\", \"onnx\" or \"qnn\"\n");
+          "\"snpe\", \"tflite\", \"onnx\", \"qnn\" or \"qairt\"\n");
       g_object_unref (parser);
       return -1;
     }
@@ -1532,15 +1556,15 @@ parse_json (gchar * config_file,
     }
   }
 
-  if (json_object_has_member (root_obj, "snpe-tensors")) {
-    snpe_tensors = json_object_get_array_member (root_obj, "snpe-tensors");
-    options->snpe_tensor_count = json_array_get_length (snpe_tensors);
-    options->snpe_tensors = (gchar **) g_malloc (
-        sizeof (gchar **) * options->snpe_tensor_count);
+  if (json_object_has_member (root_obj, "tensors")) {
+    tensors = json_object_get_array_member (root_obj, "tensors");
+    options->tensor_count = json_array_get_length (tensors);
+    options->tensors = (gchar **) g_malloc (
+        sizeof (gchar **) * options->tensor_count);
 
-    for (gint i = 0; i < options->snpe_tensor_count; i++) {
-      options->snpe_tensors[i] =
-          g_strdup (json_array_get_string_element (snpe_tensors, i));
+    for (gint i = 0; i < options->tensor_count; i++) {
+      options->tensors[i] =
+          g_strdup (json_array_get_string_element (tensors, i));
     }
   }
 
@@ -1647,7 +1671,7 @@ main (gint argc, gchar * argv[])
   options.yolo_model_type = GST_YOLO_TYPE_NAS;
   options.model_path = NULL;
   options.labels_path = NULL;
-  options.snpe_tensors = NULL;
+  options.tensors = NULL;
   options.width = USB_CAMERA_OUTPUT_WIDTH;
   options.height = USB_CAMERA_OUTPUT_HEIGHT;
   options.video_format = GST_NV12_VIDEO_FORMAT;
@@ -1703,8 +1727,8 @@ main (gint argc, gchar * argv[])
       "  yolo-model-type: \"yolov5\" or \"yolov8\" or \"yolox\" or \"yolonas\"\n"
       "      Yolo Model version to Execute: Yolov5, Yolov8 or YoloNas "
       "or Yolox [Default]\n"
-      "  ml-framework: \"snpe\" or \"tflite\" or \"onnx\" or \"qnn\"\n"
-      "      Execute Model in TFlite[default], snpe, onnx or qnn format\n"
+      "  ml-framework: \"snpe\", \"tflite\", \"onnx\", \"qnn\" or \"qairt\"\n"
+      "      Execute Model in TFlite[default], snpe, onnx, qnn or qairt format\n"
       "  model: \"/PATH\"\n"
       "      Path to the model file.\n"
       "      Default model file for YOLOV5 DLC: "DEFAULT_SNPE_YOLOV5_MODEL"\n"
@@ -1727,6 +1751,14 @@ main (gint argc, gchar * argv[])
       DEFAULT_QNN_YOLOX_MODEL"\n"
       "      Default model path for YOLOX ONNX: "
       DEFAULT_ONNX_YOLOX_MODEL"\n"
+      "      Default model file for YOLOV5 QAIRT: "
+      DEFAULT_QAIRT_YOLOV5_MODEL"\n"
+      "      Default model file for YOLOV8 QAIRT: "
+      DEFAULT_QAIRT_YOLOV8_MODEL"\n"
+      "      Default model file for YOLO NAS QAIRT: "
+      DEFAULT_QAIRT_YOLONAS_MODEL"\n"
+      "      Default model file for YOLOX QAIRT: "
+      DEFAULT_QAIRT_YOLOX_MODEL"\n"
       "      The model files should be placed in:\n"
       "        $HOME/Downloads/qimsdk_samples/models\n"
       "      Alternatively, provide an absolute file path.\n"
@@ -1756,8 +1788,8 @@ main (gint argc, gchar * argv[])
       "  runtime: \"cpu\" or \"gpu\" or \"dsp\"\n"
       "      This is an optional parameter. If not filled, "
       "then default dsp runtime is selected\n"
-      "  snpe-tensors: <json array>\n"
-      "      Set output tensors for SNPE model. Example:\n"
+      "  tensors: <json array>\n"
+      "      Set output tensors for SNPE or QAIRT ml-framework. Example:\n"
       "      [\"boxes\", \"scores\", \"class_idx\"]\n"
       "  output-ip-address: Use this parameter to provide the rtsp output address.\n"
       "      eg: 127.0.0.1\n"
@@ -1907,14 +1939,16 @@ main (gint argc, gchar * argv[])
   }
 
   if (options.model_type < GST_MODEL_TYPE_SNPE ||
-      options.model_type > GST_MODEL_TYPE_ONNX) {
+      options.model_type > GST_MODEL_TYPE_QAIRT) {
     g_printerr ("Invalid ml-framework option selected\n"
         "Available options:\n"
         "    SNPE: %d\n"
         "    TFLite: %d\n"
         "    QNN: %d\n"
-        "    ONNX: %d\n",
-        GST_MODEL_TYPE_SNPE, GST_MODEL_TYPE_TFLITE, GST_MODEL_TYPE_QNN, GST_MODEL_TYPE_ONNX);
+        "    ONNX: %d\n"
+        "    QAIRT: %d\n",
+        GST_MODEL_TYPE_SNPE, GST_MODEL_TYPE_TFLITE, GST_MODEL_TYPE_QNN,
+        GST_MODEL_TYPE_ONNX, GST_MODEL_TYPE_QAIRT);
     gst_app_context_free (&appctx, &options, config_file);
     return -EINVAL;
   }
@@ -2016,6 +2050,17 @@ main (gint argc, gchar * argv[])
         gst_app_context_free (&appctx, &options, config_file);
         return -EINVAL;
       }
+    } else if (options.model_type == GST_MODEL_TYPE_QAIRT) {
+      model_filename =
+          (options.yolo_model_type == GST_YOLO_TYPE_V5 ?
+          DEFAULT_QAIRT_YOLOV5_MODEL :
+          (options.yolo_model_type == GST_YOLO_TYPE_V8 ?
+          DEFAULT_QAIRT_YOLOV8_MODEL :
+          (options.yolo_model_type == GST_YOLO_TYPE_NAS ?
+          DEFAULT_QAIRT_YOLONAS_MODEL :
+          DEFAULT_QAIRT_YOLOX_MODEL)));
+      options.model_path =
+          g_build_filename (options.artifacts_dir, "models", model_filename, NULL);
     } else {
       g_printerr ("Invalid ml_framework\n");
       gst_app_context_free (&appctx, &options, config_file);

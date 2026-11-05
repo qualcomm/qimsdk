@@ -4,5 +4,5 @@
   "model": "deeplabv3_plus_mobilenet_quantized.tflite",
   "labels": "deeplabv3_resnet50.json",
   "runtime": "dsp",
-  "video-disposition":"stretch"
+  "video-disposition":"top-left"
 }

@@ -9,8 +9,8 @@
  *
  * Description:
  * The application takes live video stream from camera/file/rtsp/usb camera
- * and gives same to Hrnet TensorFlow Lite or QNN Model for pose detection and
- * display preview with overlayed AI Model output labels.
+ * and gives same to Hrnet TensorFlow Lite, QNN or QAIRT Model for pose
+ * detection and display preview with overlayed AI Model output labels.
  *
  * Pipeline for Gstreamer with Camera:
  * qtiqmmfsrc  -> | qmmfsrc_caps (Preview)    -> qtivcomposer
@@ -33,7 +33,7 @@
  *     |     -> Pre-process -> Inference -> Post-process -> qtivcomposer
  *
  *     Pre process: qtimlvconverter
- *     ML Framework: qtimltflite/qtimlqnn
+ *     ML Framework: qtimltflite/qtimlqnn/qtimlqairt
  *     Post process: qtimlvpose -> pose_filter
  */
 
@@ -52,6 +52,7 @@
  */
 #define DEFAULT_TFLITE_POSE_DETECTION_MODEL "hrnet_pose_quantized.tflite"
 #define DEFAULT_QNN_POSE_DETECTION_MODEL "hrnet_pose_quantized.bin"
+#define DEFAULT_QAIRT_POSE_DETECTION_MODEL "hrnet_pose.dlc"
 #define DEFAULT_POSE_DETECTION_LABELS "hrnet_pose.json"
 #define DEFAULT_POSE_SETTINGS_PATH "hrnet_settings.json"
 
@@ -500,11 +501,13 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     goto error_clean_elements;
   }
 
-  // Create the ML inferencing plugin TFLITE/QNN
+  // Create the ML inferencing plugin TFLITE/QNN/QAIRT
   if (options->model_type == GST_MODEL_TYPE_TFLITE) {
     qtimlelement = gst_element_factory_make ("qtimltflite", "qtimltflite");
   } else if (options->model_type == GST_MODEL_TYPE_QNN) {
     qtimlelement = gst_element_factory_make ("qtimlqnn", "qtimlqnn");
+  } else if (options->model_type == GST_MODEL_TYPE_QAIRT) {
+    qtimlelement = gst_element_factory_make ("qtimlqairt", "qtimlqairt");
   } else {
     g_printerr ("Invalid Model Type\n");
     goto error_clean_elements;
@@ -757,6 +760,21 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     g_print ("Using DSP Delegate\n");
     g_object_set (G_OBJECT (qtimlelement), "model", options->model_path,
         "backend", "/usr/lib/libQnnHtp.so", NULL);
+  } else if (options->model_type == GST_MODEL_TYPE_QAIRT) {
+    g_object_set (G_OBJECT (qtimlelement), "model", options->model_path, NULL);
+    if (options->use_cpu) {
+      g_print ("Using CPU Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_CPU, NULL);
+    } else if (options->use_gpu) {
+      g_print ("Using GPU Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_GPU, NULL);
+    } else {
+      g_print ("Using HTP Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_HTP, NULL);
+    }
   } else {
     g_printerr ("Invalid Model Type\n");
     goto error_clean_elements;
@@ -1193,9 +1211,11 @@ parse_json (gchar * config_file,
       options->model_type = GST_MODEL_TYPE_TFLITE;
     else if (g_strcmp0 (framework, "qnn") == 0)
       options->model_type = GST_MODEL_TYPE_QNN;
+    else if (g_strcmp0 (framework, "qairt") == 0)
+      options->model_type = GST_MODEL_TYPE_QAIRT;
     else {
       gst_printerr ("ml-framework can only be one of "
-          "\"tflite\" or \"qnn\"\n");
+          "\"tflite\", \"qnn\" or \"qairt\"\n");
       g_object_unref (parser);
       return -1;
     }
@@ -1432,14 +1452,16 @@ main (gint argc, gchar * argv[])
       "      eg: rtsp://192.168.1.110:8554/live.mkv\n"
       "  enable-usb-camera: Use this Parameter to enable-usb-camera\n"
       "      It can take TRUE or FALSE as input\n"
-      "  ml-framework: \"tflite\" or \"qnn\"\n"
-      "      Execute Model in TFlite [Default] or QNN format\n"
+      "  ml-framework: \"tflite\", \"qnn\" or \"qairt\"\n"
+      "      Execute Model in TFlite [Default], QNN or QAIRT format\n"
       "  model: \"/PATH\"\n"
       "      Path to the model file.\n"
       "      Default model file for TFLITE Model: "
              DEFAULT_TFLITE_POSE_DETECTION_MODEL"\n"
       "      Default model file for QNN Model: "
              DEFAULT_QNN_POSE_DETECTION_MODEL"\n"
+      "      Default model file for QAIRT Model: "
+             DEFAULT_QAIRT_POSE_DETECTION_MODEL"\n"
       "      The model files should be placed in:\n"
       "        $HOME/Downloads/qimsdk_samples/models\n"
       "      Alternatively, provide an absolute file path.\n"
@@ -1611,12 +1633,13 @@ main (gint argc, gchar * argv[])
   }
 
   if (options.model_type < GST_MODEL_TYPE_TFLITE ||
-      options.model_type > GST_MODEL_TYPE_QNN) {
+      options.model_type > GST_MODEL_TYPE_QAIRT) {
     g_printerr ("Invalid ml-framework option selected\n"
         "Available options:\n"
         "    TFLite: %d\n"
-        "    QNN: %d\n",
-        GST_MODEL_TYPE_TFLITE, GST_MODEL_TYPE_QNN);
+        "    QNN: %d\n"
+        "    QAIRT: %d\n",
+        GST_MODEL_TYPE_TFLITE, GST_MODEL_TYPE_QNN, GST_MODEL_TYPE_QAIRT);
     gst_app_context_free (&appctx, &options, config_file);
     return -EINVAL;
   }
@@ -1633,6 +1656,8 @@ main (gint argc, gchar * argv[])
   if (options.model_path == NULL) {
     if (options.model_type == GST_MODEL_TYPE_QNN) {
       model_filename = DEFAULT_QNN_POSE_DETECTION_MODEL;
+    } else if (options.model_type == GST_MODEL_TYPE_QAIRT) {
+      model_filename = DEFAULT_QAIRT_POSE_DETECTION_MODEL;
     } else {
       model_filename = DEFAULT_TFLITE_POSE_DETECTION_MODEL;
     }

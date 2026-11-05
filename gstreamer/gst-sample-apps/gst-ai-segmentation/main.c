@@ -9,7 +9,7 @@
  *
  * Description:
  * The application takes live video stream from camera/file/rtsp and gives same to
- * Segmentation TensorFlow Lite or SNPE DLC Model or QNN Model for segmenting
+ * Segmentation TensorFlow Lite or SNPE DLC Model or QNN or QAIRT Model for segmenting
  * scenes and display preview with overlayed AI Model output/segmentation labels.
  *
  * Pipeline for Gstreamer with Camera:
@@ -29,7 +29,7 @@
  *
  *     qtivcomposer (COMPOSITION) -> fpsdisplaysink (Display)
  *     Pre process: qtimlvconverter
- *     ML Framework: qtimlsnpe/qtimltflite/qtimlqnn
+ *     ML Framework: qtimlsnpe/qtimltflite/qtimlqnn/qtimlqairt
  *     Post process: qtimlvsegmentation -> segmentation_filter
  */
 
@@ -50,6 +50,7 @@
     "deeplabv3_plus_mobilenet_quantized.tflite"
 #define DEFAULT_QNN_SEGMENTATION_MODEL \
     "deeplabv3_plus_mobilenet_quantized.bin"
+#define DEFAULT_QAIRT_SEGMENTATION_MODEL "deeplabv3_plus_mobilenet.dlc"
 #define DEFAULT_SEGMENTATION_LABELS "deeplabv3_resnet50.json"
 
 /**
@@ -362,6 +363,8 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     qtimlelement = gst_element_factory_make ("qtimltflite", "qtimltflite");
   } else if (options->model_type == GST_MODEL_TYPE_QNN) {
     qtimlelement = gst_element_factory_make ("qtimlqnn", "qtimlqnn");
+  } else if (options->model_type == GST_MODEL_TYPE_QAIRT) {
+    qtimlelement = gst_element_factory_make ("qtimlqairt", "qtimlqairt");
   } else {
     g_printerr ("Invalid Model Type\n");
     goto error_clean_elements;
@@ -525,6 +528,21 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     g_print ("Using DSP Delegate\n");
     g_object_set (G_OBJECT (qtimlelement), "model", options->model_path,
         "backend", "/usr/lib/libQnnHtp.so", NULL);
+  } else if (options->model_type == GST_MODEL_TYPE_QAIRT) {
+    g_object_set (G_OBJECT (qtimlelement), "model", options->model_path, NULL);
+    if (options->use_cpu) {
+      g_print ("Using CPU Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_CPU, NULL);
+    } else if (options->use_gpu) {
+      g_print ("Using GPU Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_GPU, NULL);
+    } else {
+      g_print ("Using HTP Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_HTP, NULL);
+    }
   } else {
     g_printerr ("Invalid Model Type\n");
     goto error_clean_elements;
@@ -843,9 +861,11 @@ parse_json (gchar * config_file, GstAppOptions * options)
       options->model_type = GST_MODEL_TYPE_TFLITE;
     else if (g_strcmp0 (framework, "qnn") == 0)
       options->model_type = GST_MODEL_TYPE_QNN;
+    else if (g_strcmp0 (framework, "qairt") == 0)
+      options->model_type = GST_MODEL_TYPE_QAIRT;
     else {
       gst_printerr ("ml-framework can only be one of "
-          "\"snpe\", \"tflite\" or \"qnn\"\n");
+          "\"snpe\", \"tflite\", \"qnn\" or \"qairt\"\n");
       g_object_unref (parser);
       return -1;
     }
@@ -969,8 +989,8 @@ main (gint argc, gchar * argv[])
       "      Use this parameter to provide the rtsp input.\n"
       "      Input should be provided as rtsp://<ip>:<port>/<stream>,\n"
       "      eg: rtsp://192.168.1.110:8554/live.mkv\n"
-      "  ml-framework: \"snpe\" or \"tflite\" or \"qnn\"\n"
-      "      Execute Model in SNPE DLC or TFlite [Default] or QNN "
+      "  ml-framework: \"snpe\", \"tflite\", \"qnn\" or \"qairt\"\n"
+      "      Execute Model in SNPE DLC or TFlite [Default] or QNN or QAIRT "
       "format\n"
       "  model: \"/PATH\"\n"
       "      This is an optional parameter and overrides default path\n"
@@ -978,7 +998,9 @@ main (gint argc, gchar * argv[])
       "\n" "      Default model path for TFlite Model: "
       DEFAULT_TFLITE_SEGMENTATION_MODEL "\n"
       "      Default model path for QNN Model: " DEFAULT_QNN_SEGMENTATION_MODEL
-      "\n" "  labels: \"/PATH\"\n"
+      "\n" "      Default model path for QAIRT Model: "
+      DEFAULT_QAIRT_SEGMENTATION_MODEL "\n"
+      "  labels: \"/PATH\"\n"
       "      This is an optional parameter and overrides default path\n"
       "      Default labels path: " DEFAULT_SEGMENTATION_LABELS "\n"
       "  runtime: \"cpu\" or \"gpu\" or \"dsp\"\n"
@@ -1104,13 +1126,15 @@ main (gint argc, gchar * argv[])
   }
 
   if (options.model_type < GST_MODEL_TYPE_SNPE ||
-      options.model_type > GST_MODEL_TYPE_QNN) {
+      options.model_type > GST_MODEL_TYPE_QAIRT) {
     g_printerr ("Invalid ml-framework option selected\n"
         "Available options:\n"
         "    SNPE: %d\n"
         "    TFLite: %d\n"
-        "    QNN: %d\n",
-        GST_MODEL_TYPE_SNPE, GST_MODEL_TYPE_TFLITE, GST_MODEL_TYPE_QNN);
+        "    QNN: %d\n"
+        "    QAIRT: %d\n",
+        GST_MODEL_TYPE_SNPE, GST_MODEL_TYPE_TFLITE, GST_MODEL_TYPE_QNN,
+        GST_MODEL_TYPE_QAIRT);
     gst_app_context_free (&appctx, &options, config_file);
     return -EINVAL;
   }
@@ -1153,6 +1177,8 @@ main (gint argc, gchar * argv[])
       model_filename = DEFAULT_SNPE_SEGMENTATION_MODEL;
     } else if (options.model_type == GST_MODEL_TYPE_QNN) {
       model_filename = DEFAULT_QNN_SEGMENTATION_MODEL;
+    } else if (options.model_type == GST_MODEL_TYPE_QAIRT) {
+      model_filename = DEFAULT_QAIRT_SEGMENTATION_MODEL;
     } else {
       model_filename = DEFAULT_TFLITE_SEGMENTATION_MODEL;
     }
