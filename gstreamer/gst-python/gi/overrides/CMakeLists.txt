@@ -33,7 +33,8 @@ install(
 
 # Install the overrides so 'from gi.repository import' picks them up.
 install(
-  FILES ${CMAKE_CURRENT_SOURCE_DIR}/GstQtiML.py
+  FILES ${CMAKE_CURRENT_SOURCE_DIR}/GstQtiCommon.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/GstQtiML.py
         ${CMAKE_CURRENT_SOURCE_DIR}/GstQtiVideo.py
   DESTINATION ${PYTHON_SITEPACKAGES_DIR}/gi/overrides
 )

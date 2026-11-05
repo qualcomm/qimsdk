@@ -311,9 +311,8 @@ def __embedding_meta_set_embedding(self, value) -> None:
     if mltype is None:
         raise TypeError(f"unsupported embedding data type: {value.dtype}")
 
-    _gi_gst_qti.embedding_meta_set_embedding(
+    _gi_gst_qti.ml_embedding_meta_set_embedding(
         self, value, int(mltype), value.shape)
-
 
 GstQtiML.EmbeddingMeta.get_embedding = __embedding_meta_get_embedding
 GstQtiML.EmbeddingMeta.set_embedding = __embedding_meta_set_embedding

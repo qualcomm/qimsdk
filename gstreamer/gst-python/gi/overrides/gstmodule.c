@@ -1358,35 +1358,6 @@ cleanup:
 }
 
 static PyObject *
-_gst_video_region_of_interest_meta_get_quadrilateral (PyObject * self,
-    PyObject * args)
-{
-  PyObject *py_meta = NULL;
-  GstVideoRegionOfInterestMeta *meta = NULL;
-  GstVideoQuadrilateral quadrilateral;
-
-  // GstVideo.VideoRegionOfInterestMeta is a plain struct without a GType.
-  if (!PyArg_ParseTuple (args, "O!", &PyGPointer_Type, &py_meta)) {
-    PyErr_BadArgument ();
-    return NULL;
-  }
-
-  meta = pyg_pointer_get (py_meta, GstVideoRegionOfInterestMeta);
-
-  if (meta == NULL) {
-    PyErr_SetString (PyExc_ValueError, "invalid GstVideoRegionOfInterestMeta!");
-    return NULL;
-  }
-
-  quadrilateral = gst_video_region_of_interest_meta_get_quadrilateral (meta);
-
-  // GstVideoQuadrilateral has no GType so return its 4 points as 8 doubles.
-  return Py_BuildValue ("(dddddddd)", quadrilateral.a.x, quadrilateral.a.y,
-      quadrilateral.b.x, quadrilateral.b.y, quadrilateral.c.x, quadrilateral.c.y,
-      quadrilateral.d.x, quadrilateral.d.y);
-}
-
-static PyObject *
 _gst_video_composition_get_blits (PyObject * self, PyObject * args)
 {
   PyTypeObject *py_composition_type = NULL;
@@ -1762,6 +1733,96 @@ _gst_video_converter_engine_wait_fence (PyObject * self, PyObject * args)
   return PyBool_FromLong (success);
 }
 
+static PyObject *
+_gst_video_region_of_interest_meta_get_quadrilateral (PyObject * self,
+    PyObject * args)
+{
+  PyObject *py_meta = NULL;
+  GstVideoRegionOfInterestMeta *meta = NULL;
+  GstVideoQuadrilateral quadrilateral;
+
+  // GstVideo.VideoRegionOfInterestMeta is a plain struct without a GType.
+  if (!PyArg_ParseTuple (args, "O!", &PyGPointer_Type, &py_meta)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  meta = pyg_pointer_get (py_meta, GstVideoRegionOfInterestMeta);
+
+  if (meta == NULL) {
+    PyErr_SetString (PyExc_ValueError, "invalid GstVideoRegionOfInterestMeta!");
+    return NULL;
+  }
+
+  quadrilateral = gst_video_region_of_interest_meta_get_quadrilateral (meta);
+
+  // GstVideoQuadrilateral has no GType so return its 4 points as 8 doubles.
+  return Py_BuildValue ("(dddddddd)", quadrilateral.a.x, quadrilateral.a.y,
+      quadrilateral.b.x, quadrilateral.b.y, quadrilateral.c.x, quadrilateral.c.y,
+      quadrilateral.d.x, quadrilateral.d.y);
+}
+
+static PyObject *
+_gst_buffer_get_metas (PyObject * self, PyObject * args)
+{
+  PyObject *py_buffer = NULL, *py_api = NULL, *py_list = NULL;
+  PyObject *py_meta = NULL;
+  PyTypeObject *py_meta_type = NULL;
+  GstBuffer *buffer = NULL;
+  GstMeta *meta = NULL;
+  gpointer state = NULL;
+  GType api = G_TYPE_INVALID;
+
+  // Look up Gst.Buffer, meta API GType and meta Python class parameters
+  if (!PyArg_ParseTuple (args, "OOO!", &py_buffer, &py_api, &PyType_Type,
+          &py_meta_type)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  if (!pyg_boxed_check (py_buffer, GST_TYPE_BUFFER)) {
+    PyErr_SetString (PyExc_TypeError, "value is not Gst.Buffer");
+    return NULL;
+  }
+
+  buffer = pyg_boxed_get (py_buffer, GstBuffer);
+
+  if ((api = pyg_type_from_object (py_api)) == G_TYPE_INVALID)
+    return NULL;
+
+  // Metas are plain structs without a GType, their wrappers are GI pointers.
+  if (!PyType_IsSubtype (py_meta_type, &PyGPointer_Type)) {
+    PyErr_SetString (PyExc_TypeError, "meta_class must be a GI meta struct");
+    return NULL;
+  }
+
+  if ((py_list = PyList_New (0)) == NULL)
+    return NULL;
+
+  while ((meta = gst_buffer_iterate_meta_filtered (buffer, &state, api))) {
+    // Zero initialized, the meta will not be freed when the wrapper is.
+    if ((py_meta = py_meta_type->tp_alloc (py_meta_type, 0)) == NULL)
+      goto cleanup;
+
+    pyg_pointer_set_ptr (py_meta, meta);
+
+    if (PyList_Append (py_list, py_meta) != 0) {
+      Py_DECREF (py_meta);
+      goto cleanup;
+    }
+
+    Py_DECREF (py_meta);
+  }
+
+cleanup:
+  if (PyErr_Occurred ()) {
+    Py_DECREF (py_list);
+    return NULL;
+  }
+
+  return py_list;
+}
+
 static PyMethodDef _gi_gst_qti_functions[] = {
     {"ml_frame_get_memory_view", (PyCFunction) _gst_ml_frame_get_memory_view, METH_VARARGS, NULL},
     {"ml_keypoint_get_name", (PyCFunction) _gst_ml_keypoint_get_name, METH_VARARGS, NULL},
@@ -1798,7 +1859,6 @@ static PyMethodDef _gi_gst_qti_functions[] = {
     {"ml_depth_map_set_xtraparams", (PyCFunction) _gst_ml_depth_map_set_xtraparams, METH_VARARGS, NULL},
     {"ml_embedding_meta_get_embedding", (PyCFunction) _gst_ml_embedding_meta_get_embedding, METH_VARARGS, NULL},
     {"ml_embedding_meta_set_embedding", (PyCFunction) _gst_ml_embedding_meta_set_embedding, METH_VARARGS, NULL},
-    {"video_region_of_interest_meta_get_quadrilateral", (PyCFunction) _gst_video_region_of_interest_meta_get_quadrilateral, METH_VARARGS, NULL},
     {"video_converter_engine_compose", (PyCFunction) _gst_video_converter_engine_compose, METH_VARARGS, NULL},
     {"video_converter_engine_wait_fence", (PyCFunction) _gst_video_converter_engine_wait_fence, METH_VARARGS, NULL},
     {"video_composition_get_blits", (PyCFunction) _gst_video_composition_get_blits, METH_VARARGS, NULL},
@@ -1811,6 +1871,8 @@ static PyMethodDef _gi_gst_qti_functions[] = {
     {"video_composition_set_offsets", (PyCFunction) _gst_video_composition_set_offsets, METH_VARARGS, NULL},
     {"video_composition_get_scales", (PyCFunction) _gst_video_composition_get_scales, METH_VARARGS, NULL},
     {"video_composition_set_scales", (PyCFunction) _gst_video_composition_set_scales, METH_VARARGS, NULL},
+    {"video_region_of_interest_meta_get_quadrilateral", (PyCFunction) _gst_video_region_of_interest_meta_get_quadrilateral, METH_VARARGS, NULL},
+    {"buffer_get_metas", (PyCFunction) _gst_buffer_get_metas, METH_VARARGS, NULL},
     {NULL, NULL, 0, NULL}
 };
 
