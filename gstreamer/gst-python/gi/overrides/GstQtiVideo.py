@@ -21,29 +21,6 @@ else:
 __all__ = []
 
 
-def __region_of_interest_meta_get_quadrilateral(meta) -> GstQtiVideo.Quadrilateral:
-    """
-    Convert the rectangle of a GstVideo.VideoRegionOfInterestMeta into a
-    GstQtiVideo.Quadrilateral, applying the rectangle-affine-matrix if present.
-    """
-    ax, ay, bx, by, cx, cy, dx, dy = \
-        _gi_gst_qti.video_region_of_interest_meta_get_quadrilateral(meta)
-
-    quadrilateral = GstQtiVideo.Quadrilateral()
-
-    quadrilateral.a.x, quadrilateral.a.y = ax, ay
-    quadrilateral.b.x, quadrilateral.b.y = bx, by
-    quadrilateral.c.x, quadrilateral.c.y = cx, cy
-    quadrilateral.d.x, quadrilateral.d.y = dx, dy
-
-    return quadrilateral
-
-
-GstQtiVideo.region_of_interest_meta_get_quadrilateral = \
-    __region_of_interest_meta_get_quadrilateral
-__all__.append('region_of_interest_meta_get_quadrilateral')
-
-
 class ConverterEngine(GstQtiVideo.ConverterEngine):
     def compose(self, compositions, is_async=False):  # type: ignore[override]
         """
@@ -114,3 +91,24 @@ class Composition(GstQtiVideo.Composition):
 
 override(Composition)
 __all__.append("Composition")
+
+
+def __region_of_interest_meta_get_quadrilateral(meta) -> GstQtiVideo.Quadrilateral:
+    """
+    Convert the rectangle of a GstVideo.VideoRegionOfInterestMeta into a
+    GstQtiVideo.Quadrilateral, applying the rectangle-affine-matrix if present.
+    """
+    ax, ay, bx, by, cx, cy, dx, dy = \
+        _gi_gst_qti.video_region_of_interest_meta_get_quadrilateral(meta)
+
+    quadrilateral = GstQtiVideo.Quadrilateral()
+
+    quadrilateral.a.x, quadrilateral.a.y = ax, ay
+    quadrilateral.b.x, quadrilateral.b.y = bx, by
+    quadrilateral.c.x, quadrilateral.c.y = cx, cy
+    quadrilateral.d.x, quadrilateral.d.y = dx, dy
+
+    return quadrilateral
+
+GstQtiVideo.region_of_interest_meta_get_quadrilateral = __region_of_interest_meta_get_quadrilateral
+__all__.append('region_of_interest_meta_get_quadrilateral')
