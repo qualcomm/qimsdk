@@ -361,7 +361,7 @@ main (gint argc, gchar * argv[])
   g_object_set (G_OBJECT (person_merge_transform),
       "module",
       get_enum_value ("GstMetaTranformModules", "roi-person-merge"),
-      "module-params", "label=person,padding=0.1",
+      "module-params", "params,label=person,padding=0.1",
       NULL);
 
   g_snprintf (afr_settings, sizeof (afr_settings),
