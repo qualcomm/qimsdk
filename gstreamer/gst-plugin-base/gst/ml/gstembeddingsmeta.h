@@ -22,10 +22,10 @@ typedef struct _GstEmbeddingMeta GstEmbeddingMeta;
  * @meta: Parent #GstMeta
  * @id: ID corresponding to the memory index inside GstBuffer.
  * @parent_id: Identifier of its parent ROI, used when this meta was derived.
- * @embedding: #GArray Embedding vector.
+ * @embedding: (skip): #GArray Embedding vector.
  * @type: ML data type
  * @n_dims: Number of tensor dimensions
- * @dims: (array fixed-size=GST_ML_TENSOR_MAX_DIMS) (element-type guint):
+ * @dims: (array fixed-size=8) (element-type guint):
  *        The dimensions of the @embedding vector
  *
  * Extra buffer metadata describing embeddings.
@@ -104,7 +104,7 @@ gst_buffer_get_embedding_meta_id (GstBuffer * buffer, guint id);
  *
  * Buffers can contain multiple #GstEmbeddingMeta metadata items.
  *
- * Returns: (transfer full) (element-type GstEmbeddingMeta) (nullable):
+ * Returns: (transfer container) (element-type GstEmbeddingMeta) (nullable):
  *          list of #GstEmbeddingMeta with @parent_id or %NULL when there
  *          is no such metadata on @buffer.
  */

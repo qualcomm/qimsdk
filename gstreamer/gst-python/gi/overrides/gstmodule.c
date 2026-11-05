@@ -12,6 +12,7 @@
 #include <gst/ml/ml-post-process-pose.h>
 #include <gst/ml/ml-post-process-segmentation.h>
 #include <gst/ml/ml-post-process-depth-map.h>
+#include <gst/ml/gstembeddingsmeta.h>
 #include <gst/video/video.h>
 #include <gst/video/video-utils.h>
 #include <gst/video/video-converter-engine.h>
@@ -1239,6 +1240,124 @@ _gst_ml_depth_map_set_xtraparams (PyObject * self, PyObject * args)
 }
 
 static PyObject *
+_gst_ml_embedding_meta_get_embedding (PyObject * self, PyObject * args)
+{
+  PyObject *py_meta = NULL;
+  GstEmbeddingMeta *meta = NULL;
+  GArray *embedding = NULL;
+
+  // GstQtiML.EmbeddingMeta is a plain struct without a GType.
+  if (!PyArg_ParseTuple (args, "O!", &PyGPointer_Type, &py_meta)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  meta = pyg_pointer_get (py_meta, GstEmbeddingMeta);
+
+  if (meta == NULL) {
+    PyErr_SetString (PyExc_ValueError, "invalid GstEmbeddingMeta!");
+    return NULL;
+  }
+
+  embedding = meta->embedding;
+
+  if ((embedding == NULL) || (embedding->len == 0))
+    Py_RETURN_NONE;
+
+  // Return a copy as the vector is owned by the buffer which may be released
+  // while the returned object is still in use.
+  return PyBytes_FromStringAndSize (embedding->data,
+      (Py_ssize_t) embedding->len * g_array_get_element_size (embedding));
+}
+
+static PyObject *
+_gst_ml_embedding_meta_set_embedding (PyObject * self, PyObject * args)
+{
+  PyObject *py_meta = NULL, *py_dims = NULL, *sequence = NULL;
+  GstEmbeddingMeta *meta = NULL;
+  GArray *embedding = NULL;
+  Py_buffer data = { 0, };
+  guint dims[GST_ML_TENSOR_MAX_DIMS] = { 0, };
+  guint idx = 0, n_dims = 0, n_elements = 1, size = 0;
+  gint type = GST_ML_TYPE_UNKNOWN;
+
+  // GstQtiML.EmbeddingMeta is a plain struct without a GType.
+  if (!PyArg_ParseTuple (args, "O!z*iO", &PyGPointer_Type, &py_meta, &data,
+          &type, &py_dims)) {
+    PyErr_BadArgument ();
+    return NULL;
+  }
+
+  meta = pyg_pointer_get (py_meta, GstEmbeddingMeta);
+
+  if (meta == NULL) {
+    PyErr_SetString (PyExc_ValueError, "invalid GstEmbeddingMeta!");
+    goto cleanup;
+  }
+
+  // No data, clear the embedding vector and its tensor parameters.
+  if (data.buf == NULL) {
+    g_clear_pointer (&(meta->embedding), g_array_unref);
+
+    meta->type = GST_ML_TYPE_UNKNOWN;
+    meta->n_dims = 0;
+    goto cleanup;
+  }
+
+  if ((size = gst_ml_type_get_size ((GstMLType) type)) == 0) {
+    PyErr_SetString (PyExc_ValueError, "unsupported embedding data type!");
+    goto cleanup;
+  }
+
+  sequence = PySequence_Fast (py_dims, "dimensions must be a sequence");
+  if (sequence == NULL)
+    goto cleanup;
+
+  n_dims = PySequence_Fast_GET_SIZE (sequence);
+
+  if ((n_dims == 0) || (n_dims > GST_ML_TENSOR_MAX_DIMS)) {
+    PyErr_Format (PyExc_ValueError, "unsupported number of dimensions: %u "
+        "(supported: 1 to %u)!", n_dims, GST_ML_TENSOR_MAX_DIMS);
+    goto cleanup;
+  }
+
+  for (idx = 0; idx < n_dims; idx++) {
+    dims[idx] = PyLong_AsUnsignedLong (PySequence_Fast_GET_ITEM (sequence, idx));
+
+    if (PyErr_Occurred ())
+      goto cleanup;
+
+    n_elements *= dims[idx];
+  }
+
+  if ((gsize) data.len != ((gsize) n_elements * size)) {
+    PyErr_SetString (PyExc_ValueError, "data size and dimensions mismatch!");
+    goto cleanup;
+  }
+
+  embedding = g_array_sized_new (FALSE, FALSE, size, n_elements);
+  g_array_append_vals (embedding, data.buf, n_elements);
+
+  g_clear_pointer (&(meta->embedding), g_array_unref);
+  meta->embedding = embedding;
+
+  meta->type = (GstMLType) type;
+  meta->n_dims = n_dims;
+
+  for (idx = 0; idx < n_dims; idx++)
+    meta->dims[idx] = dims[idx];
+
+cleanup:
+  Py_XDECREF (sequence);
+  PyBuffer_Release (&data);
+
+  if (PyErr_Occurred ())
+    return NULL;
+
+  Py_RETURN_NONE;
+}
+
+static PyObject *
 _gst_video_region_of_interest_meta_get_quadrilateral (PyObject * self,
     PyObject * args)
 {
@@ -1677,6 +1796,8 @@ static PyMethodDef _gi_gst_qti_functions[] = {
     {"ml_depth_map_set_colors", (PyCFunction) _gst_ml_depth_map_set_colors, METH_VARARGS, NULL},
     {"ml_depth_map_get_xtraparams", (PyCFunction) _gst_ml_depth_map_get_xtraparams, METH_VARARGS, NULL},
     {"ml_depth_map_set_xtraparams", (PyCFunction) _gst_ml_depth_map_set_xtraparams, METH_VARARGS, NULL},
+    {"ml_embedding_meta_get_embedding", (PyCFunction) _gst_ml_embedding_meta_get_embedding, METH_VARARGS, NULL},
+    {"ml_embedding_meta_set_embedding", (PyCFunction) _gst_ml_embedding_meta_set_embedding, METH_VARARGS, NULL},
     {"video_region_of_interest_meta_get_quadrilateral", (PyCFunction) _gst_video_region_of_interest_meta_get_quadrilateral, METH_VARARGS, NULL},
     {"video_converter_engine_compose", (PyCFunction) _gst_video_converter_engine_compose, METH_VARARGS, NULL},
     {"video_converter_engine_wait_fence", (PyCFunction) _gst_video_converter_engine_wait_fence, METH_VARARGS, NULL},

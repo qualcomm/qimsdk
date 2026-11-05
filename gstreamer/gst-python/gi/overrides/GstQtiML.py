@@ -22,6 +22,19 @@ else:
 
 __all__ = []
 
+_ML_TYPE_TO_NUMPY_DTYPE = {
+    GstQtiML.Type.INT8: np.int8,
+    GstQtiML.Type.UINT8: np.uint8,
+    GstQtiML.Type.INT16: np.int16,
+    GstQtiML.Type.UINT16: np.uint16,
+    GstQtiML.Type.INT32: np.int32,
+    GstQtiML.Type.UINT32: np.uint32,
+    GstQtiML.Type.INT64: np.int64,
+    GstQtiML.Type.UINT64: np.uint64,
+    GstQtiML.Type.FLOAT16: np.float16,
+    GstQtiML.Type.FLOAT32: np.float32,
+}
+
 class Frame(GstQtiML.Frame):
     def get_tensor(self, index: int) -> np.ndarray:  # type: ignore[override]
         """
@@ -32,19 +45,7 @@ class Frame(GstQtiML.Frame):
         if mv is None:
             return np.empty(0, dtype=np.uint8)
 
-        tensor = np.frombuffer(mv, dtype={
-            GstQtiML.Type.INT8:'int8',
-            GstQtiML.Type.UINT8:'uint8',
-            GstQtiML.Type.INT16:'int16',
-            GstQtiML.Type.UINT16:'uint16',
-            GstQtiML.Type.INT32:'int32',
-            GstQtiML.Type.UINT32:'uint32',
-            GstQtiML.Type.INT64:'int64',
-            GstQtiML.Type.UINT64:'uint64',
-            GstQtiML.Type.FLOAT16:'float16',
-            GstQtiML.Type.FLOAT32:'float32'
-        }[self.info.types[index]])
-
+        tensor = np.frombuffer(mv, dtype=_ML_TYPE_TO_NUMPY_DTYPE[self.info.types[index]])
         n_dimensions = int(self.info.n_dimensions[index])
 
         # Since multidimensional arrays are squahed when translated calculate offset
@@ -274,3 +275,45 @@ class DepthMap(GstQtiML.DepthMap):
 
 override(DepthMap)
 __all__.append("DepthMap")
+
+
+def __embedding_meta_get_embedding(self) -> np.ndarray:
+    """
+    Get the embedding vector of the GstQtiML.EmbeddingMeta as NumPy array.
+    """
+    data = _gi_gst_qti.ml_embedding_meta_get_embedding(self)
+    dtype = _ML_TYPE_TO_NUMPY_DTYPE.get(self.type)
+
+    if data is None or dtype is None:
+        return np.empty(0, dtype=np.float32)
+
+    dims = tuple(int(dim) for dim in self.dims[:self.n_dims])
+    return np.frombuffer(data, dtype=dtype).reshape(dims)
+
+
+def __embedding_meta_set_embedding(self, value) -> None:
+    """
+    Set the embedding vector of the GstQtiML.EmbeddingMeta from NumPy array.
+    """
+    if value is None:
+        _gi_gst_qti.ml_embedding_meta_set_embedding(self, None, 0, ())
+        return
+
+    # The meta data is expected to be contiguous and in native byte order.
+    value = np.ascontiguousarray(value)
+
+    if not value.dtype.isnative:
+        value = value.astype(value.dtype.newbyteorder('='))
+
+    mltype = next((mltype for mltype, dtype in _ML_TYPE_TO_NUMPY_DTYPE.items()
+                   if dtype == value.dtype.type), None)
+
+    if mltype is None:
+        raise TypeError(f"unsupported embedding data type: {value.dtype}")
+
+    _gi_gst_qti.embedding_meta_set_embedding(
+        self, value, int(mltype), value.shape)
+
+
+GstQtiML.EmbeddingMeta.get_embedding = __embedding_meta_get_embedding
+GstQtiML.EmbeddingMeta.set_embedding = __embedding_meta_set_embedding
