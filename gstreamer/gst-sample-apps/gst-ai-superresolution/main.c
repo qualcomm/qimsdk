@@ -46,6 +46,7 @@
  */
 #define DEFAULT_TFLITE_MODEL \
     "quicksrnetsmall_quantized.tflite"
+#define DEFAULT_QAIRT_MODEL "quicksrnetsmall.dlc"
 #define DEFAULT_INPUT_FILE_PATH "video.mp4"
 
 /**
@@ -79,6 +80,7 @@ typedef struct {
   gchar *output_file_path;
   enum GstSinkType sink_type;
   gboolean display;
+  gboolean use_qairt;
 } GstAppOptions;
 
 /**
@@ -290,8 +292,9 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
     goto error_clean_elements;
   }
 
-  // Create the ML inferencing plugin TFLite
-  qtimlelement = gst_element_factory_make ("qtimltflite", "qtimltflite");
+  // Create the ML inferencing plugin
+  qtimlelement = gst_element_factory_make (options.use_qairt ?
+      "qtimlqairt" : "qtimltflite", "qtimlelement");
   if (!qtimlelement) {
     g_printerr ("Failed to create qtimlelement\n");
     goto error_clean_elements;
@@ -372,17 +375,20 @@ create_pipe (GstAppContext * appctx, const GstAppOptions options)
   g_object_set (G_OBJECT (v4l2h264dec_caps), "caps", pad_filter, NULL);
   gst_caps_unref (pad_filter);
 
-  // 2.2 Select the HW to DSP for model inferencing using delegate property
-  g_object_set (G_OBJECT (qtimlelement),
-      "model", options.model_path,
-      "delegate", GST_ML_TFLITE_DELEGATE_EXTERNAL, NULL);
-  delegate_options = gst_structure_from_string (
-      "QNNExternalDelegate,backend_type=htp;", NULL);
-  g_object_set (G_OBJECT (qtimlelement),
-      "external-delegate-path", "libQnnTFLiteDelegate.so", NULL);
-  g_object_set (G_OBJECT (qtimlelement),
-      "external-delegate-options", delegate_options, NULL);
-  gst_structure_free (delegate_options);
+  if (options.use_qairt) {
+    g_object_set (G_OBJECT (qtimlelement), "model", options.model_path,
+        "backend", GST_SAMPLE_APPS_QAIRT_BACKEND_HTP, NULL);
+  } else {
+    g_object_set (G_OBJECT (qtimlelement), "model", options.model_path,
+        "delegate", GST_ML_TFLITE_DELEGATE_EXTERNAL, NULL);
+    delegate_options = gst_structure_from_string (
+        "QNNExternalDelegate,backend_type=htp;", NULL);
+    g_object_set (G_OBJECT (qtimlelement), "external-delegate-path",
+        "libQnnTFLiteDelegate.so", NULL);
+    g_object_set (G_OBJECT (qtimlelement), "external-delegate-options",
+        delegate_options, NULL);
+    gst_structure_free (delegate_options);
+  }
 
   // 2.3 Set properties for postproc plugins- module
   module_id = get_enum_value (qtimlvsuperresolution, "module", "srnet");
@@ -596,6 +602,18 @@ parse_json(gchar * config_file, GstAppOptions * options)
 
   root_obj = json_node_get_object (root);
 
+  if (json_object_has_member (root_obj, "ml-framework")) {
+    const gchar *framework =
+        json_object_get_string_member (root_obj, "ml-framework");
+    if (g_strcmp0 (framework, "qairt") == 0)
+      options->use_qairt = TRUE;
+    else if (g_strcmp0 (framework, "tflite") != 0) {
+      g_printerr ("ml-framework can only be \"tflite\" or \"qairt\"\n");
+      g_object_unref (parser);
+      return -1;
+    }
+  }
+
   if (json_object_has_member (root_obj, "input-file-path")) {
     input_filename = json_object_get_string_member (root_obj, "input-file-path");
     if (g_path_is_absolute (input_filename)) {
@@ -694,6 +712,8 @@ main (gint argc, gchar * argv[])
     "  model: \"/PATH\"\n"
     "      Path to superresolution model file.\n"
     "      Default model file: " DEFAULT_TFLITE_MODEL"\n"
+    "      QAIRT default model file: " DEFAULT_QAIRT_MODEL "\n"
+    "  ml-framework: \"tflite\" or \"qairt\"\n"
     "      Model files should be placed in:\n"
     "        $HOME/Downloads/qimsdk_samples/models\n"
     "      Alternatively, provide an absolute file path.\n"
@@ -789,7 +809,8 @@ main (gint argc, gchar * argv[])
 
   if (options.model_path == NULL) {
     options.model_path =
-        g_build_filename (options.artifacts_dir, "models", DEFAULT_TFLITE_MODEL, NULL);
+        g_build_filename (options.artifacts_dir, "models",
+        options.use_qairt ? DEFAULT_QAIRT_MODEL : DEFAULT_TFLITE_MODEL, NULL);
   }
 
   if (!file_exists (options.input_file_path)) {

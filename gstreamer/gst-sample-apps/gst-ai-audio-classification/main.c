@@ -25,7 +25,7 @@
  *     qtivcomposer -> Display (waylandsink)
  *
  *     Pre-process: qtimlaconverter
- *     ML Framework: qtimltflite
+ *     ML Framework: qtimltflite/qtimlqairt
  *     Post-process: qtimlaclassification -> classification_filter
  */
 
@@ -42,6 +42,7 @@
 * Default models and labels path, if not provided by user
 */
 #define DEFAULT_TFLITE_CLASSIFICATION_MODEL "yamnet.tflite"
+#define DEFAULT_QAIRT_CLASSIFICATION_MODEL "yamnet.dlc"
 #define DEFAULT_CLASSIFICATION_LABELS "yamnet.json"
 
 /**
@@ -72,6 +73,7 @@ typedef struct
   gdouble threshold;
   gboolean use_cpu;
   gboolean use_gpu;
+  gboolean use_qairt;
   gboolean use_file;
   gboolean use_pulsesrc;
 } GstAppOptions;
@@ -191,7 +193,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   GstElement *audioresample = NULL, *audioconvert = NULL;
   GstElement *audio_caps = NULL, *pulsesrc = NULL;
   GstElement *queue[QUEUE_COUNT], *audiobuffersplit = NULL;
-  GstElement *qtimlaconverter = NULL, *qtimltflite = NULL;
+  GstElement *qtimlaconverter = NULL, *qtimlelement = NULL;
   GstElement *qtimlaclassification = NULL, *classification_filter = NULL;
   GstElement *qtivcomposer = NULL, *waylandsink = NULL;
   GstElement *filesrc = NULL, *qtdemux = NULL, *h264parse = NULL;
@@ -338,10 +340,11 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     goto error_clean_elements;
   }
 
-  // Create the ML inferencing plugin qtimltflite
-  qtimltflite = gst_element_factory_make ("qtimltflite", "qtimltflite");
-  if (!qtimltflite) {
-    g_printerr ("Failed to create qtimltflite\n");
+  // Create the ML inferencing plugin
+  qtimlelement = gst_element_factory_make (options->use_qairt ?
+      "qtimlqairt" : "qtimltflite", "qtimlelement");
+  if (!qtimlelement) {
+    g_printerr ("Failed to create ML inference element\n");
     goto error_clean_elements;
   }
 
@@ -404,27 +407,35 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   g_object_set (G_OBJECT (qtimlaconverter),
       "params", "params,nfft=96,nhop=160,nmels=64,chunklen=0.96;", NULL);
 
-  // 2.5 Select the HW to GPU/CPU for model inferencing using
-  // delegate property
-  if (options->use_cpu) {
-    g_print ("Using CPU Delegate\n");
-    g_object_set (G_OBJECT (qtimltflite), "model", options->model_path,
-        "delegate", GST_ML_TFLITE_DELEGATE_NONE, NULL);
-  } else if (options->use_gpu) {
-    g_print ("Using GPU Delegate\n");
-    delegate_options =
-        gst_structure_from_string ("QNNExternalDelegate,backend_type=gpu;",
-        NULL);
-    g_object_set (G_OBJECT (qtimltflite), "model", options->model_path,
-        "delegate", GST_ML_TFLITE_DELEGATE_EXTERNAL, NULL);
-    g_object_set (G_OBJECT (qtimltflite), "external-delegate-path",
-        "libQnnTFLiteDelegate.so", NULL);
-    g_object_set (G_OBJECT (qtimltflite), "external-delegate-options",
-        delegate_options, NULL);
-    gst_structure_free (delegate_options);
+  // 2.5 Select the backend for model inferencing.
+  if (options->use_qairt) {
+    GstSampleAppsQairtBackend backend = options->use_cpu ?
+        GST_SAMPLE_APPS_QAIRT_BACKEND_CPU : GST_SAMPLE_APPS_QAIRT_BACKEND_GPU;
+    g_print ("Using QAIRT backend: %s\n", options->use_cpu ? "CPU" :
+        "GPU");
+    g_object_set (G_OBJECT (qtimlelement), "model", options->model_path,
+        "backend", backend, NULL);
   } else {
-    g_printerr ("Invalid Runtime Selected\n");
-    goto error_clean_elements;
+    if (options->use_cpu) {
+      g_print ("Using TFLite CPU Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "model", options->model_path,
+          "delegate", GST_ML_TFLITE_DELEGATE_NONE, NULL);
+    } else if (options->use_gpu) {
+      g_print ("Using TFLite GPU Delegate\n");
+      delegate_options =
+          gst_structure_from_string ("QNNExternalDelegate,backend_type=gpu;",
+          NULL);
+      g_object_set (G_OBJECT (qtimlelement), "model", options->model_path,
+          "delegate", GST_ML_TFLITE_DELEGATE_EXTERNAL, NULL);
+      g_object_set (G_OBJECT (qtimlelement), "external-delegate-path",
+          "libQnnTFLiteDelegate.so", NULL);
+      g_object_set (G_OBJECT (qtimlelement), "external-delegate-options",
+          delegate_options, NULL);
+      gst_structure_free (delegate_options);
+    } else {
+      g_printerr ("Invalid Runtime Selected\n");
+      goto error_clean_elements;
+    }
   }
 
   // 2.6 Set properties for ML postproc plugins- module, threshold, labels
@@ -469,7 +480,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   }
 
   gst_bin_add_many (GST_BIN (appctx->pipeline), audiobuffersplit,
-      qtimlaconverter, qtimltflite, qtimlaclassification,
+      qtimlaconverter, qtimlelement, qtimlaclassification,
       classification_filter, qtivcomposer, waylandsink, NULL);
 
   for (gint i = 0; i < QUEUE_COUNT; i++) {
@@ -515,7 +526,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   }
 
   ret = gst_element_link_many (audiobuffersplit, queue[2], qtimlaconverter,
-      qtimltflite, qtimlaclassification,
+      qtimlelement, qtimlaclassification,
       classification_filter, queue[3], NULL);
   if (!ret) {
     g_printerr ("Pipeline elements cannot be linked for audiobuffersplit->"
@@ -603,7 +614,7 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
 error_clean_elements:
   cleanup_gst (&audio_parse, &audio_dec, &audioresample, &audioconvert,
       &filesrc, &qtdemux, &h264parse, &v4l2h264dec, &v4l2h264dec_caps,
-      &pulsesrc, &audio_caps, &qtimlaconverter, &qtimltflite,
+      &pulsesrc, &audio_caps, &qtimlaconverter, &qtimlelement,
       &qtimlaclassification, &qtivcomposer, &classification_filter,
       &waylandsink, NULL);
   for (gint i = 0; i < QUEUE_COUNT; i++) {
@@ -687,6 +698,18 @@ parse_json (gchar * config_file, GstAppOptions * options)
     }
   }
 
+  if (json_object_has_member (root_obj, "ml-framework")) {
+    const gchar *framework =
+        json_object_get_string_member (root_obj, "ml-framework");
+    if (g_strcmp0 (framework, "qairt") == 0)
+      options->use_qairt = TRUE;
+    else if (g_strcmp0 (framework, "tflite") != 0) {
+      gst_printerr ("ml-framework can only be \"tflite\" or \"qairt\"\n");
+      g_object_unref (parser);
+      return -1;
+    }
+  }
+
   // Labels path
   if (json_object_has_member (root_obj, "labels")) {
     label_filename = json_object_get_string_member (root_obj, "labels");
@@ -709,7 +732,7 @@ parse_json (gchar * config_file, GstAppOptions * options)
     options->threshold = json_object_get_int_member (root_obj, "threshold");
   }
 
-  // HW inference runtime, cpu or gpu
+  // HW inference runtime, CPU or GPU
   if (json_object_has_member (root_obj, "runtime")) {
     const gchar *delegate = json_object_get_string_member (root_obj, "runtime");
 
@@ -793,11 +816,15 @@ main (gint argc, gchar * argv[])
       "      This is an optional parameter and overrides default path\n"
       "      Default model path for TFLITE Model: "
       DEFAULT_TFLITE_CLASSIFICATION_MODEL"\n"
+      "      Default model path for QAIRT Model: "
+      DEFAULT_QAIRT_CLASSIFICATION_MODEL"\n"
       "  labels: \"/PATH\"\n"
       "      This is an optional parameter and overrides default path\n"
       "      Default labels path: "DEFAULT_CLASSIFICATION_LABELS"\n"
       "  threshold: 0 to 100\n"
       "      This is an optional parameter and overides default threshold value 40\n"
+      "  ml-framework: \"tflite\" or \"qairt\"\n"
+      "      Select the inference runtime (default: tflite)\n"
       "  runtime: \"cpu\" or \"gpu\"\n"
       "      This is an optional parameter. If not filled, "
       "then default gpu runtime is selected\n"
@@ -868,6 +895,7 @@ main (gint argc, gchar * argv[])
   if (options.model_path == NULL) {
     options.model_path =
         g_build_filename (options.artifacts_dir, "models",
+        options.use_qairt ? DEFAULT_QAIRT_CLASSIFICATION_MODEL :
         DEFAULT_TFLITE_CLASSIFICATION_MODEL, NULL);
   }
 

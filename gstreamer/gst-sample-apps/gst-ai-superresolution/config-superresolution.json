@@ -1,4 +1,5 @@
 {
+    "ml-framework": "tflite",
     "input-file-path": "video.mp4",
     "model": "quicksrnetsmall_quantized.tflite"
 }

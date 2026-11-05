@@ -10,7 +10,7 @@
  * Description:
  * The application takes live video stream from camera/file/rtsp/USB Camera and gives
  * same to Classification TensorFlow Lite or SNPE DLC Model or ONNX Model or QNN
- * Model for classifying objects and display preview with overlayed AI Model
+ * or QAIRT Model for classifying objects and display preview with overlayed AI Model
  * output/classification labels.
  *
  * For overlay builds, the camera source element used is qtiqmmfsrc.
@@ -43,7 +43,7 @@
  *
  *     qtivcomposer (COMPOSITION) -> fpsdisplaysink (Display)
  *     Pre process: qtimlvconverter
- *     ML Framework: qtimlsnpe/qtimltflite/qtimlqnn/qtimlonnx
+ *     ML Framework: qtimlsnpe/qtimltflite/qtimlqnn/qtimlonnx/qtimlqairt
  *     Post process: qtimlvclassification -> classification_filter
  */
 
@@ -66,6 +66,7 @@
     "inception_v3_quantized.tflite"
 #define DEFAULT_QNN_CLASSIFICATION_MODEL "inception_v3_quantized.bin"
 #define DEFAULT_ONNX_CLASSIFICATION_MODEL "inceptionv3.onnx"
+#define DEFAULT_QAIRT_CLASSIFICATION_MODEL "inceptionv3.dlc"
 #define DEFAULT_CLASSIFICATION_LABELS "classification.json"
 
 /**
@@ -546,6 +547,8 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     qtimlelement = gst_element_factory_make ("qtimlqnn", "qtimlqnn");
   } else if (options->model_type == GST_MODEL_TYPE_ONNX) {
     qtimlelement = gst_element_factory_make ("qtimlonnx", "qtimlelement");
+  } else if (options->model_type == GST_MODEL_TYPE_QAIRT) {
+    qtimlelement = gst_element_factory_make ("qtimlqairt", "qtimlqairt");
   } else {
     g_printerr ("Invalid Model Type\n");
     goto error_clean_elements;
@@ -802,6 +805,21 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     g_print ("Using DSP Delegate\n");
     g_object_set (G_OBJECT (qtimlelement), "model", options->model_path,
         "backend", "/usr/lib/libQnnHtp.so", NULL);
+  } else if (options->model_type == GST_MODEL_TYPE_QAIRT) {
+    g_object_set (G_OBJECT (qtimlelement), "model", options->model_path, NULL);
+    if (options->use_cpu) {
+      g_print ("Using CPU Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_CPU, NULL);
+    } else if (options->use_gpu) {
+      g_print ("Using GPU Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_GPU, NULL);
+    } else {
+      g_print ("Using HTP Delegate\n");
+      g_object_set (G_OBJECT (qtimlelement), "backend",
+          GST_SAMPLE_APPS_QAIRT_BACKEND_HTP, NULL);
+    }
   } else if (options->model_type == GST_MODEL_TYPE_ONNX) {
     GstMLOnnxExecutionProvider onnx_delegate = GST_ML_ONNX_EXECUTION_PROVIDER_QNN;
     g_object_set (G_OBJECT (qtimlelement), "execution-provider",
@@ -1231,9 +1249,11 @@ parse_json (gchar * config_file, GstAppOptions * options)
       options->model_type = GST_MODEL_TYPE_QNN;
     else if (g_strcmp0 (framework, "onnx") == 0) {
       options->model_type = GST_MODEL_TYPE_ONNX;
+    } else if (g_strcmp0 (framework, "qairt") == 0) {
+      options->model_type = GST_MODEL_TYPE_QAIRT;
     } else {
       gst_printerr ("ml-framework can only be one of "
-          "\"snpe\", \"tflite\", \"onnx\" or \"qnn\"\n");
+          "\"snpe\", \"tflite\", \"onnx\", \"qnn\" or \"qairt\"\n");
       g_object_unref (parser);
       return -1;
     }
@@ -1463,8 +1483,8 @@ main (gint argc, gchar * argv[])
       "      eg: rtsp://192.168.1.110:8554/live.mkv\n"
       "  enable-usb-camera: Use this Parameter to enable-usb-camera\n"
       "      It can take TRUE or FALSE as input\n"
-      "  ml-framework: \"snpe\" or \"tflite\" or \"onnx\" or \"qnn\"\n"
-      "      Execute Model in SNPE DLC or ONNX or TFlite or QNN format\n"
+      "  ml-framework: \"snpe\", \"tflite\", \"onnx\", \"qnn\" or \"qairt\"\n"
+      "      Execute Model in SNPE DLC, ONNX, TFLite, QNN or QAIRT format\n"
       "      Default model format: SNPE DLC\n"
       "  model: \"/PATH\"\n"
       "      Path to the model file.\n"
@@ -1476,6 +1496,8 @@ main (gint argc, gchar * argv[])
              DEFAULT_QNN_CLASSIFICATION_MODEL"\n"
       "      Default model file for ONNX Model: "
              DEFAULT_ONNX_CLASSIFICATION_MODEL"\n"
+      "      Default model file for QAIRT Model: "
+             DEFAULT_QAIRT_CLASSIFICATION_MODEL"\n"
       "      The model files should be placed in:\n"
       "        $HOME/Downloads/qimsdk_samples/models\n"
       "      Alternatively, provide an absolute file path.\n"
@@ -1642,15 +1664,16 @@ main (gint argc, gchar * argv[])
   }
 
   if (options.model_type < GST_MODEL_TYPE_SNPE ||
-      options.model_type > GST_MODEL_TYPE_ONNX) {
+      options.model_type > GST_MODEL_TYPE_QAIRT) {
     g_printerr ("Invalid ml-framework option selected\n"
         "Available options:\n"
         "    SNPE: %d\n"
         "    TFLite: %d\n"
         "    QNN: %d\n"
-        "    ONNX: %d\n",
+        "    ONNX: %d\n"
+        "    QAIRT: %d\n",
         GST_MODEL_TYPE_SNPE, GST_MODEL_TYPE_TFLITE, GST_MODEL_TYPE_QNN,
-        GST_MODEL_TYPE_ONNX);
+        GST_MODEL_TYPE_ONNX, GST_MODEL_TYPE_QAIRT);
     gst_app_context_free (&appctx, &options, config_file);
     return -EINVAL;
   }
@@ -1692,6 +1715,8 @@ main (gint argc, gchar * argv[])
       model_filename = DEFAULT_QNN_CLASSIFICATION_MODEL;
     } else if (options.model_type == GST_MODEL_TYPE_ONNX) {
       model_filename = DEFAULT_ONNX_CLASSIFICATION_MODEL;
+    } else if (options.model_type == GST_MODEL_TYPE_QAIRT) {
+      model_filename = DEFAULT_QAIRT_CLASSIFICATION_MODEL;
     } else {
       model_filename = DEFAULT_TFLITE_CLASSIFICATION_MODEL;
     }

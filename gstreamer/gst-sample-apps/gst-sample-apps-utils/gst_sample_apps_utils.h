@@ -53,6 +53,7 @@ typedef struct
  * @GST_MODEL_TYPE_TFLITE: TFLITE Container.
  * @GST_MODEL_TYPE_QNN   : QNN Container.
  * @GST_MODEL_TYPE_ONNX  : ONNX Container.
+ * @GST_MODEL_TYPE_QAIRT : QAIRT Container.
  *
  * Type of Model container for the Runtime.
  */
@@ -61,8 +62,23 @@ typedef enum {
   GST_MODEL_TYPE_SNPE,
   GST_MODEL_TYPE_TFLITE,
   GST_MODEL_TYPE_QNN,
-  GST_MODEL_TYPE_ONNX
+  GST_MODEL_TYPE_ONNX,
+  GST_MODEL_TYPE_QAIRT
 } GstModelType;
+
+/**
+ * GstSampleAppsQairtBackend:
+ * @GST_SAMPLE_APPS_QAIRT_BACKEND_CPU: Run inference on the CPU.
+ * @GST_SAMPLE_APPS_QAIRT_BACKEND_GPU: Run inference on the GPU.
+ * @GST_SAMPLE_APPS_QAIRT_BACKEND_HTP: Run inference on the HTP.
+ *
+ * QAIRT backend values matching the qtimlqairt backend enum.
+ */
+typedef enum {
+  GST_SAMPLE_APPS_QAIRT_BACKEND_CPU = 0,
+  GST_SAMPLE_APPS_QAIRT_BACKEND_GPU = 1,
+  GST_SAMPLE_APPS_QAIRT_BACKEND_HTP = 2
+} GstSampleAppsQairtBackend;
 
 /**
  * GstModelFormatType:

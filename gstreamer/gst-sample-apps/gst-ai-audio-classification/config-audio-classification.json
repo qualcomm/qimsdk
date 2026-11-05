@@ -1,5 +1,6 @@
 {
     "file-path": "video-mp3.mp4",
+    "ml-framework": "tflite",
     "model": "yamnet.tflite",
     "labels": "yamnet.json",
     "threshold": 10,
