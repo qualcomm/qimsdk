@@ -737,12 +737,32 @@ gst_video_composer_negotiated_src_caps (GstAggregator * aggregator,
 
   GST_DEBUG_OBJECT (vcomposer, "Negotiated caps %" GST_PTR_FORMAT, caps);
 
+  // The engine itself does not depend on the caps, only drop cached surfaces.
   if (vcomposer->converter != NULL)
-    gst_video_converter_engine_unref (vcomposer->converter);
-
-  vcomposer->converter = gst_video_converter_engine_new (vcomposer->backend, NULL);
+    gst_video_converter_engine_flush (vcomposer->converter);
 
   return GST_AGGREGATOR_CLASS (parent_class)->negotiated_src_caps (aggregator, caps);
+}
+
+static gboolean
+gst_video_composer_start (GstAggregator * aggregator)
+{
+  GstVideoComposer *vcomposer = GST_VIDEO_COMPOSER (aggregator);
+
+  if (vcomposer->converter == NULL) {
+    GST_INFO_OBJECT (vcomposer, "Creating video converter engine");
+
+    vcomposer->converter =
+        gst_video_converter_engine_new (vcomposer->backend, NULL);
+
+    if (vcomposer->converter == NULL) {
+      GST_ELEMENT_ERROR (vcomposer, RESOURCE, FAILED,
+          ("Failed to create video converter engine!"), (NULL));
+      return FALSE;
+    }
+  }
+
+  return GST_AGGREGATOR_CLASS (parent_class)->start (aggregator);
 }
 
 static gboolean
@@ -1015,13 +1035,37 @@ gst_video_composer_set_property (GObject * object, guint prop_id,
 
   switch (prop_id) {
     case PROP_ENGINE_BACKEND:
-      vcomposer->backend = g_value_get_enum (value);
+    {
+      GstVideoConverterBackend backend = g_value_get_enum (value);
+      GstState state = GST_STATE_NULL;
+
+      if (backend == vcomposer->backend)
+        break;
+
+      GST_OBJECT_LOCK (vcomposer);
+      state = GST_STATE (vcomposer);
+      GST_OBJECT_UNLOCK (vcomposer);
+
+      if (state >= GST_STATE_PAUSED) {
+        GST_WARNING_OBJECT (vcomposer, "Engine backend cannot be changed in "
+            "%s state!", gst_element_state_get_name (state));
+        break;
+      }
+
+      vcomposer->backend = backend;
+
+      // Drop the current engine, a new one will be created on start().
+      if (vcomposer->converter != NULL) {
+        gst_video_converter_engine_unref (vcomposer->converter);
+        vcomposer->converter = NULL;
+      }
 
       if (vcomposer->backend == GST_VIDEO_CONVERTER_BACKEND_GLES)
         g_strlcpy (vcomposer->hw_util, "GPU", sizeof(vcomposer->hw_util));
       else
         g_strlcpy (vcomposer->hw_util, "CPU", sizeof(vcomposer->hw_util));
       break;
+    }
     case PROP_BACKGROUND:
       vcomposer->background = g_value_get_uint (value);
       break;
@@ -1123,6 +1167,7 @@ gst_video_composer_class_init (GstVideoComposerClass * klass)
       GST_DEBUG_FUNCPTR (gst_video_composer_fixate_src_caps);
   aggregator->negotiated_src_caps =
       GST_DEBUG_FUNCPTR (gst_video_composer_negotiated_src_caps);
+  aggregator->start = GST_DEBUG_FUNCPTR (gst_video_composer_start);
   aggregator->stop = GST_DEBUG_FUNCPTR (gst_video_composer_stop);
   aggregator->flush = GST_DEBUG_FUNCPTR (gst_video_composer_flush);
 
@@ -1144,6 +1189,7 @@ gst_video_composer_init (GstVideoComposer * vcomposer)
   g_mutex_init (&vcomposer->lock);
 
   vcomposer->outpool = NULL;
+  vcomposer->converter = NULL;
 
   vcomposer->backend = DEFAULT_PROP_ENGINE_BACKEND;
   vcomposer->background = DEFAULT_PROP_BACKGROUND;
