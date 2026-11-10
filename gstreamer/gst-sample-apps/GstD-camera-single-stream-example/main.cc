@@ -258,7 +258,7 @@ static void build_pipeline(char *out, size_t sz,
 
     char src[512];
     if (camx)
-        snprintf(src, sizeof(src), "qtiqmmfsrc name=camsrc video_0::type=preview");
+        snprintf(src, sizeof(src), "qticamsrc name=camsrc video_0::type=preview");
     else
         snprintf(src, sizeof(src), "libcamerasrc ! qtivtransform");
 

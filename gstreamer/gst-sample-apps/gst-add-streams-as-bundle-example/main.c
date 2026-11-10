@@ -152,8 +152,8 @@ create_stream_display (GstCameraAppContext *appctx, gint x, gint y, gint w, gint
   gboolean ret = FALSE;
   GstStreamInf *stream = g_new0 (GstStreamInf, 1);
 
-  // Get qtiqmmfsrc instance
-  GstElement *qtiqmmfsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline),
+  // Get qticamsrc instance
+  GstElement *qticamsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline),
       "camerasrc");
 
   // Create the elements
@@ -164,9 +164,9 @@ create_stream_display (GstCameraAppContext *appctx, gint x, gint y, gint w, gint
   stream->waylandsink = gst_element_factory_make ("waylandsink", temp_str);
 
   // Check if all elements are created successfully
-  if (!appctx->pipeline || !qtiqmmfsrc || !stream->capsfilter ||
+  if (!appctx->pipeline || !qticamsrc || !stream->capsfilter ||
       !stream->waylandsink) {
-    gst_object_unref (qtiqmmfsrc);
+    gst_object_unref (qticamsrc);
     gst_object_unref (stream->capsfilter);
     gst_object_unref (stream->waylandsink);
     g_free (stream);
@@ -193,16 +193,16 @@ create_stream_display (GstCameraAppContext *appctx, gint x, gint y, gint w, gint
   gst_element_sync_state_with_parent (stream->waylandsink);
 
   // Get qmmfsrc Element class
-  GstElementClass *qtiqmmfsrc_klass = GST_ELEMENT_GET_CLASS (qtiqmmfsrc);
+  GstElementClass *qticamsrc_klass = GST_ELEMENT_GET_CLASS (qticamsrc);
 
   // Get qmmfsrc pad template
   GstPadTemplate
-      *qtiqmmfsrc_template = gst_element_class_get_pad_template (qtiqmmfsrc_klass,
+      *qticamsrc_template = gst_element_class_get_pad_template (qticamsrc_klass,
           "video_%u");
 
   // Request a pad from qmmfsrc
-  appctx->qmmf_pad[appctx->stream_cnt] = gst_element_request_pad (qtiqmmfsrc,
-      qtiqmmfsrc_template, "video_%u", NULL);
+  appctx->qmmf_pad[appctx->stream_cnt] = gst_element_request_pad (qticamsrc,
+      qticamsrc_template, "video_%u", NULL);
   if (!appctx->qmmf_pad[appctx->stream_cnt]) {
     g_printerr ("Error: pad cannot be retrieved from qmmfsrc!\n");
     goto cleanup;
@@ -218,7 +218,7 @@ create_stream_display (GstCameraAppContext *appctx, gint x, gint y, gint w, gint
   }
 
   // Link qmmfsrc with capsfilter
-  ret = gst_element_link_pads (qtiqmmfsrc, padname, stream->capsfilter, NULL);
+  ret = gst_element_link_pads (qticamsrc, padname, stream->capsfilter, NULL);
   if (!ret) {
     g_printerr ("Error: Link cannot be done!\n");
     goto cleanup;
@@ -234,7 +234,7 @@ create_stream_display (GstCameraAppContext *appctx, gint x, gint y, gint w, gint
   // Add the stream to the list
   appctx->streams_list = g_list_append (appctx->streams_list, stream);
   appctx->stream_cnt++;
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
 
   return stream;
 
@@ -245,7 +245,7 @@ cleanup:
 
   if (appctx->qmmf_pad[appctx->stream_cnt]) {
     // Release the unlinked pad
-    gst_element_release_request_pad (qtiqmmfsrc,
+    gst_element_release_request_pad (qticamsrc,
         appctx->qmmf_pad[appctx->stream_cnt]);
   }
 
@@ -254,7 +254,7 @@ cleanup:
       stream->waylandsink, NULL);
 
   g_free (padname);
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
   g_free (stream);
 
   return NULL;
@@ -279,8 +279,8 @@ create_stream_encode (GstCameraAppContext *appctx, gint x, gint y, gint w, gint 
   gboolean ret = FALSE;
   GstStreamInf *stream = g_new0 (GstStreamInf, 1);
 
-  // Get qtiqmmfsrc instance
-  GstElement *qtiqmmfsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline),
+  // Get qticamsrc instance
+  GstElement *qticamsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline),
       "camerasrc");
 
   // Create the elements
@@ -296,10 +296,10 @@ create_stream_encode (GstCameraAppContext *appctx, gint x, gint y, gint w, gint 
   stream->mp4mux = gst_element_factory_make ("mp4mux", temp_str);
 
   // Check if all elements are created successfully
-  if (!appctx->pipeline || !qtiqmmfsrc || !stream->capsfilter ||
+  if (!appctx->pipeline || !qticamsrc || !stream->capsfilter ||
       !stream->encoder || !stream->filesink || !stream->h264parse ||
       !stream->mp4mux) {
-    gst_object_unref (qtiqmmfsrc);
+    gst_object_unref (qticamsrc);
     gst_object_unref (stream->capsfilter);
     gst_object_unref (stream->encoder);
     gst_object_unref (stream->filesink);
@@ -355,16 +355,16 @@ create_stream_encode (GstCameraAppContext *appctx, gint x, gint y, gint w, gint 
   gst_element_sync_state_with_parent (stream->filesink);
 
   // Get qmmfsrc Element class
-  GstElementClass *qtiqmmfsrc_klass = GST_ELEMENT_GET_CLASS (qtiqmmfsrc);
+  GstElementClass *qticamsrc_klass = GST_ELEMENT_GET_CLASS (qticamsrc);
 
   // Get qmmfsrc pad template
   GstPadTemplate
-      *qtiqmmfsrc_template = gst_element_class_get_pad_template (qtiqmmfsrc_klass,
+      *qticamsrc_template = gst_element_class_get_pad_template (qticamsrc_klass,
           "video_%u");
 
   // Request a pad from qmmfsrc
-  appctx->qmmf_pad[appctx->stream_cnt] = gst_element_request_pad (qtiqmmfsrc,
-      qtiqmmfsrc_template, "video_%u", NULL);
+  appctx->qmmf_pad[appctx->stream_cnt] = gst_element_request_pad (qticamsrc,
+      qticamsrc_template, "video_%u", NULL);
   if (!appctx->qmmf_pad[appctx->stream_cnt]) {
     g_printerr ("Error: pad cannot be retrieved from qmmfsrc!\n");
     goto cleanup;
@@ -380,7 +380,7 @@ create_stream_encode (GstCameraAppContext *appctx, gint x, gint y, gint w, gint 
   }
 
   // Link qmmfsrc with capsfilter
-  ret = gst_element_link_pads (qtiqmmfsrc, padname, stream->capsfilter, NULL);
+  ret = gst_element_link_pads (qticamsrc, padname, stream->capsfilter, NULL);
   if (!ret) {
     g_printerr ("Error: Link cannot be done!\n");
     goto cleanup;
@@ -397,7 +397,7 @@ create_stream_encode (GstCameraAppContext *appctx, gint x, gint y, gint w, gint 
   // Add the stream to the list
   appctx->streams_list = g_list_append (appctx->streams_list, stream);
   appctx->stream_cnt++;
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
 
   return stream;
 
@@ -412,7 +412,7 @@ cleanup:
 
   if (appctx->qmmf_pad[appctx->stream_cnt]) {
     // Release the unlinked pad
-    gst_element_release_request_pad (qtiqmmfsrc,
+    gst_element_release_request_pad (qticamsrc,
         appctx->qmmf_pad[appctx->stream_cnt]);
   }
 
@@ -421,7 +421,7 @@ cleanup:
       stream->encoder, stream->h264parse, stream->mp4mux, stream->filesink, NULL);
   g_free (padname);
 
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
   g_free (stream);
 
   return NULL;
@@ -434,8 +434,8 @@ cleanup:
 static void
 release_stream (GstCameraAppContext *appctx, GstStreamInf *stream, gint stream_cnt)
 {
-  // Get qtiqmmfsrc instance
-  GstElement *qtiqmmfsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline),
+  // Get qticamsrc instance
+  GstElement *qticamsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline),
       "camerasrc");
 
   g_print ("Unlinking elements...\n");
@@ -449,7 +449,7 @@ release_stream (GstCameraAppContext *appctx, GstStreamInf *stream, gint stream_c
   // Set NULL to other elements and unlink the elements of this stream
   if (appctx->use_display) {
     gst_element_set_state (stream->waylandsink, GST_STATE_NULL);
-    gst_element_unlink_many (qtiqmmfsrc, stream->capsfilter, stream->waylandsink,
+    gst_element_unlink_many (qticamsrc, stream->capsfilter, stream->waylandsink,
         NULL);
   } else {
     GstState state = GST_STATE_VOID_PENDING;
@@ -463,13 +463,13 @@ release_stream (GstCameraAppContext *appctx, GstStreamInf *stream, gint stream_c
     gst_element_set_state (stream->mp4mux, GST_STATE_NULL);
     gst_element_set_state (stream->filesink, GST_STATE_NULL);
 
-    gst_element_unlink_many (qtiqmmfsrc, stream->capsfilter, stream->encoder,
+    gst_element_unlink_many (qticamsrc, stream->capsfilter, stream->encoder,
         stream->h264parse, stream->mp4mux, stream->filesink, NULL);
   }
   g_print ("Unlinked successfully \n");
 
   // Release the unlinked pad
-  gst_element_release_request_pad (qtiqmmfsrc, appctx->qmmf_pad[stream_cnt]);
+  gst_element_release_request_pad (qticamsrc, appctx->qmmf_pad[stream_cnt]);
 
   // Remove the elements from the pipeline
   if (appctx->use_display) {
@@ -481,7 +481,7 @@ release_stream (GstCameraAppContext *appctx, GstStreamInf *stream, gint stream_c
         NULL);
   }
 
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
 
   // Remove the stream from the list
   appctx->streams_list = g_list_remove (appctx->streams_list, stream);
@@ -593,7 +593,7 @@ static void
 streams_usecase (GstCameraAppContext * appctx)
 {
   GstStreamInf *stream_inf_1, *stream_inf_2, *stream_inf_3;
-  // Create a 1080p stream and link it to the qtiqmmfsrc pad
+  // Create a 1080p stream and link it to the qticamsrc pad
   // This function will create new elements (waylanksink or encoder) and
   // will add them to the bin.
   // It will syncronize the state of the new elements to the pipeline state.
@@ -625,7 +625,7 @@ streams_usecase (GstCameraAppContext * appctx)
     wait_for_state_change (appctx);
   }
 
-  // Create a 720p stream and link it to the qtiqmmfsrc pad
+  // Create a 720p stream and link it to the qticamsrc pad
   // This function will create new elements (waylanksink or encoder) and
   // will add them to the bin.
   // It will syncronize the state of the new elements to the pipeline state.
@@ -638,7 +638,7 @@ streams_usecase (GstCameraAppContext * appctx)
     stream_inf_2 = create_stream_encode (appctx, 650, 0, 1280, 720);
   }
 
-  // Create a 480p stream and link it to the qtiqmmfsrc pad
+  // Create a 480p stream and link it to the qticamsrc pad
   // This function will create new elements (waylanksink or encoder) and
   // will add them to the bin.
   // It will syncronize the state of the new elements to the pipeline state.
@@ -709,7 +709,7 @@ main (gint argc, gchar * argv[])
   GMainLoop *mloop = NULL;
   GstBus *bus = NULL;
   GstElement *pipeline = NULL;
-  GstElement *qtiqmmfsrc = NULL;
+  GstElement *qticamsrc = NULL;
   gchar *output = NULL;
   GstCameraAppContext appctx = {};
   guint intrpt_watch_id = 0;
@@ -790,14 +790,14 @@ main (gint argc, gchar * argv[])
   appctx.pipeline = pipeline;
 
   // Create qmmfsrc element
-  qtiqmmfsrc = gst_element_factory_make ("qtiqmmfsrc", "camerasrc");
+  qticamsrc = gst_element_factory_make ("qticamsrc", "camerasrc");
 
   // Add qmmfsrc to the pipeline
-  gst_bin_add (GST_BIN (appctx.pipeline), qtiqmmfsrc);
+  gst_bin_add (GST_BIN (appctx.pipeline), qticamsrc);
 
   // Initialize main loop.
   if ((mloop = g_main_loop_new (NULL, FALSE)) == NULL) {
-    gst_bin_remove (GST_BIN (pipeline), qtiqmmfsrc);
+    gst_bin_remove (GST_BIN (pipeline), qticamsrc);
     gst_object_unref (pipeline);
     g_printerr ("ERROR: Failed to create Main loop!\n");
     g_clear_pointer (&appctx.output_path, g_free);
@@ -807,7 +807,7 @@ main (gint argc, gchar * argv[])
 
   // Retrieve reference to the pipeline's bus.
   if ((bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline))) == NULL) {
-    gst_bin_remove (GST_BIN (pipeline), qtiqmmfsrc);
+    gst_bin_remove (GST_BIN (pipeline), qticamsrc);
     gst_object_unref (pipeline);
     g_main_loop_unref (mloop);
     g_printerr ("ERROR: Failed to retrieve pipeline bus!\n");
@@ -857,7 +857,7 @@ main (gint argc, gchar * argv[])
   }
 
   // Remove the pipeline
-  gst_bin_remove (GST_BIN (pipeline), qtiqmmfsrc);
+  gst_bin_remove (GST_BIN (pipeline), qticamsrc);
   gst_object_unref (pipeline);
 
   gst_deinit ();

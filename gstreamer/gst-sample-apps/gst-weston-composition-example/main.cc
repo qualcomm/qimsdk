@@ -250,7 +250,7 @@ create_pipe_qtivcomposer (GstComposeAppContext * appctx)
  *   create_camera_source_bin()
  *
  * Internally that bin chooses:
- *   - qtiqmmfsrc
+ *   - qticamsrc
  *   - or libcamerasrc -> qtivtransform
  */
   camera_src_bin = create_camera_source_bin ("camera_source_bin");

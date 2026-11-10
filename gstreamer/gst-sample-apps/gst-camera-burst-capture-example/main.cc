@@ -181,7 +181,7 @@ capture_thread (gpointer userdata)
   GValue capture_mode_val = G_VALUE_INIT;
   ::camera::CameraMetadata *smeta = nullptr, *meta = nullptr;
 
-  // This line will only work if qtiqmmfsrc is loaded
+  // This line will only work if qticamsrc is loaded
   capture_mode_ty = g_type_from_name ("GstImageCaptureMode");
   if (!capture_mode_ty) {
     g_printerr ("can't get GstImageCaptureMode type\n");
@@ -533,7 +533,7 @@ new_sample (GstElement * element, gpointer userdata)
 
 static gboolean
 link_capture_output (GstCaps * stream_caps, GstElement * pipeline,
-    GstElement * qtiqmmfsrc, GstAppContext * smpl_ctx)
+    GstElement * qticamsrc, GstAppContext * smpl_ctx)
 {
   GstElement *filter_caps_elem, *appsink;
   gboolean success;
@@ -559,7 +559,7 @@ link_capture_output (GstCaps * stream_caps, GstElement * pipeline,
 
   g_print ("Linking camera capture pad ...\n");
 
-  success = gst_element_link_pads (qtiqmmfsrc, "image_1", filter_caps_elem, NULL);
+  success = gst_element_link_pads (qticamsrc, "image_1", filter_caps_elem, NULL);
   if (!success) {
     g_printerr ("failed to link camera.image_1 to capture filter\n");
     gst_bin_remove_many (GST_BIN (pipeline), filter_caps_elem, appsink, NULL);
@@ -584,7 +584,7 @@ link_capture_output (GstCaps * stream_caps, GstElement * pipeline,
 
 static gboolean
 link_avc_output (GstCaps * stream_caps, GstElement * pipeline,
-    GstElement * qtiqmmfsrc, const gchar * output_file)
+    GstElement * qticamsrc, const gchar * output_file)
 {
   GstElement *filesink, *encoder, *h264parse, *mp4mux,
       *filter_caps_elem;
@@ -619,7 +619,7 @@ link_avc_output (GstCaps * stream_caps, GstElement * pipeline,
 
   g_print ("Linking camera video pad ...\n");
 
-  success = gst_element_link_pads (qtiqmmfsrc, "video_0", filter_caps_elem, NULL);
+  success = gst_element_link_pads (qticamsrc, "video_0", filter_caps_elem, NULL);
   if (!success) {
     g_printerr ("failed to link camera.video_0 to nv12 filter\n");
     gst_bin_remove_many (GST_BIN (pipeline), filter_caps_elem, encoder,
@@ -646,7 +646,7 @@ link_avc_output (GstCaps * stream_caps, GstElement * pipeline,
 
 static gboolean
 link_wayland_output (GstCaps * stream_caps, GstElement * pipeline,
-    GstElement * qtiqmmfsrc)
+    GstElement * qticamsrc)
 {
   GstElement *waylandsink, *filter_caps_elem;
   gboolean success;
@@ -671,7 +671,7 @@ link_wayland_output (GstCaps * stream_caps, GstElement * pipeline,
 
   g_print ("Linking camera video pad ...\n");
 
-  success = gst_element_link_pads (qtiqmmfsrc, "video_0", filter_caps_elem, NULL);
+  success = gst_element_link_pads (qticamsrc, "video_0", filter_caps_elem, NULL);
   if (!success) {
     g_printerr ("failed to link camera.video_0 to nv12 filter\n");
     gst_bin_remove_many (GST_BIN (pipeline), filter_caps_elem, waylandsink, NULL);
@@ -701,7 +701,7 @@ main (int argc, char * * argv)
   gboolean success = FALSE;
   gint res = -1;
   GstCaps *stream_caps = NULL, *capture_caps = NULL;
-  GstElement *pipeline = NULL, *qtiqmmfsrc;
+  GstElement *pipeline = NULL, *qticamsrc;
   GstBus *bus = NULL;
   guint intrpt_watch_id = 0;
   GstAppContext app_ctx = {};
@@ -761,16 +761,16 @@ main (int argc, char * * argv)
     return -1;
   }
 
-  qtiqmmfsrc = gst_element_factory_make ("qtiqmmfsrc", "qmmf-src");
-  if (!qtiqmmfsrc) {
-    g_printerr ("failed to create qtiqmmfsrc element.\n");
+  qticamsrc = gst_element_factory_make ("qticamsrc", "qmmf-src");
+  if (!qticamsrc) {
+    g_printerr ("failed to create qticamsrc element.\n");
     goto cleanup;
   }
 
-  success = gst_bin_add (GST_BIN (pipeline), qtiqmmfsrc);
+  success = gst_bin_add (GST_BIN (pipeline), qticamsrc);
   if (!success) {
-    g_printerr ("failed to add qtiqmmfsrc to pipeline.\n");
-    gst_object_unref (qtiqmmfsrc);
+    g_printerr ("failed to add qticamsrc to pipeline.\n");
+    gst_object_unref (qticamsrc);
     goto cleanup;
   }
 
@@ -808,7 +808,7 @@ main (int argc, char * * argv)
       // Retrieve sensor width and height form active-sensor-size property
       g_value_init (&value, GST_TYPE_ARRAY);
 
-      g_object_get_property (G_OBJECT (qtiqmmfsrc), "active-sensor-size", &value);
+      g_object_get_property (G_OBJECT (qticamsrc), "active-sensor-size", &value);
       if (4 != gst_value_array_get_size (&value)) {
         g_printerr ("ERROR: Expected 4 values for active sensor size, Recieved %d",
             gst_value_array_get_size (&value));
@@ -838,7 +838,7 @@ main (int argc, char * * argv)
     goto cleanup;
   }
 
-  success = link_capture_output (capture_caps, pipeline, qtiqmmfsrc, &app_ctx);
+  success = link_capture_output (capture_caps, pipeline, qticamsrc, &app_ctx);
   if (!success) {
     g_printerr ("failed to link capture stream\n");
     goto cleanup;
@@ -853,10 +853,10 @@ main (int argc, char * * argv)
 
   switch (preview_output) {
     case GST_PREVIEW_OUTPUT_AVC:
-      success = link_avc_output (stream_caps, pipeline, qtiqmmfsrc, output_file);
+      success = link_avc_output (stream_caps, pipeline, qticamsrc, output_file);
       break;
     case GST_PREVIEW_OUTPUT_DISPLAY:
-      success = link_wayland_output (stream_caps, pipeline, qtiqmmfsrc);
+      success = link_wayland_output (stream_caps, pipeline, qticamsrc);
       break;
     default:
       g_printerr ("unknown option for preview output\n");
@@ -883,7 +883,7 @@ main (int argc, char * * argv)
   app_ctx.loop = loop;
   app_ctx.output_dir = output_dir;
   app_ctx.pipeline = pipeline;
-  app_ctx.qmmfsrc = qtiqmmfsrc;
+  app_ctx.qmmfsrc = qticamsrc;
 
   // Watch for messages on the pipeline's bus.
   gst_bus_add_signal_watch (bus);

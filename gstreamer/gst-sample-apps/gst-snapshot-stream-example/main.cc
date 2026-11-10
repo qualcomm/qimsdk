@@ -25,7 +25,7 @@
 * Snapshot pipeline:
 *              |---->capsfilter->waylandsink
 *              |
-* qtiqmmfsrc---|
+* qticamsrc---|
 *              |
 *              |---->capsfilter->multifilesink
 * ********************************************************
@@ -159,14 +159,14 @@ gst_app_context_free (GstSnapshotAppContext * appctx)
 static gboolean
 create_pipe (GstSnapshotAppContext * appctx)
 {
-  GstElement *qtiqmmfsrc, *capsfilter_prev, *capsfilter_snap;
+  GstElement *qticamsrc, *capsfilter_prev, *capsfilter_snap;
   GstElement *multifilesink, *waylandsink;
   GstCaps *filtercaps;
   gboolean ret = FALSE;
   gchar temp_str[100];
 
   // Create camera source and the element capability
-  qtiqmmfsrc = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmfsrc");
+  qticamsrc = gst_element_factory_make ("qticamsrc", "qticamsrc");
   capsfilter_prev = gst_element_factory_make ("capsfilter", "capsfilter_prev");
   capsfilter_snap = gst_element_factory_make ("capsfilter", "capsfilter_snap");
 
@@ -177,16 +177,16 @@ create_pipe (GstSnapshotAppContext * appctx)
   waylandsink = gst_element_factory_make ("waylandsink", "waylandsink");
 
   // Check if all elements are created successfully
-  if (!qtiqmmfsrc || !capsfilter_prev || !capsfilter_snap || !multifilesink
+  if (!qticamsrc || !capsfilter_prev || !capsfilter_snap || !multifilesink
       || !waylandsink) {
     g_printerr ("One element could not be created. Exiting.\n");
-    unref_elements (qtiqmmfsrc, capsfilter_prev, capsfilter_snap,
+    unref_elements (qticamsrc, capsfilter_prev, capsfilter_snap,
         multifilesink, waylandsink, "NULL");
     return FALSE;
   }
 
   // Append all elements in a list
-  appctx->plugins = g_list_append (appctx->plugins, qtiqmmfsrc);
+  appctx->plugins = g_list_append (appctx->plugins, qticamsrc);
   appctx->plugins = g_list_append (appctx->plugins, capsfilter_prev);
   appctx->plugins = g_list_append (appctx->plugins, capsfilter_snap);
   appctx->plugins = g_list_append (appctx->plugins, multifilesink);
@@ -225,23 +225,23 @@ create_pipe (GstSnapshotAppContext * appctx)
 
   // Add elements to the pipeline and link them
   g_print ("Adding all elements to the pipeline...\n");
-  gst_bin_add_many (GST_BIN (appctx->pipeline), qtiqmmfsrc, capsfilter_prev,
+  gst_bin_add_many (GST_BIN (appctx->pipeline), qticamsrc, capsfilter_prev,
       capsfilter_snap, multifilesink, waylandsink, NULL);
 
   // Link the preview stream
-  ret = gst_element_link_many (qtiqmmfsrc, capsfilter_prev, waylandsink, NULL);
+  ret = gst_element_link_many (qticamsrc, capsfilter_prev, waylandsink, NULL);
   if (!ret) {
     g_printerr ("Pipeline elements cannot be linked. Exiting.\n");
-    gst_bin_remove_many (GST_BIN (appctx->pipeline), qtiqmmfsrc, capsfilter_prev,
+    gst_bin_remove_many (GST_BIN (appctx->pipeline), qticamsrc, capsfilter_prev,
         capsfilter_snap, multifilesink, waylandsink, NULL);
     return FALSE;
   }
 
   // Link the snapshot stream
-  ret = gst_element_link_many (qtiqmmfsrc, capsfilter_snap, multifilesink, NULL);
+  ret = gst_element_link_many (qticamsrc, capsfilter_snap, multifilesink, NULL);
   if (!ret) {
     g_printerr ("Pipeline elements cannot be linked. Exiting.\n");
-    gst_bin_remove_many (GST_BIN (appctx->pipeline), qtiqmmfsrc, capsfilter_prev,
+    gst_bin_remove_many (GST_BIN (appctx->pipeline), qticamsrc, capsfilter_prev,
         capsfilter_snap, multifilesink, waylandsink, NULL);
     return FALSE;
   }
