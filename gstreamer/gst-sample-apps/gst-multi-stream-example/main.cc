@@ -23,7 +23,7 @@
 *                               |->capsfilter_enc->v4l2h264enc->h264parse->mp4mux->filesink
 *
 * camera_source_bin internally chooses:
-*   - qtiqmmfsrc
+*   - qticamsrc
 *   - or libcamerasrc -> qtivtransform
 * *******************************************************************
 */
@@ -199,7 +199,7 @@ create_two_stream_pipe (GstMultiStreamAppContext * appctx)
    *   create_camera_source_bin()
    *
    * Internally that bin chooses:
-   *   - qtiqmmfsrc
+   *   - qticamsrc
    *   - or libcamerasrc -> qtivtransform
    *
    * qtivsplit is used to fan-out the single src pad from camera_source_bin

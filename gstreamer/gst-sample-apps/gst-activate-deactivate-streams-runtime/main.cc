@@ -243,7 +243,7 @@ app_eos_cb (GstBus * bus, GstMessage * message, gpointer userdata)
 
 static gboolean
 create_encoder_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * stream,
-  GstElement *qtiqmmfsrc)
+  GstElement *qticamsrc)
 {
   static guint output_cnt = 0;
   gchar temp_str[100];
@@ -317,7 +317,7 @@ create_encoder_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * 
 
   // Link qmmfsrc with capsfilter
   ret = gst_element_link_pads_full (
-    qtiqmmfsrc, gst_pad_get_name (stream->qmmf_pad),
+    qticamsrc, gst_pad_get_name (stream->qmmf_pad),
     stream->capsfilter, NULL, GST_PAD_LINK_CHECK_DEFAULT);
   if (!ret) {
     g_printerr ("Error: Link cannot be done!\n");
@@ -355,14 +355,14 @@ static void
 release_encoder_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * stream)
 {
   GstState state = GST_STATE_VOID_PENDING;
-  GstElement *qtiqmmfsrc = NULL;
+  GstElement *qticamsrc = NULL;
 
-  // Get qtiqmmfsrc instance
-  qtiqmmfsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline), "qmmf");
+  // Get qticamsrc instance
+  qticamsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline), "qmmf");
 
   // Unlink the elements of this stream
   g_print ("Unlinking elements...\n");
-  gst_element_unlink_many (qtiqmmfsrc, stream->capsfilter, NULL);
+  gst_element_unlink_many (qticamsrc, stream->capsfilter, NULL);
 
   gst_element_get_state (appctx->pipeline, &state, NULL, GST_CLOCK_TIME_NONE);
   if (state == GST_STATE_PLAYING)
@@ -394,12 +394,12 @@ release_encoder_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf *
   stream->mp4mux = NULL;
   stream->filesink = NULL;
 
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
 }
 
 static gboolean
 create_display_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * stream,
-  GstElement *qtiqmmfsrc, gint x, gint y, gint w, gint h)
+  GstElement *qticamsrc, gint x, gint y, gint w, gint h)
 {
   gchar temp_str[100];
   gboolean ret = FALSE;
@@ -433,7 +433,7 @@ create_display_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * 
 
   // Link qmmfsrc with capsfilter
   ret = gst_element_link_pads_full (
-    qtiqmmfsrc, gst_pad_get_name (stream->qmmf_pad),
+    qticamsrc, gst_pad_get_name (stream->qmmf_pad),
     stream->capsfilter, NULL, GST_PAD_LINK_CHECK_DEFAULT);
   if (!ret) {
     g_printerr ("Error: Link cannot be done!\n");
@@ -463,13 +463,13 @@ cleanup:
 static void
 release_display_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * stream)
 {
-  // Get qtiqmmfsrc instance
-  GstElement *qtiqmmfsrc =
+  // Get qticamsrc instance
+  GstElement *qticamsrc =
       gst_bin_get_by_name (GST_BIN (appctx->pipeline), "qmmf");
 
   // Unlink the elements of this stream
   g_print ("Unlinking elements...\n");
-  gst_element_unlink_many (qtiqmmfsrc, stream->capsfilter,
+  gst_element_unlink_many (qticamsrc, stream->capsfilter,
       stream->waylandsink, NULL);
   g_print ("Unlinked successfully \n");
 
@@ -484,12 +484,12 @@ release_display_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf *
   stream->capsfilter = NULL;
   stream->waylandsink = NULL;
 
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
 }
 
 static gboolean
 create_dummy_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * stream,
-  GstElement *qtiqmmfsrc)
+  GstElement *qticamsrc)
 {
   gchar temp_str[100];
   gboolean ret = FALSE;
@@ -522,7 +522,7 @@ create_dummy_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * st
 
   // Link qmmfsrc with capsfilter
   ret = gst_element_link_pads_full (
-    qtiqmmfsrc, gst_pad_get_name (stream->qmmf_pad),
+    qticamsrc, gst_pad_get_name (stream->qmmf_pad),
     stream->capsfilter, NULL, GST_PAD_LINK_CHECK_DEFAULT);
   if (!ret) {
     g_printerr ("Error: Link cannot be done!\n");
@@ -552,13 +552,13 @@ cleanup:
 static void
 release_dummy_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * stream)
 {
-  // Get qtiqmmfsrc instance
-  GstElement *qtiqmmfsrc =
+  // Get qticamsrc instance
+  GstElement *qticamsrc =
       gst_bin_get_by_name (GST_BIN (appctx->pipeline), "qmmf");
 
   // Unlink the elements of this stream
   g_print ("Unlinking elements...\n");
-  gst_element_unlink_many (qtiqmmfsrc, stream->capsfilter,
+  gst_element_unlink_many (qticamsrc, stream->capsfilter,
       stream->filesink, NULL);
   g_print ("Unlinked successfully \n");
 
@@ -573,7 +573,7 @@ release_dummy_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * s
   stream->capsfilter = NULL;
   stream->filesink = NULL;
 
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
 }
 
 /*
@@ -588,8 +588,8 @@ link_stream (GstActivateDeactivateAppContext * appctx, gint x, gint y,
 {
   gboolean ret = FALSE;
 
-  // Get qtiqmmfsrc instance
-  GstElement *qtiqmmfsrc =
+  // Get qticamsrc instance
+  GstElement *qticamsrc =
       gst_bin_get_by_name (GST_BIN (appctx->pipeline), "qmmf");
 
   // Activation the pad
@@ -597,19 +597,19 @@ link_stream (GstActivateDeactivateAppContext * appctx, gint x, gint y,
   g_print ("Pad name - %s\n",  gst_pad_get_name (stream->qmmf_pad));
 
   if (appctx->use_display) {
-    ret = create_display_stream (appctx, stream, qtiqmmfsrc, x, y,
+    ret = create_display_stream (appctx, stream, qticamsrc, x, y,
         stream->width, stream->height);
   } else {
-    ret = create_encoder_stream (appctx, stream, qtiqmmfsrc);
+    ret = create_encoder_stream (appctx, stream, qticamsrc);
   }
   if (!ret) {
     g_printerr ("Error: failed to create steam\n");
-    gst_object_unref (qtiqmmfsrc);
+    gst_object_unref (qticamsrc);
     return;
   }
 
   appctx->stream_cnt++;
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
 
   return;
 }
@@ -653,8 +653,8 @@ create_stream (GstActivateDeactivateAppContext * appctx, gboolean dummy,
   gboolean ret = FALSE;
   GstStreamInf *stream = g_new0 (GstStreamInf, 1);
 
-  // Get qtiqmmfsrc instance
-  GstElement *qtiqmmfsrc =
+  // Get qticamsrc instance
+  GstElement *qticamsrc =
       gst_bin_get_by_name (GST_BIN (appctx->pipeline), "qmmf");
 
   stream->dummy = dummy;
@@ -670,14 +670,14 @@ create_stream (GstActivateDeactivateAppContext * appctx, gboolean dummy,
       NULL);
 
   // Get qmmfsrc Element class
-  GstElementClass *qtiqmmfsrc_klass = GST_ELEMENT_GET_CLASS (qtiqmmfsrc);
+  GstElementClass *qticamsrc_klass = GST_ELEMENT_GET_CLASS (qticamsrc);
 
   // Get qmmfsrc pad template
-  GstPadTemplate *qtiqmmfsrc_template =
-      gst_element_class_get_pad_template (qtiqmmfsrc_klass, "video_%u");
+  GstPadTemplate *qticamsrc_template =
+      gst_element_class_get_pad_template (qticamsrc_klass, "video_%u");
 
   // Request a pad from qmmfsrc
-  stream->qmmf_pad = gst_element_request_pad (qtiqmmfsrc, qtiqmmfsrc_template,
+  stream->qmmf_pad = gst_element_request_pad (qticamsrc, qticamsrc_template,
       "video_%u", NULL);
   if (!stream->qmmf_pad) {
     g_printerr ("Error: pad cannot be retrieved from qmmfsrc!\n");
@@ -686,13 +686,13 @@ create_stream (GstActivateDeactivateAppContext * appctx, gboolean dummy,
   g_print ("Pad received - %s\n",  gst_pad_get_name (stream->qmmf_pad));
 
   if (dummy) {
-    ret = create_dummy_stream (appctx, stream, qtiqmmfsrc);
+    ret = create_dummy_stream (appctx, stream, qticamsrc);
   } else if (appctx->use_display) {
     g_object_set (G_OBJECT (stream->qmmf_pad), "type", 1, NULL);
-    ret = create_display_stream (appctx, stream, qtiqmmfsrc, x, y, w, h);
+    ret = create_display_stream (appctx, stream, qticamsrc, x, y, w, h);
   } else {
     g_object_set (G_OBJECT (stream->qmmf_pad), "type", 1, NULL);
-    ret = create_encoder_stream (appctx, stream, qtiqmmfsrc);
+    ret = create_encoder_stream (appctx, stream, qticamsrc);
   }
   if (!ret) {
     g_printerr ("Error: failed to create steam\n");
@@ -703,17 +703,17 @@ create_stream (GstActivateDeactivateAppContext * appctx, gboolean dummy,
   appctx->streams_list = g_list_append (appctx->streams_list, stream);
 
   appctx->stream_cnt++;
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
 
   return stream;
 
 cleanup:
   if (stream->qmmf_pad) {
     // Release the unlinked pad
-    gst_element_release_request_pad (qtiqmmfsrc, stream->qmmf_pad);
+    gst_element_release_request_pad (qticamsrc, stream->qmmf_pad);
   }
 
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
   gst_caps_unref (stream->qmmf_caps);
   g_free (stream);
 
@@ -730,14 +730,14 @@ release_stream (GstActivateDeactivateAppContext * appctx, GstStreamInf * stream)
   // Unlink all elements for that stream
   unlink_stream (appctx, stream);
 
-  // Get qtiqmmfsrc instance
-  GstElement *qtiqmmfsrc =
+  // Get qticamsrc instance
+  GstElement *qticamsrc =
       gst_bin_get_by_name (GST_BIN (appctx->pipeline), "qmmf");
 
   // Release the unlinked pad
-  gst_element_release_request_pad (qtiqmmfsrc, stream->qmmf_pad);
+  gst_element_release_request_pad (qticamsrc, stream->qmmf_pad);
 
-  gst_object_unref (qtiqmmfsrc);
+  gst_object_unref (qticamsrc);
   gst_caps_unref (stream->qmmf_caps);
 
   // Remove the stream from the list
@@ -1150,7 +1150,7 @@ main (gint argc, gchar * argv[])
   GstActivateDeactivateAppContext *appctx = NULL;
   GMainLoop *mloop = NULL;
   GstElement *pipeline = NULL;
-  GstElement *qtiqmmfsrc = NULL;
+  GstElement *qticamsrc = NULL;
   GstBus *bus = NULL;
   guint intrpt_watch_id = 0;
   gboolean ret = -1;
@@ -1253,17 +1253,17 @@ main (gint argc, gchar * argv[])
   appctx->pipeline = pipeline;
 
   // Create qmmfsrc element
-  qtiqmmfsrc = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmfsrc");
+  qticamsrc = gst_element_factory_make ("qticamsrc", "qticamsrc");
 
   // Set qmmfsrc properties
-  g_object_set (G_OBJECT (qtiqmmfsrc), "name", "qmmf", NULL);
+  g_object_set (G_OBJECT (qticamsrc), "name", "qmmf", NULL);
 
   // Add qmmfsrc to the pipeline
-  gst_bin_add (GST_BIN (appctx->pipeline), qtiqmmfsrc);
+  gst_bin_add (GST_BIN (appctx->pipeline), qticamsrc);
 
   // Initialize main loop.
   if ((mloop = g_main_loop_new (NULL, FALSE)) == NULL) {
-    gst_bin_remove (GST_BIN (appctx->pipeline), qtiqmmfsrc);
+    gst_bin_remove (GST_BIN (appctx->pipeline), qticamsrc);
     gst_app_context_free (appctx);
     g_printerr ("ERROR: Failed to create Main loop!\n");
     return ret;
@@ -1272,7 +1272,7 @@ main (gint argc, gchar * argv[])
 
   // Retrieve reference to the pipeline's bus.
   if ((bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline))) == NULL) {
-    gst_bin_remove (GST_BIN (appctx->pipeline), qtiqmmfsrc);
+    gst_bin_remove (GST_BIN (appctx->pipeline), qticamsrc);
     gst_app_context_free (appctx);
     g_printerr ("ERROR: Failed to retrieve pipeline bus!\n");
     return ret;
@@ -1310,7 +1310,7 @@ main (gint argc, gchar * argv[])
   release_all_streams (appctx);
 
   // Remove qmmfsrc from the pipeline
-  gst_bin_remove (GST_BIN (appctx->pipeline), qtiqmmfsrc);
+  gst_bin_remove (GST_BIN (appctx->pipeline), qticamsrc);
 
   // Free the streams list
   if (appctx->streams_list != NULL) {

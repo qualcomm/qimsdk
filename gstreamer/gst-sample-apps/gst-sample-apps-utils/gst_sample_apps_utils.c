@@ -413,9 +413,9 @@ create_camera_source_bin (const gchar * bin_name)
   camx_present = is_camx_present ();
 
   if (camx_present) {
-    src = gst_element_factory_make ("qtiqmmfsrc", "camera_src");
+    src = gst_element_factory_make ("qticamsrc", "camera_src");
     if (!src) {
-      g_printerr ("Failed to create qtiqmmfsrc\n");
+      g_printerr ("Failed to create qticamsrc\n");
       return NULL;
     }
     g_print ("Camera Overlay enabled \n");

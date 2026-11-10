@@ -551,7 +551,7 @@ is_camera_available ();
 gboolean
 is_camx_present (void);
 
-// libcamersrc and qtiqmmfsrc implementation
+// libcamersrc and qticamsrc implementation
 GstElement *
 create_camera_source_bin (const gchar * bin_name);
 

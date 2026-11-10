@@ -15,9 +15,9 @@
  *
  * Usage:
  * For Transcoding AVC to HEVC:
- * gst-video-transcode-example -i /etc/media/video_avc.mp4 -c 1 -o $HOME/Downloads/qimsdk_samples/media/hevc_transcode_out.mp4
+ * gst-video-transcode-example -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4 -c 1 -o $HOME/Downloads/qimsdk_samples/media/hevc_transcode_out.mp4
  * For Transcoding HEVC to AVC:
- * gst-video-transcode-example -i /etc/media/video_hevc.mp4 -c 2 -o $HOME/Downloads/qimsdk_samples/media/avc_transcode_out.mp4
+ * gst-video-transcode-example -i $HOME/Downloads/qimsdk_samples/media/video_hevc.mp4 -c 2 -o $HOME/Downloads/qimsdk_samples/media/avc_transcode_out.mp4
  *
  * Help:
  * gst-video-transcode-example --help
@@ -46,7 +46,6 @@
 
 #include <gst_sample_apps_utils.h>
 
-#define DEFAULT_INPUT_FILENAME "/etc/media/video_avc.mp4"
 #define DEFAULT_HEVC_OUTPUT_FILENAME \
   (g_build_filename (g_get_home_dir (), "Downloads", "qimsdk_samples", \
       "media", "hevc_transcode_out.mp4", NULL))
@@ -60,9 +59,9 @@
   "or AVC format.\n" \
   "\nCommand:\n" \
   "For AVC to HEVC transcode\n" \
-  "  gst-video-transcode-example -i /etc/media/video_avc.mp4 -c 1 -o $HOME/Downloads/qimsdk_samples/media/hevc_transcode_out.mp4 \n" \
+  "  gst-video-transcode-example -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4 -c 1 -o $HOME/Downloads/qimsdk_samples/media/hevc_transcode_out.mp4 \n" \
   "For HEVC to AVC transcode\n" \
-  "  gst-video-transcode-example -i /etc/media/video_hevc.mp4 -c 2 -o $HOME/Downloads/qimsdk_samples/media/avc_transcode_out.mp4 \n" \
+  "  gst-video-transcode-example -i $HOME/Downloads/qimsdk_samples/media/video_hevc.mp4 -c 2 -o $HOME/Downloads/qimsdk_samples/media/avc_transcode_out.mp4 \n" \
   "\nOutput:\n" \
   "  Upon execution, application will generate an output mp4 file.\n" \
   "  If no output path is specified, the output is stored under " \
@@ -96,7 +95,13 @@ gst_app_context_new ()
   ctx->pipeline = NULL;
   ctx->plugins = NULL;
   ctx->mloop = NULL;
-  ctx->input_file = g_strdup (DEFAULT_INPUT_FILENAME);
+  ctx->input_file = g_build_filename (g_get_home_dir (), "Downloads",
+      "qimsdk_samples", "media", "video_avc.mp4", NULL);
+  if (ctx->input_file == NULL) {
+    g_printerr ("\nUnable to build default input file path. Exiting.\n");
+    g_free (ctx);
+    return NULL;
+  }
   ctx->output_file = NULL;
   ctx->input_format = GST_VCODEC_AVC;
 
@@ -328,7 +333,7 @@ main (gint argc, gchar *argv[])
   GOptionEntry entries[] = {
     { "input_file", 'i', 0, G_OPTION_ARG_FILENAME, &appctx->input_file,
       "Input Filename - i/p AVC/HEVC mp4 file path and name",
-      "-i /etc/media/<h264_file/h265_file>.mp4" },
+      "-i $HOME/Downloads/qimsdk_samples/media/<h264_file/h265_file>.mp4" },
     { "input_codec", 'c', 0, G_OPTION_ARG_INT, &appctx->input_format,
       "Input codec type - AVC/HEVC",
        "-c 1(AVC)/2(HEVC)" },

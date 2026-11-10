@@ -21,14 +21,14 @@
  *
  * *******************************************************************
  * Pipeline For encoder dump on device:
- * qtiqmmfsrc->camera0->capsfilter->v4l2h264enc->h264parse->mp4mux->filesink
+ * qticamsrc->camera0->capsfilter->v4l2h264enc->h264parse->mp4mux->filesink
  *
- * qtiqmmfsrc->camera1->capsfilter->v4l2h264enc->h264parse->mp4mux->filesink
+ * qticamsrc->camera1->capsfilter->v4l2h264enc->h264parse->mp4mux->filesink
  *
  * Pipeline For Preview on Display:
- * qtiqmmfsrc-camera0->capsfilter->|
+ * qticamsrc-camera0->capsfilter->|
  *                                 |->qtivcomposer->waylandsink
- * qtiqmmfsrc->camera1->capsfilter>|
+ * qticamsrc->camera1->capsfilter>|
  * *******************************************************************
  */
 
@@ -224,11 +224,11 @@ create_camera_wayland_pipe (GstMultiCamAppContext * appctx)
   guint ret = FALSE;
 
   // Create first source element set the first camera
-  qtiqmmf_cam1 = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmf_cam1");
+  qtiqmmf_cam1 = gst_element_factory_make ("qticamsrc", "qtiqmmf_cam1");
   g_object_set (G_OBJECT (qtiqmmf_cam1), "camera", 0, NULL);
 
   // Create second source element set the second camera
-  qtiqmmf_cam2 = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmf_cam2");
+  qtiqmmf_cam2 = gst_element_factory_make ("qticamsrc", "qtiqmmf_cam2");
   g_object_set (G_OBJECT (qtiqmmf_cam2), "camera", 1, NULL);
 
   capsfilter_cam1 = gst_element_factory_make ("capsfilter", "capsfilter_cam1");
@@ -366,11 +366,11 @@ create_camera_video_pipe (GstMultiCamAppContext * appctx)
   appctx->plugins = NULL;
 
   // Create first source element set the first camera
-  qtiqmmf_cam1 = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmf_cam1");
+  qtiqmmf_cam1 = gst_element_factory_make ("qticamsrc", "qtiqmmf_cam1");
   g_object_set (G_OBJECT (qtiqmmf_cam1), "camera", 0, NULL);
 
   // Create second source element set the second camera
-  qtiqmmf_cam2 = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmf_cam2");
+  qtiqmmf_cam2 = gst_element_factory_make ("qticamsrc", "qtiqmmf_cam2");
   g_object_set (G_OBJECT (qtiqmmf_cam2), "camera", 1, NULL);
 
   capsfilter_cam1 = gst_element_factory_make ("capsfilter", "capsfilter_cam1");

@@ -26,7 +26,7 @@
  *
  * *******************************************************************************
  * Pipeline For the Camera Features:SHDR,LDC AND EIS:
- * qtiqmmfsrc->capsfilter->waylandsink
+ * qticamsrc->capsfilter->waylandsink
  * *******************************************************************************
  */
 
@@ -124,13 +124,13 @@ static void *
 thread_fn (gpointer user_data)
 {
   GstCameraAppContext *appctx = (GstCameraAppContext *) user_data;
-  GstElement *qtiqmmfsrc = NULL;
+  GstElement *qticamsrc = NULL;
 
-  // Get qtiqmmfsrc instance
-  qtiqmmfsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline), "qtiqmmfsrc");
+  // Get qticamsrc instance
+  qticamsrc = gst_bin_get_by_name (GST_BIN (appctx->pipeline), "qticamsrc");
 
   if (appctx->shdr) {
-    g_object_set (G_OBJECT (qtiqmmfsrc), "vhdr", DEFAULT_DISABLE, NULL);
+    g_object_set (G_OBJECT (qticamsrc), "vhdr", DEFAULT_DISABLE, NULL);
     g_print ("Disable SHDR on stream %d \n", appctx->shdr);
   }
   // wait for 10sec
@@ -139,7 +139,7 @@ thread_fn (gpointer user_data)
   if (appctx->shdr) {
     // Run the stream with all setting ON
     g_print ("Run the stream with all setting ON \n");
-    g_object_set (G_OBJECT (qtiqmmfsrc), "vhdr", DEFAULT_ENABLE, NULL);
+    g_object_set (G_OBJECT (qticamsrc), "vhdr", DEFAULT_ENABLE, NULL);
     g_print ("Enable SHDR on stream %d \n", appctx->shdr);
   }
 
@@ -148,7 +148,7 @@ thread_fn (gpointer user_data)
 
   if (appctx->shdr) {
     // Run the stream with all setting off
-    g_object_set (G_OBJECT (qtiqmmfsrc), "vhdr", DEFAULT_DISABLE, NULL);
+    g_object_set (G_OBJECT (qticamsrc), "vhdr", DEFAULT_DISABLE, NULL);
     g_print ("Disable SHDR on stream %d \n", appctx->shdr);
   }
 
@@ -167,12 +167,12 @@ static gboolean
 create_pipe (GstCameraAppContext * appctx)
 {
   // Declare the elements of the pipeline
-  GstElement *qtiqmmfsrc, *capsfilter, *waylandsink;
+  GstElement *qticamsrc, *capsfilter, *waylandsink;
   GstCaps *filtercaps;
   gboolean ret = FALSE;
 
   // Create camera source element
-  qtiqmmfsrc = gst_element_factory_make ("qtiqmmfsrc", "qtiqmmfsrc");
+  qticamsrc = gst_element_factory_make ("qticamsrc", "qticamsrc");
 
   //creating caps filter element
   capsfilter = gst_element_factory_make ("capsfilter", "capsfilter");
@@ -181,7 +181,7 @@ create_pipe (GstCameraAppContext * appctx)
   waylandsink = gst_element_factory_make ("waylandsink", "waylandsink");
 
   // Check if all elements are created successfully
-  if (!qtiqmmfsrc || !capsfilter || !waylandsink) {
+  if (!qticamsrc || !capsfilter || !waylandsink) {
     g_printerr ("\n Not all elements could be created.\n");
     return FALSE;
   }
@@ -200,24 +200,24 @@ create_pipe (GstCameraAppContext * appctx)
   g_object_set (G_OBJECT (waylandsink), "fullscreen", true, NULL);
 
   if (appctx->ldc) {
-    g_object_set (G_OBJECT (qtiqmmfsrc), "ldc", DEFAULT_ENABLE, NULL);
+    g_object_set (G_OBJECT (qticamsrc), "ldc", DEFAULT_ENABLE, NULL);
     g_print ("Enable LDC on stream");
   }
 
   if (appctx->eis) {
-    g_object_set (G_OBJECT (qtiqmmfsrc), "eis", DEFAULT_ENABLE, NULL);
+    g_object_set (G_OBJECT (qticamsrc), "eis", DEFAULT_ENABLE, NULL);
     g_print ("Enable EIS on stream");
   }
 
-  gst_bin_add_many (GST_BIN (appctx->pipeline), qtiqmmfsrc, capsfilter,
+  gst_bin_add_many (GST_BIN (appctx->pipeline), qticamsrc, capsfilter,
       waylandsink, NULL);
 
   g_print ("\n Link pipeline for all the elements ..\n");
 
-  ret = gst_element_link_many (qtiqmmfsrc, capsfilter, waylandsink, NULL);
+  ret = gst_element_link_many (qticamsrc, capsfilter, waylandsink, NULL);
   if (!ret) {
     g_printerr ("\nPipeline elements cannot be linked. Exiting.\n");
-    gst_bin_remove_many (GST_BIN (appctx->pipeline), qtiqmmfsrc, capsfilter,
+    gst_bin_remove_many (GST_BIN (appctx->pipeline), qticamsrc, capsfilter,
         waylandsink, NULL);
     return FALSE;
   }

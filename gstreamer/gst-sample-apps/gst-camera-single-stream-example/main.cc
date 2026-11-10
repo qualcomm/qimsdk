@@ -159,7 +159,7 @@ gst_app_context_free (GstCameraAppContext * appctx)
  *   create_camera_source_bin()
  *
  * Internally that bin chooses:
- *   - qtiqmmfsrc
+ *   - qticamsrc
  *   - or libcamerasrc -> qtivtransform
  */
 static gboolean
