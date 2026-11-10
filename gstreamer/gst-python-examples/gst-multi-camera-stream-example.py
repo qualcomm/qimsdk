@@ -125,8 +125,8 @@ def create_pipeline(pipeline, cameraid):
     if(args.display):
         print("Preview Enabled")
         elements = {
-            "camsrc_0": create_element("qtiqmmfsrc", "camsrc_0"),
-            "camsrc_1": create_element("qtiqmmfsrc", "camsrc_1"),
+            "camsrc_0": create_element("qticamsrc", "camsrc_0"),
+            "camsrc_1": create_element("qticamsrc", "camsrc_1"),
             "camcaps_0": create_element("capsfilter", "camcaps_0"),
             "camcaps_1": create_element("capsfilter", "camcaps_1"),
             "composer": create_element("qtivcomposer", "composer"),
@@ -169,8 +169,8 @@ def create_pipeline(pipeline, cameraid):
         print("Filesink Enabled")
         # Create elements
         elements = {
-            "camsrc_0": create_element("qtiqmmfsrc", "camsrc_0"),
-            "camsrc_1": create_element("qtiqmmfsrc", "camsrc_1"),
+            "camsrc_0": create_element("qticamsrc", "camsrc_0"),
+            "camsrc_1": create_element("qticamsrc", "camsrc_1"),
             "camcaps_0": create_element("capsfilter", "camcaps_0"),
             "camcaps_1": create_element("capsfilter", "camcaps_1"),
             "encoder_0": create_element("v4l2h264enc", "encoder_0"),
