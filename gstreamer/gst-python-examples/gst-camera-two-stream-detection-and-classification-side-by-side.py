@@ -123,7 +123,7 @@ def construct_pipeline(pipe):
     # Create all elements
     # fmt: off
     elements = {
-        "qmmfsrc":           create_element("qtiqmmfsrc", "camsrc"),
+        "qmmfsrc":           create_element("qticamsrc", "camsrc"),
         # Stream 0
         "capsfilter_0":      create_element("capsfilter", "camout0caps"),
         "tee_0":             create_element("tee", "split0"),

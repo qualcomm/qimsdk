@@ -51,8 +51,8 @@ def is_camx_present():
 def get_camera_source_str(camera_id):
     """Return the appropriate camera source for the detected backend."""
     if is_camx_present():
-        print("CAMX detected - using qtiqmmfsrc")
-        return f"qtiqmmfsrc camera={camera_id} name=camsrc"
+        print("CAMX detected - using qticamsrc")
+        return f"qticamsrc camera={camera_id} name=camsrc"
 
     print("CAMX not detected - falling back to libcamerasrc")
     return "libcamerasrc name=camsrc ! qtivtransform"

@@ -57,7 +57,7 @@ def is_camx_present():
 
 def create_camera_source_bin(bin_name=None):
     """
-    - CAMX present  → returns a bare  qtiqmmfsrc  element.
+    - CAMX present  → returns a bare  qticamsrc  element.
     - CAMX absent   → returns a GstBin wrapping  libcamerasrc ! qtivtransform
                        with a ghost 'src' pad, so the caller always sees a
                        uniform single-src element / bin.
@@ -65,11 +65,11 @@ def create_camera_source_bin(bin_name=None):
     camx_present = is_camx_present()
 
     if camx_present:
-        src = Gst.ElementFactory.make("qtiqmmfsrc", "camera_src")
+        src = Gst.ElementFactory.make("qticamsrc", "camera_src")
         if not src:
-            print("ERROR: Failed to create qtiqmmfsrc")
+            print("ERROR: Failed to create qticamsrc")
             return None
-        print("CAMX detected — using qtiqmmfsrc")
+        print("CAMX detected — using qticamsrc")
         return src
 
     src_bin = Gst.Bin.new(bin_name if bin_name else "camera_source_bin")
@@ -155,8 +155,8 @@ def construct_pipeline(pipe):
     if not cam_src_bin:
         raise Exception("Unable to create camera source bin")
 
-    # Only qtiqmmfsrc supports the 'camera' property
-    if cam_src_bin.get_factory() and cam_src_bin.get_factory().get_name() == "qtiqmmfsrc":
+    # Only qticamsrc supports the 'camera' property
+    if cam_src_bin.get_factory() and cam_src_bin.get_factory().get_name() == "qticamsrc":
        cam_src_bin.set_property("camera", args.camera)
     # Create all elements
     # fmt: off
