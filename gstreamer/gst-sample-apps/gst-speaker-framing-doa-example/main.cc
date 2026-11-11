@@ -238,7 +238,7 @@ on_metadata_property (void *data, uint32_t subject,
 }
 
 static const struct pw_metadata_events metadata_events = {
-  PW_VERSION_METADATA_EVENTS,
+  .version = PW_VERSION_METADATA_EVENTS,
   .property = on_metadata_property,
 };
 
@@ -285,7 +285,7 @@ on_registry_global (void *data, uint32_t id, uint32_t permissions,
 }
 
 static const struct pw_registry_events registry_events = {
-  PW_VERSION_REGISTRY_EVENTS,
+  .version = PW_VERSION_REGISTRY_EVENTS,
   .global = on_registry_global,
 };
 
