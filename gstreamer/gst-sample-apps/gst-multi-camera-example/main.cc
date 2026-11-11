@@ -55,9 +55,11 @@
   "functionality to either use Waylandsink or dump the encoded output\n" \
   "\nCommand:\n" \
   "\nFor Waylandsink Preview:\n" \
-  "  gst-multi-camera-example -o 0 -w 1920 -h 1080 \n" \
+  "  gst-multi-camera-example -o 0 -w 1920 -h 1080 " \
+  "--cam1-width=640 --cam1-height=480\n" \
   "\nFor Encoded output:\n" \
   "  gst-multi-camera-example -o 1 -w 1920 -h 1080 " \
+  "--cam1-width=640 --cam1-height=480 " \
   "\nOutput:\n" \
   "  Upon execution, application will generates output as preview or " \
   "encoded files for two cameras."
@@ -67,6 +69,8 @@ struct GstMultiCamAppContext : GstAppContext {
   GstSinkType sinktype;
   gint width;
   gint height;
+  gint cam1_width;
+  gint cam1_height;
   gchar *output_filename_cam1;
   gchar *output_filename_cam2;
 };
@@ -242,8 +246,8 @@ create_camera_wayland_pipe (GstMultiCamAppContext * appctx)
 
   filtercaps_cam2 = gst_caps_new_simple ("video/x-raw",
       "format", G_TYPE_STRING, "NV12",
-      "width", G_TYPE_INT, 1280,
-      "height", G_TYPE_INT, 720,
+      "width", G_TYPE_INT, appctx->cam1_width,
+      "height", G_TYPE_INT, appctx->cam1_height,
       "framerate", GST_TYPE_FRACTION, 30, 1,
        NULL);
   g_object_set (G_OBJECT (capsfilter_cam2), "caps", filtercaps_cam2, NULL);
@@ -384,8 +388,8 @@ create_camera_video_pipe (GstMultiCamAppContext * appctx)
 
   filtercaps_cam2 = gst_caps_new_simple ("video/x-raw",
       "format", G_TYPE_STRING, "NV12_Q08C",
-      "width", G_TYPE_INT, 1280,
-      "height", G_TYPE_INT, 720,
+      "width", G_TYPE_INT, appctx->cam1_width,
+      "height", G_TYPE_INT, appctx->cam1_height,
       "framerate", GST_TYPE_FRACTION, 30, 1,
       NULL);
   g_object_set (G_OBJECT (capsfilter_cam2), "caps", filtercaps_cam2, NULL);
@@ -499,9 +503,13 @@ main (gint argc, gchar *argv[])
   // Configure input parameters
   GOptionEntry entries[] = {
     { "width", 'w', 0, G_OPTION_ARG_INT, &appctx->width,
-      "width", "camera width" },
-    { "height", 'h', 0, G_OPTION_ARG_INT, &appctx->height, "height",
-      "camera height" },
+      "Camera 0 width", "WIDTH" },
+    { "height", 'h', 0, G_OPTION_ARG_INT, &appctx->height,
+      "Camera 0 height", "HEIGHT" },
+    { "cam1-width", 0, 0, G_OPTION_ARG_INT, &appctx->cam1_width,
+      "Camera 1 width", "WIDTH" },
+    { "cam1-height", 0, 0, G_OPTION_ARG_INT, &appctx->cam1_height,
+      "Camera 1 height", "HEIGHT" },
     { "output", 'o', 0, G_OPTION_ARG_INT, &appctx->sinktype,
       "\t\t\t\t\t   output",
       "\n\t0-DISPLAY"
