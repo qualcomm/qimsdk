@@ -1067,8 +1067,8 @@ gst_ml_video_converter_update_blit_params (GstMLVideoConverter * mlconverter,
       "(Initial): [%u]", n_regions);
 
   // Calculate the number of remaining positions.
-  n_available_positions = (depth * (n_batch - mlconverter->batch_idx)) +
-      ((mlconverter->depth_idx == 0) ? 0 : (depth - mlconverter->depth_idx));
+  n_available_positions =
+      (depth * (n_batch - mlconverter->batch_idx)) - mlconverter->depth_idx;
 
   // Limit the regions to the number of remaining tensor positions if necessary.
   n_regions = MIN (n_available_positions, n_regions);
