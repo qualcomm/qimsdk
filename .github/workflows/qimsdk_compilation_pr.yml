@@ -83,7 +83,7 @@ jobs:
           echo "number=$(cat pr/NR)" >> "$GITHUB_OUTPUT"
 
       - name: Report pending status on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.repos.createCommitStatus({
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Report final status on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PR_SHA: ${{ needs.init.outputs.pr-sha }}
           BUILD_RESULT: ${{ needs.build.result }}
