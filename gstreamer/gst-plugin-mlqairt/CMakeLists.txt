@@ -54,6 +54,7 @@ target_link_libraries(${GST_QTI_ML_QAIRT} PRIVATE
   ${GST_ALLOC_LIBRARIES}
   ${GST_QCOM_ML_LIBRARIES}
   ${GST_QCOM_UTILS_LIBRARIES}
+  cdsprpc
 )
 
 install(
