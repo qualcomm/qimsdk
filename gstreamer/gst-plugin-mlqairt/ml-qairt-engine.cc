@@ -14,6 +14,7 @@
 #include <memory>
 
 #include <gst/ml/gstmlmeta.h>
+#include <fastrpc/remote.h>
 #include <QairtApi.hpp>
 #include <QairtBackend.hpp>
 #include <QairtContext.hpp>
@@ -26,6 +27,8 @@
 
 #define GST_CAT_DEFAULT gst_ml_qairt_engine_debug_category()
 #define GST_CAT_QAIRT_SDK gst_ml_qairt_sdk_debug_category()
+
+#define GST_ML_QAIRT_HTP_BACKEND_MIN_ARCH_VER 0x68
 
 struct _GstMLQairtEngine
 {
@@ -237,6 +240,46 @@ gst_ml_translate_priority (GstMLQairtExecPriority priority)
 }
 
 static gboolean
+gst_cdsp_get_arch_ver (guint32 * arch_ver)
+{
+  struct remote_dsp_capability dsp_cap = { CDSP_DOMAIN_ID, ARCH_VER, 0 };
+  gint ret = 0;
+
+  ret = remote_handle_control (DSPRPC_GET_DSP_INFO, &dsp_cap, sizeof (dsp_cap));
+  if (ret != 0) {
+    GST_WARNING ("Failed to query CDSP architecture version: 0x%x", ret);
+    return FALSE;
+  }
+
+  *arch_ver = dsp_cap.capability & 0xFF;
+  GST_INFO ("CDSP architecture version: 0x%x (raw capability: 0x%x)",
+      *arch_ver, dsp_cap.capability);
+
+  if (*arch_ver == 0)
+    return FALSE;
+
+  return TRUE;
+}
+
+static const gchar *
+gst_ml_qairt_get_htp_backend_library (void)
+{
+  guint32 arch_ver = 0;
+
+  if (!gst_cdsp_get_arch_ver (&arch_ver)) {
+    GST_INFO ("Using QAIRT HTP backend as fallback");
+    return "libQairtHtp.so";
+  }
+
+  if (arch_ver < GST_ML_QAIRT_HTP_BACKEND_MIN_ARCH_VER) {
+    GST_INFO ("Using QAIRT DSP backend for CDSP architecture v%x", arch_ver);
+    return "libQairtDsp.so";
+  }
+
+  return "libQairtHtp.so";
+}
+
+static gboolean
 gst_ml_info_populate_tensor (GstMLInfo * info, guint idx, GstMLType type,
     guint rank, const uint32_t * dimensions)
 {
@@ -425,7 +468,7 @@ gst_ml_qairt_engine_load_backend (GstMLQairtEngine * engine,
       libname = "libQairtGpu.so";
       break;
     case GST_ML_QAIRT_BACKEND_HTP:
-      libname = "libQairtHtp.so";
+      libname = gst_ml_qairt_get_htp_backend_library ();
       break;
     case GST_ML_QAIRT_BACKEND_CPU:
     default:
