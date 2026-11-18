@@ -8,11 +8,11 @@ echo "Checking disk space"
 df -h .
 
 echo "Downloading SDK"
-wget -q --header="Authorization:${S3_WEBAPP_TOKEN}" -O sdk.sh "${SDK_OBJECT_URL}"
+wget -q --header="Authorization:${S3_WEBAPP_TOKEN}" -O "sdk-${BRANCH}.sh" "${SDK_OBJECT_URL}"
 
 echo "Installing SDK"
-chmod +x sdk.sh
-./sdk.sh -d ./sdk_install -y
+chmod +x sdk-${BRANCH}.sh
+./sdk-${BRANCH}.sh -d ./sdk_install -y
 
 echo "Sourcing toolchain"
 source ./sdk_install/environment-setup-armv8a-qcom-linux
@@ -45,7 +45,7 @@ mkdir -p artifacts
 DESTDIR="$(realpath artifacts)" cmake --install build --prefix /usr
 
 echo "Creating archive"
-tar -czf qimsdk-artifacts.tar.gz artifacts
+tar -czf "qimsdk-artifacts-${BRANCH}.tar.gz" artifacts
 
-echo "archive created path: $(realpath qimsdk-artifacts.tar.gz)"
-echo "archive size: $(du -sh $(realpath qimsdk-artifacts.tar.gz))"
+echo "archive created path: $(realpath qimsdk-artifacts-${BRANCH}.tar.gz)"
+echo "archive size: $(du -sh $(realpath qimsdk-artifacts-${BRANCH}.tar.gz))"
