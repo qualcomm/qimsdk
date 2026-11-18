@@ -42,9 +42,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Resolve SDK URL from latest nightly
+      - name: Resolve SDK URL from latest wrynose nightly
         id: urls
-        uses: $/.github/actions/resolve-nightly-download-url
+        uses: qualcomm/gst-plugins-imsdk/.github/actions/resolve-nightly-download-url@main
         with:
           token: ${{ secrets.QUALCOMM_LINUX_PAT }}
           artifact-token: ${{ secrets.S3_WEBAPP_TOKEN }}
