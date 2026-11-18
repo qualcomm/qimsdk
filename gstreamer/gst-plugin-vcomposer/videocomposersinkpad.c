@@ -486,9 +486,7 @@ static void
 gst_video_composer_sinkpad_class_init (GstVideoComposerSinkPadClass * klass)
 {
   GObjectClass *gobject = G_OBJECT_CLASS (klass);
-#if (GST_VERSION_MAJOR == 1 && GST_VERSION_MINOR < 16)
   GstVideoAggregatorPadClass *vaggpad = (GstVideoAggregatorPadClass *) klass;
-#endif // (GST_VERSION_MAJOR == 1 && GST_VERSION_MINOR < 16)
 
   gobject->finalize = GST_DEBUG_FUNCPTR (gst_video_composer_sinkpad_finalize);
   gobject->get_property =
@@ -549,9 +547,10 @@ gst_video_composer_sinkpad_class_init (GstVideoComposerSinkPadClass * klass)
           G_PARAM_CONSTRUCT | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_PLAYING | G_PARAM_EXPLICIT_NOTIFY));
 
-#if (GST_VERSION_MAJOR == 1 && GST_VERSION_MINOR < 16)
+  // Input buffers are passed directly to the converter engine, there is no
+  // need for the base class to CPU map/unmap them for every output frame.
   vaggpad->prepare_frame = NULL;
-#endif // (GST_VERSION_MAJOR == 1 && GST_VERSION_MINOR < 16)
+  vaggpad->clean_frame = NULL;
 
   GST_DEBUG_CATEGORY_INIT (gst_video_composer_sinkpad_debug,
       "qtivcomposer", 0, "QTI Video Composer sink pad");
