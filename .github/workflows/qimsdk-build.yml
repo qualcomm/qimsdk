@@ -53,11 +53,12 @@ jobs:
           python3 - <<'EOF'
           import json, os
 
-          flat = json.loads(os.environ["IMAGE_URLS"])
+          by_branch = json.loads(os.environ["IMAGE_URLS"])
           nested = {}
-          for key, url in flat.items():
-              target, image_type = key.split("/", 1)
-              nested.setdefault(target, {})[image_type] = url
+          for branch, flat in by_branch.items():
+              for key, url in flat.items():
+                  target, image_type = key.split("/", 1)
+                  nested.setdefault(branch, {}).setdefault(target, {})[image_type] = url
 
           with open("upload_dir/build-urls.json", "w") as f:
               json.dump(nested, f, indent=4)
