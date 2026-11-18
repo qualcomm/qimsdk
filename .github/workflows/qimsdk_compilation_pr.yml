@@ -83,7 +83,7 @@ jobs:
           echo "number=$(cat pr/NR)" >> "$GITHUB_OUTPUT"
 
       - name: Report pending status on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.repos.createCommitStatus({
@@ -102,9 +102,9 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           allow-unsafe-pr-checkout: true
 
-      - name: Resolve SDK URL from latest wrynose nightly
+      - name: Resolve SDK URL from latest nightly
         id: urls
-        uses: qualcomm/gst-plugins-imsdk/.github/actions/resolve-nightly-download-url@main
+        uses: ./.github/actions/resolve-nightly-download-url
         with:
           token: ${{ secrets.QUALCOMM_LINUX_PAT }}
           artifact-token: ${{ secrets.S3_WEBAPP_TOKEN }}
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Report final status on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PR_SHA: ${{ needs.init.outputs.pr-sha }}
           BUILD_RESULT: ${{ needs.build.result }}
@@ -157,7 +157,7 @@ jobs:
 
       - name: Post check run
         id: post-check-run
-        uses: qualcomm/gst-plugins-imsdk/.github/actions/check-run@main
+        uses: ./.github/actions/check-run
         with:
           sha: ${{ needs.init.outputs.pr-sha }}
           repo: ${{ github.repository }}
