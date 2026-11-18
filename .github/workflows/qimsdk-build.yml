@@ -50,7 +50,7 @@ jobs:
       fail-fast: false
       matrix:
         include: ${{ fromJSON(needs.setup.outputs.matrix) }}
-    name: Build ${{ matrix.include.branch }}
+    name: Build ${{ matrix.branch }}
 
     steps:
       - name: Checkout code
@@ -62,15 +62,15 @@ jobs:
       - name: Run build
         env:
           S3_WEBAPP_TOKEN: ${{ secrets.s3-webapp-token }}
-          BRANCH: ${{ matrix.include.branch }}
-          SDK_OBJECT_URL: ${{ matrix.include.sdk_url }}
+          BRANCH: ${{ matrix.branch }}
+          SDK_OBJECT_URL: ${{ matrix.sdk_url }}
         run: |
           chmod +x ci/build.sh
           ./ci/build.sh
 
       - name: Prepare upload directory
         env:
-          BRANCH: ${{ matrix.include.branch }}
+          BRANCH: ${{ matrix.branch }}
         run: |
           mkdir -p upload_dir
           mv "qimsdk-artifacts-${BRANCH}.tar.gz" upload_dir/
