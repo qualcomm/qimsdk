@@ -84,7 +84,11 @@ jobs:
 
   generate_and_upload_build_urls:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on:
+      group: GHA-Framework-SelfHosted-RG
+      labels:
+        - self-hosted
+        - framework-prd-u2404-x64-od-ephem
     steps:
       - name: Generate build URLs JSON
         env:
