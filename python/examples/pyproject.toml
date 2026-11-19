@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Multimedia :: Video",
 ]
 dependencies = [
-    "qimsdk-app-builder==0.1.0",
+ #   "qimsdk-app-builder==0.1.0",
     "numpy",
     "opencv-python",
     "pycairo",
