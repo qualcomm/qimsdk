@@ -90,6 +90,9 @@ jobs:
         env:
           IMAGE_URLS: ${{ inputs.image-urls }}
         run: |
+          if [ ! -d upload_dir ]; then
+            mkdir upload_dir
+          fi
           python3 - <<'EOF'
           import json, os
 
