@@ -313,7 +313,6 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   GstElement *qtivtransform = NULL, *qtivtransform_capsfilter = NULL;
   GstElement *videoconvert = NULL, *jpegdec = NULL, *h264parse_enc_file = NULL;
   GstCaps *pad_filter = NULL, *filtercaps = NULL;
-  GstPad *qticamsrc_type = NULL;
   GstPad *vcomposer_sink;
   GstStructure *delegate_options;
   gboolean ret = FALSE, is_v66 = FALSE;
@@ -328,7 +327,6 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
   gint inference_height = DEFAULT_INFERENCE_HEIGHT;
   gint framerate = DEFAULT_CAMERA_FRAME_RATE;
   gint module_id;
-  GValue video_type = G_VALUE_INIT;
 
   is_v66 = is_v66_arch ();
 
@@ -655,13 +653,13 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
     // 2.4 Set the capabilities of camera plugin output
     if (options->camera_type == GST_CAMERA_TYPE_PRIMARY) {
       filtercaps = gst_caps_new_simple ("video/x-raw",
-          "format", G_TYPE_STRING, "NV12_Q08C",
+          "format", G_TYPE_STRING, "NV12",
           "width", G_TYPE_INT, primary_camera_width,
           "height", G_TYPE_INT, primary_camera_height,
           "framerate", GST_TYPE_FRACTION, DEFAULT_CAMERA_FRAME_RATE, 1, NULL);
     } else {
       filtercaps = gst_caps_new_simple ("video/x-raw",
-          "format", G_TYPE_STRING, "NV12_Q08C",
+          "format", G_TYPE_STRING, "NV12",
           "width", G_TYPE_INT, secondary_camera_width,
           "height", G_TYPE_INT, secondary_camera_height,
           "framerate", GST_TYPE_FRACTION, DEFAULT_CAMERA_FRAME_RATE, 1, NULL);
@@ -1053,20 +1051,6 @@ create_pipe (GstAppContext * appctx, GstAppOptions * options)
 
   if (options->use_rtsp) {
     g_signal_connect (rtspsrc, "pad-added", G_CALLBACK (on_pad_added), queue[0]);
-  }
-
-  if (options->use_camera) {
-    qticamsrc_type = gst_element_get_static_pad (qticamsrc, "video_0");
-    if (!qticamsrc_type) {
-      g_printerr ("video_0 of qticamsrc couldn't be retrieved\n");
-      goto error_clean_pipeline;
-    }
-
-    g_value_init (&video_type, G_TYPE_INT);
-    g_value_set_int (&video_type, GST_SOURCE_STREAM_TYPE_PREVIEW);
-    g_object_set_property (G_OBJECT (qticamsrc_type), "type", &video_type);
-    g_value_unset (&video_type);
-    gst_object_unref (qticamsrc_type);
   }
 
   // Get the pad properties of qtivcomposer to set overlay window size.
