@@ -25,7 +25,7 @@ classifiers = [
 dependencies = [
     "PyGObject>=3.42",
     "PyYAML>=5.1",
-    "qimsdk-platform-runtime",
+#    "qimsdk-platform-runtime",
 ]
 
 [project.urls]
