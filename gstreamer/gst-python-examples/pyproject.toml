@@ -25,7 +25,6 @@ dependencies = [
     "PyGObject>=3.42",
     "numpy",
     "opencv-python",
-    "qimsdk-platform-runtime",
 ]
 
 [project.urls]
