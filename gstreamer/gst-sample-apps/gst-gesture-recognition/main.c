@@ -955,8 +955,8 @@ gst_app_config_apply_defaults (GstAppConfig * config)
   }
 
   if (config->model_base_path == NULL) {
-    const gchar *home = g_getenv ("HOME");
-    config->model_base_path = g_strdup (home);
+    config->model_base_path = g_build_filename (g_get_home_dir (),
+        "Downloads", "qimsdk_samples", NULL);
   }
 
   if (config->webrtc_id <= 0)
@@ -1120,7 +1120,7 @@ gst_app_create_input_pipe (GstGestureAppContext * appctx, GstElement ** input_ta
     }
 
     caps = gst_caps_new_simple ("video/x-raw",
-        "framerate", GST_TYPE_FRACTION, 15, 1,
+        "framerate", GST_TYPE_FRACTION, 10, 1,
         NULL);
     g_object_set (G_OBJECT (videorate_caps), "caps", caps, NULL);
     gst_caps_unref (caps);
@@ -1533,7 +1533,8 @@ gst_app_create_output_pipe (GstGestureAppContext * appctx, GstElement ** output_
       goto error;
 
     // Enable sync in case of offline input
-    if (g_strcmp0 (appctx->config.input_type, "file") == 0 &&
+    if (!is_v66_arch () &&
+        g_strcmp0 (appctx->config.input_type, "file") == 0 &&
         g_strcmp0 (appctx->config.output_type, "webrtc") != 0)
       g_object_set (G_OBJECT (display_sink), "sync", TRUE, NULL);
     else
@@ -2370,7 +2371,10 @@ main (int argc, char * argv[])
     { "output-config", 0, 0, G_OPTION_ARG_STRING, &appctx.config.output_config,
       "Output config for file, RTSP port, or WebRTC signalling URL", "CONFIG" },
     { "model-base-path", 0, 0, G_OPTION_ARG_STRING, &appctx.config.model_base_path,
-      "Base path for models and labels (expects /models and /labels inside)", "PATH" },
+      "Base directory containing the models/ and labels/ subdirectories. "
+      "Defaults to $HOME/Downloads/qimsdk_samples, with models in "
+      "$HOME/Downloads/qimsdk_samples/models and labels in "
+      "$HOME/Downloads/qimsdk_samples/labels.", "PATH" },
     { "no-display", 0, 0, G_OPTION_ARG_NONE, &appctx.config.no_display,
       "Disable on-screen display", NULL },
     { "width", 'w', 0, G_OPTION_ARG_INT, &appctx.config.width,
