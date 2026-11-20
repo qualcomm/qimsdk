@@ -28,18 +28,6 @@ python3 -m pip install \
     qimsdk_app_builder_examples-0.1.0-py3-none-any.whl
 ```
 
-## Install from a package index
-
-If both packages are published to PyPI or an internal Python package index,
-install the examples package with:
-
-```bash
-python3 -m pip install qimsdk-app-builder-examples
-```
-
-This installs the matching `qimsdk-app-builder` distribution and resolves
-the additional Python dependencies declared by the examples package.
-
 ## Run
 
 The scripts are installed into the Python environment's executable
@@ -59,12 +47,6 @@ supported target image, the scripts are normally installed under:
 
 ```text
 /usr/bin/
-```
-
-List the installed example files with:
-
-```bash
-python3 -m pip show -f qimsdk-app-builder-examples
 ```
 
 ## Build from source

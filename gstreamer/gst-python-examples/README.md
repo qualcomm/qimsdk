@@ -13,15 +13,6 @@ python3 -m pip install \
     qimsdk_gst_python_examples-0.1.0-py3-none-any.whl
 ```
 
-## Install from a package index
-
-If the package is published to PyPI or an internal Python package index,
-install it with:
-
-```bash
-python3 -m pip install qimsdk-gst-python-examples
-```
-
 ## Run
 
 The scripts are installed into the Python environment's executable
