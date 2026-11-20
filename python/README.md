@@ -42,15 +42,6 @@ If `pip` is not available but the Python installation includes
 python3 -m ensurepip
 ```
 
-## Install from a package index
-
-If the package is published to PyPI or an internal Python package index,
-install it with:
-
-```bash
-python3 -m pip install qimsdk-app-builder
-```
-
 On embedded targets, prefer the local-wheel installation procedure when
 the platform dependencies are managed by the Yocto image.
 
