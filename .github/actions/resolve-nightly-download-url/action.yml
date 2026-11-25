@@ -139,7 +139,7 @@ runs:
           return 1
         }
 
-        # Finds the most recent run for a branch whose compile_sdk job succeeded.
+        # Finds the most recent run for a branch whose build_successful job succeeded.
         # Echoes "<run_id>\t<run_attempt>" on stdout; all logging goes to stderr.
         find_latest_successful_run() {
           local BRANCH="$1"
@@ -173,13 +173,13 @@ runs:
                 continue
               fi
 
-              local SDK_JOB_CONCLUSION
-              SDK_JOB_CONCLUSION=$(gh api \
+              local BUILD_JOB_CONCLUSION
+              BUILD_JOB_CONCLUSION=$(gh api --paginate \
                 "repos/qualcomm-linux/meta-qcom/actions/runs/${_RUN_ID}/jobs?per_page=100" \
-                --jq '.jobs[] | select(.name | contains("compile_sdk")) | .conclusion' 2>/dev/null || true)
+                --jq '.jobs[] | select(.name | contains("build_successful")) | .conclusion' 2>/dev/null || true)
 
-              if [ "$SDK_JOB_CONCLUSION" != "success" ]; then
-                echo "[${BRANCH}] Skipping run ${_RUN_ID}, compile_sdk conclusion=${SDK_JOB_CONCLUSION}" >&2
+              if [ "$BUILD_JOB_CONCLUSION" != "success" ]; then
+                echo "[${BRANCH}] Skipping run ${_RUN_ID}, build_successful conclusion=${BUILD_JOB_CONCLUSION}" >&2
                 continue
               fi
 
@@ -196,7 +196,7 @@ runs:
             PAGE=$((PAGE + 1))
 
             if [ "$PAGE" -gt 10 ]; then
-              echo "::error::Exhausted 10 pages of ${BRANCH} nightly runs without finding a successful compile_sdk." >&2
+              echo "::error::Exhausted 10 pages of ${BRANCH} nightly runs without finding a successful build_successful job." >&2
               return 1
             fi
           done
