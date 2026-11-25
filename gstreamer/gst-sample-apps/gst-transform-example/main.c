@@ -14,11 +14,11 @@
  *goes to display and also dumps to mp4 file
  *
  * Usage for camera source:
- * gst-transform-example -r 90 -f 2 --input_width 3840 --input_height 2160
+ * gst-transform-example -r 90CW -f 2 --input_width 3840 --input_height 2160
  *                       --output_width 1920 --output_height 1080
  *                       -o <output_file>.mp4
  * Usage for file source:
- * gst-transform-example -i <input_file>.mp4 -r 90 -f 2
+ * gst-transform-example -i <input_file>.mp4 -r 90CW -f 2
  *                        --output_height 1080 -o <output_file>.mp4
  *
  * Help:
@@ -64,7 +64,7 @@
 #define DEFAULT_INPUT_WIDTH  1920
 #define DEFAULT_INPUT_HEIGHT 1080
 
-#define DEFAULT_ROTATION     90
+#define DEFAULT_ROTATION     "90CW"
 
 #define QUEUE_COUNT          6
 
@@ -81,15 +81,15 @@
   "simultaneously if needed.\n"                                                      \
   "\nCommand:\n"                                                                     \
   "All three operations with camera source\n"                                        \
-  "  gst-transform-example -r 90 -f 2 --input_width 3840 --input_height 2160 "       \
+  "  gst-transform-example -r 90CW -f 2 --input_width 3840 --input_height 2160 "       \
   "--output_width 1920 --output_height 1080 -o $HOME/Downloads/qimsdk_samples/media/video_transform.mp4 \n"          \
   "All three operations with filesource       \n"                                    \
-  "  gst-transform-example -r 90 -f 2 --output_width 1920 --output_height 1080 "     \
+  "  gst-transform-example -r 90CW -f 2 --output_width 1920 --output_height 1080 "     \
   " -o $HOME/Downloads/qimsdk_samples/media/video_transform.mp4 -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4  \n"                               \
   "Execute rotations with camera source \n"                                          \
-  "  gst-transform-example -r 270 -o $HOME/Downloads/qimsdk_samples/media/video_transform.mp4 \n"                    \
+  "  gst-transform-example -r 90CCW -o $HOME/Downloads/qimsdk_samples/media/video_transform.mp4 \n"                    \
   "Execute rotations with file source \n"                                            \
-  "  gst-transform-example -r 270 -o $HOME/Downloads/qimsdk_samples/media/video_transform.mp4 -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4 \n" \
+  "  gst-transform-example -r 90CCW -o $HOME/Downloads/qimsdk_samples/media/video_transform.mp4 -i $HOME/Downloads/qimsdk_samples/media/video_avc.mp4 \n" \
   "\nOutput:\n"                                                                      \
   "  Upon execution, the application presents the output for preview on the "        \
   "display. Once the use case concludes, the recorded output file is saved "         \
@@ -104,8 +104,8 @@ struct _GstTransformAppContext
   GMainLoop *mloop;
   gchar *input_file;
   gchar *output_file;
+  gchar *rotate;
   GstFlipVideoType flip_type;
-  gint rotate;
   gint input_width;
   gint input_height;
   gint output_width;
@@ -215,27 +215,7 @@ create_transform_pipeline (GstTransformAppContext * appctx)
   GstElement *mp4mux, *filesink, *waylandsink;
   GstCaps *filtercaps;
   gchar element_name[ARRAY_SIZE];
-  gint rotate_opt;
   gboolean ret = FALSE;
-
-  switch (appctx->rotate) {
-    case 0:
-      rotate_opt = GST_ROTATE_TYPE_NONE;
-      break;
-    case 90:
-      rotate_opt = GST_ROTATE_TYPE_90CW;
-      break;
-    case 180:
-      rotate_opt = GST_ROTATE_TYPE_180;
-      break;
-    case 270:
-      rotate_opt = GST_ROTATE_TYPE_90CCW;
-      break;
-    default:
-      g_printerr ("Invalid rotation option!\n");
-      rotate_opt = GST_ROTATE_TYPE_NONE;
-      break;
-  }
 
   // Select input source camera/filesrc plugin based on the input
   if (appctx->input_file == NULL) {
@@ -312,7 +292,7 @@ create_transform_pipeline (GstTransformAppContext * appctx)
     return FALSE;
   }
   // Set rotation property
-  g_object_set (G_OBJECT (qtivtransform), "rotate", rotate_opt, NULL);
+  gst_element_set_enum_property (qtivtransform, "rotate", appctx->rotate);
 
   // Set video image flip type property
   if (appctx->flip_type == GST_FLIP_TYPE_HORIZONTAL) {
@@ -484,9 +464,9 @@ main (gint argc, gchar ** argv)
   }
 
   GOptionEntry entries[] = {
-  {"rotate", 'r', 0, G_OPTION_ARG_INT,
+  {"rotate", 'r', 0, G_OPTION_ARG_STRING,
       &app_ctx->rotate, "Image rotation",
-      "Image rotate 90/180/270 degree, default 90"},
+      "Image rotate none/90CW/90CCW/180, default 90CW"},
   {"flip", 'f', 0, G_OPTION_ARG_INT, &app_ctx->flip_type,
       "Flip video image enable",
       "Parameter flip type 0-noflip/1-horizontal/2-vertical/3-both, default 0"},
