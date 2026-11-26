@@ -649,10 +649,22 @@ gst_socket_src_fill_buffer (GstFdSocketSrc * src, GstBuffer ** outbuf)
       // Set the actual size filled with data.
       gst_memory_resize (gstmemory, 0, tensor_pl->size);
 
-      gst_buffer_add_ml_tensor_meta (gstbuffer,
+      GstMLTensorMeta *mlmeta = gst_buffer_add_ml_tensor_meta (gstbuffer,
           tensor_pl->type ,
           tensor_pl->n_dimensions,
           tensor_pl->dimensions);
+
+      if (mlmeta == NULL) {
+        gst_memory_unref (gstmemory);
+        gst_buffer_unref (gstbuffer);
+        gst_object_unref (allocator);
+        g_free (release_data);
+        free_pl_struct (&pl_info);
+        GST_ERROR_OBJECT (src, "Failed to add ML tensor metadata!");
+        return GST_FLOW_ERROR;
+      }
+
+      mlmeta->id = tensor_pl->id;
     }
 
     if (src->mode == DATA_MODE_VIDEO) {
