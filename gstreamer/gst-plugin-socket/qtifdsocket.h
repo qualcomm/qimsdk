@@ -117,6 +117,7 @@ struct __attribute__((packed, aligned(4))) _GstFramePayload {
 
 struct __attribute__((packed, aligned(4))) _GstTensorPayload {
   guint32 identity; // Message identity / type
+  guint   id;
   guint32 type;
   guint   n_dimensions;
   guint   dimensions[GST_ML_TENSOR_MAX_DIMS];
