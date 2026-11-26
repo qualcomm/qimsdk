@@ -139,7 +139,10 @@ gst_ml_info_from_caps (GstMLInfo * info, const GstCaps * caps)
     GstMLType type = gst_ml_type_from_string (g_value_get_string (mltypes));
 
     g_return_val_if_fail (type != GST_ML_TYPE_UNKNOWN, FALSE);
-    memset (info->types, type, sizeof (info->types));
+
+    for (idx = 0; idx < GST_ML_MAX_TENSORS; ++idx)
+      info->types[idx] = type;
+
   } else if (GST_VALUE_HOLDS_ARRAY (mltypes)) {
     g_return_val_if_fail (n_tensors == gst_value_array_get_size (mltypes), FALSE);
   }
