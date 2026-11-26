@@ -567,6 +567,7 @@ gst_socket_sink_render (GstBaseSink * bsink, GstBuffer * buffer)
       tensor_pl = g_malloc (sizeof (GstTensorPayload));
 
       tensor_pl->identity = MESSAGE_TENSOR;
+      tensor_pl->id = mlmeta->id;
       tensor_pl->type = mlmeta->type;
       tensor_pl->n_dimensions = mlmeta->n_dimensions;
 
